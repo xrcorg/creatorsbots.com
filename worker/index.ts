@@ -239,7 +239,7 @@ function isBookingQuestion(text: string) {
 }
 
 function isCustomVideoQuestion(text: string) {
-  return /\b(custom video|custom content|make me a video|personalized video)\b/i.test(text);
+  return /\b(custom|customs|custom video|custom content|custom photo|custom photos|make me a video|make me content|personalized video|personalized content)\b/i.test(text);
 }
 
 async function getSettings(db: D1Database) {
@@ -553,6 +553,29 @@ function isAdminRequest(request: Request) {
 async function handleAdminPending(request: Request, env: Env) {
   if (!isAdminRequest(request)) return json({ error: "Sign in required" }, 401);
   await prepareDatabase(env.DB);
+  const misplacedCustoms = await env.DB.prepare(`SELECT id, chat_id, business_connection_id, question
+    FROM pending_replies WHERE status = 'pending' ORDER BY id ASC LIMIT 100`).all<{
+      id: number;
+      chat_id: string;
+      business_connection_id: string | null;
+      question: string;
+    }>();
+  for (const item of misplacedCustoms.results.filter((entry) => isCustomVideoQuestion(entry.question))) {
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO custom_drafts (chat_id, business_connection_id, status)
+        VALUES (?, ?, 'awaiting_details') ON CONFLICT(chat_id) DO UPDATE SET
+        business_connection_id = excluded.business_connection_id, status = 'awaiting_details',
+        updated_at = CURRENT_TIMESTAMP`).bind(item.chat_id, item.business_connection_id),
+      env.DB.prepare(`UPDATE pending_replies SET status = 'routed', answered_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND status = 'pending'`).bind(item.id),
+    ]);
+    await sendTelegramMessage(env, {
+      message_id: 0,
+      chat: { id: Number(item.chat_id) },
+      business_connection_id: item.business_connection_id || undefined,
+    }, CUSTOM_VIDEO_PROMPT);
+    await saveMessage(env.DB, item.chat_id, "assistant", CUSTOM_VIDEO_PROMPT);
+  }
   const pending = await env.DB.prepare(`SELECT id, question, created_at
     FROM pending_replies WHERE status = 'pending' ORDER BY id ASC LIMIT 100`).all();
   const purchases = await env.DB.prepare(`SELECT id, product_title, price, payment_note, created_at
