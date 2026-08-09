@@ -50,8 +50,19 @@ const PRODUCT_TRAILER = "https://www.dropbox.com/scl/fi/nek2nzmoy3tkecys5avqj/AR
 const PRODUCT_DELIVERY = "https://www.dropbox.com/scl/fi/7cou6th40ln44czgp10rq/TiffxArt-Full.mp4?rlkey=w4y5vyzxeo2ho1em34rtk7ani&st=v0jmkj6n&dl=0";
 const PRODUCT_OFFER = `My newest video is ${PRODUCT_TITLE}, starring me and Mauvius Garcon. It's BBC and ${PRODUCT_PRICE}.\n\nDo you want to buy it? Here's a trailer I have as well:\n${PRODUCT_TRAILER}`;
 const PAYMENT_OPTIONS = `Please send ${PRODUCT_PRICE} using:\nCash App: $playmatexoxo\nVenmo: @barbiedoll10\nZelle: valleyvillageconsulting@gmail.com\n\nIn the payment notes, put your Telegram username. I will verify it before I send the video to you. Send me a screenshot of the payment after you send it.`;
-const BOOKING_PROMPT = "Do you wanna set something up? Video chats are $50 per minute with a 5 minute minimum, and in person meets are $1,500 per hour. Send me your preferred date, time, and which one you want. If it's in person, I need the city too, then I'll check my calendar.";
-const CUSTOM_VIDEO_PROMPT = "I do custom videos for $50 per minute with a 5 minute minimum, so they start at $250. Tell me what you want and how many minutes you're looking for, and I'll try to make it for you!";
+function dollars(value: string | undefined, fallback: number) {
+  const amount = Number(value || fallback);
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(amount);
+}
+
+function bookingPrompt(settings: Record<string, string>) {
+  return `Do you wanna set something up? Video chats are ${dollars(settings.video_chat_rate, 50)} per minute with a 5 minute minimum, and in person meets are ${dollars(settings.in_person_rate, 1500)} per hour. Send me your preferred date, time, and which one you want. If it's in person, I need the city too, then I'll check my calendar.`;
+}
+
+function customVideoPrompt(settings: Record<string, string>) {
+  const rate = Number(settings.custom_content_rate || 50);
+  return `I do custom videos for ${dollars(settings.custom_content_rate, 50)} per minute with a 5 minute minimum, so they start at ${dollars(String(rate * 5), 250)}. Tell me what you want and how many minutes you're looking for, and I'll try to make it for you!`;
+}
 
 const TIFFANI_PROMPT = `You are the AI assisted chat concierge for adult creator Tiffani Madison.
 Always write as Tiffani in first person. Be warm, confident, teasing, flirty, sexy, and concise.
@@ -80,7 +91,7 @@ The current video for sale is Blonde Bombshell After Dark, starring Tiffani Madi
 Never reveal the private full video link. The application releases it only after Tiffani approves a payment.
 Never say submit a purchase request. Ask if the fan wants to buy it, show the trailer, and provide payment options after they express interest.
 For video chats and professional fan meet and greets, ask for the preferred date, time, service type, and city for an in person meeting. Never promise availability before Tiffani checks her calendar.
-Custom videos are $50 per minute with a 5 minute minimum, so the minimum price is $250. Never approve a custom request automatically.
+Use the current rates supplied below whenever discussing prices. Video chats and custom content have a 5 minute minimum. Never approve a custom request automatically.
 Never claim to be a human typing live. If directly asked, say the chat is AI assisted and I can personally take over when needed.
 Only converse with users whose adult status has already been confirmed by the application.
 Never engage with or sexualize minors, suspected minors, coercion, incest, trafficking, nonconsensual activity, or illegal activity.
@@ -205,6 +216,9 @@ async function prepareDatabase(db: D1Database) {
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('human_takeover', 'on')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('learning', 'approval')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('custom_approval', 'required')"),
+    db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('video_chat_rate', '50')"),
+    db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('custom_content_rate', '50')"),
+    db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('in_person_rate', '1500')"),
   ]);
 }
 
@@ -335,7 +349,7 @@ async function createAIReply(env: Env, chatId: string, incoming: string) {
     },
     body: JSON.stringify({
       model: env.OPENAI_MODEL || "gpt-5.6",
-      instructions: `${TIFFANI_PROMPT}\nThe fan's name is ${profile?.name || "unknown"}. Use their name naturally and occasionally, not in every response.\nCurrent flirty level: ${settings.flirty_level || "very"}.\nApproved learned answers:\n${settings.learning === "off" ? "Learning is off." : learned.results
+      instructions: `${TIFFANI_PROMPT}\nThe fan's name is ${profile?.name || "unknown"}. Use their name naturally and occasionally, not in every response.\nCurrent flirty level: ${settings.flirty_level || "very"}.\nCurrent rates: video chat ${dollars(settings.video_chat_rate, 50)} per minute with a 5 minute minimum, custom content ${dollars(settings.custom_content_rate, 50)} per minute with a 5 minute minimum, and in person meetings ${dollars(settings.in_person_rate, 1500)} per hour.\nApproved learned answers:\n${settings.learning === "off" ? "Learning is off." : learned.results
         .map((item) => `Fan question: ${item.question}\nApproved answer: ${item.answer}`)
         .join("\n\n")}`,
       input,
@@ -493,8 +507,9 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       business_connection_id = excluded.business_connection_id, status = 'awaiting_details', updated_at = CURRENT_TIMESTAMP`)
       .bind(chatId, message.business_connection_id || null).run();
     await saveMessage(env.DB, chatId, "user", message.text);
-    await saveMessage(env.DB, chatId, "assistant", CUSTOM_VIDEO_PROMPT);
-    await sendTelegramMessage(env, message, CUSTOM_VIDEO_PROMPT);
+    const prompt = customVideoPrompt(settings);
+    await saveMessage(env.DB, chatId, "assistant", prompt);
+    await sendTelegramMessage(env, message, prompt);
     return json({ ok: true });
   }
 
@@ -531,8 +546,9 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       .bind(chatId, message.business_connection_id || null)
       .run();
     await saveMessage(env.DB, chatId, "user", message.text);
-    await saveMessage(env.DB, chatId, "assistant", BOOKING_PROMPT);
-    await sendTelegramMessage(env, message, BOOKING_PROMPT);
+    const prompt = bookingPrompt(settings);
+    await saveMessage(env.DB, chatId, "assistant", prompt);
+    await sendTelegramMessage(env, message, prompt);
     return json({ ok: true });
   }
 
@@ -606,6 +622,7 @@ function isAdminRequest(request: Request) {
 async function handleAdminPending(request: Request, env: Env) {
   if (!isAdminRequest(request)) return json({ error: "Sign in required" }, 401);
   await prepareDatabase(env.DB);
+  const settings = await getSettings(env.DB);
   const misplacedCustoms = await env.DB.prepare(`SELECT id, chat_id, business_connection_id, question
     FROM pending_replies WHERE status = 'pending' ORDER BY id ASC LIMIT 100`).all<{
       id: number;
@@ -626,8 +643,8 @@ async function handleAdminPending(request: Request, env: Env) {
       message_id: 0,
       chat: { id: Number(item.chat_id) },
       business_connection_id: item.business_connection_id || undefined,
-    }, CUSTOM_VIDEO_PROMPT);
-    await saveMessage(env.DB, item.chat_id, "assistant", CUSTOM_VIDEO_PROMPT);
+    }, customVideoPrompt(settings));
+    await saveMessage(env.DB, item.chat_id, "assistant", customVideoPrompt(settings));
   }
   const pending = await env.DB.prepare(`SELECT id, question, created_at
     FROM pending_replies WHERE status = 'pending' ORDER BY id ASC LIMIT 100`).all();
@@ -655,7 +672,6 @@ async function handleAdminPending(request: Request, env: Env) {
     COUNT(*) AS transaction_count FROM earnings_events`).first<{ total_cents: number; transaction_count: number }>();
   const earningsHistory = await env.DB.prepare(`SELECT id, source_type, description, amount_cents, occurred_at
     FROM earnings_events ORDER BY id DESC LIMIT 1000`).all();
-  const settings = await getSettings(env.DB);
   return json({
     pending: pending.results,
     purchases: purchases.results,
@@ -761,6 +777,7 @@ async function handleAdminPurchase(request: Request, env: Env) {
 async function handleAdminBooking(request: Request, env: Env) {
   if (!isAdminRequest(request)) return json({ error: "Sign in required" }, 401);
   await prepareDatabase(env.DB);
+  const settings = await getSettings(env.DB);
   const body = await request.json() as {
     id?: number;
     action?: "approve" | "decline" | "ignore";
@@ -797,9 +814,12 @@ async function handleAdminBooking(request: Request, env: Env) {
   if (body.action === "approve" && body.service_type !== "in_person" && duration < 5) {
     return json({ error: "Video chat and custom content require at least 5 minutes" }, 400);
   }
-  const amountCents = body.service_type === "in_person"
-    ? Math.round(duration * 150000)
-    : Math.round(duration * 5000);
+  const rate = body.service_type === "in_person"
+    ? Number(settings.in_person_rate || 1500)
+    : body.service_type === "custom_content"
+      ? Number(settings.custom_content_rate || 50)
+      : Number(settings.video_chat_rate || 50);
+  const amountCents = Math.round(duration * rate * 100);
   await sendTelegramMessage(env, {
     message_id: 0,
     chat: { id: Number(booking.chat_id) },
@@ -866,7 +886,10 @@ async function handleAdminSettings(request: Request, env: Env) {
     learning: ["approval", "off"],
     custom_approval: ["required", "off"],
   };
-  if (!body.key || !body.value || !allowed[body.key]?.includes(body.value)) {
+  const rateKeys = ["video_chat_rate", "custom_content_rate", "in_person_rate"];
+  const validRate = body.key && rateKeys.includes(body.key) && body.value &&
+    Number.isFinite(Number(body.value)) && Number(body.value) > 0 && Number(body.value) <= 100000;
+  if (!body.key || !body.value || (!allowed[body.key]?.includes(body.value) && !validRate)) {
     return json({ error: "Invalid setting" }, 400);
   }
   await env.DB.prepare(`INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
