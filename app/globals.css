@@ -163,6 +163,16 @@ button { cursor: pointer; }
 .earningsOverview > div { padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: #fff8fb; }
 .earningsOverview span, .earningsOverview small { display: block; color: var(--muted); font-size: 9px; }
 .earningsOverview strong { display: block; margin: 5px 0 2px; color: var(--deep-pink); font-size: 20px; }
+.customQueue, .customHistory { margin-bottom: 16px; padding: 14px; border: 1px solid var(--line); border-radius: 16px; background: #fff; }
+.sectionHeading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; font-size: 12px; }
+.sectionHeading span { min-width: 23px; height: 23px; display: grid; place-items: center; border-radius: 999px; background: var(--soft-pink); color: var(--deep-pink); font-size: 10px; font-weight: 850; }
+.customCard { margin-top: 10px; padding: 12px; border: 1px solid #f1d3e2; border-radius: 14px; background: #fff8fb; }
+.customMeta { display: flex; justify-content: space-between; gap: 10px; font-size: 10px; }
+.customMeta strong { color: var(--deep-pink); }
+.customMeta span { color: var(--muted); }
+.customCard p { margin: 10px 0; color: var(--ink); font-size: 11px; line-height: 1.5; }
+.queueNote { margin: 0; color: var(--muted); font-size: 10px; }
+.requestOwner { margin-top: 12px; color: var(--deep-pink); font-size: 11px; font-weight: 850; }
 .takeoverCard { padding: 18px; border: 1px solid #f3c4da; border-radius: 20px; background: linear-gradient(160deg, #fff6fa, #fff); box-shadow: 0 12px 30px rgba(200,47,121,.08); }
 .alertTitle { display: flex; align-items: center; gap: 8px; color: var(--deep-pink); font-size: 12px; font-weight: 850; }
 .alertTitle span { width: 23px; height: 23px; display: grid; place-items: center; border-radius: 8px; background: var(--pink); color: white; }
@@ -201,6 +211,12 @@ button { cursor: pointer; }
 .recentSales span small { display: block; margin-top: 3px; color: var(--muted); font-size: 8px; }
 .recentSales b { color: var(--deep-pink); }
 .recentSales p { margin: 0; color: var(--muted); font-size: 10px; }
+.customHistory { margin-top: 16px; }
+.customHistory > strong { display: block; margin-bottom: 8px; font-size: 11px; }
+.customHistory > div { display: flex; justify-content: space-between; gap: 10px; padding: 9px 0; border-top: 1px solid #f1e7ec; font-size: 10px; }
+.customHistory span { display: grid; gap: 3px; }
+.customHistory small, .customHistory time { color: var(--muted); font-size: 8px; }
+.customHistory p { margin: 0; color: var(--muted); font-size: 10px; }
 .footerNote { max-width: 1440px; margin: 10px auto 0; color: #91818a; font-size: 10px; text-align: center; }
 
 @media (max-width: 1050px) {

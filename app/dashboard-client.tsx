@@ -27,7 +27,19 @@ type LiveBooking = {
   id: number;
   details: string;
   created_at: string;
+  telegram_name: string;
   suggested_type: "video_chat" | "custom_content";
+};
+
+type LiveCustom = {
+  id: number;
+  telegram_name: string;
+  duration_minutes: number;
+  description: string;
+  amount_cents: number;
+  created_at?: string;
+  delivery_url?: string;
+  completed_at?: string;
 };
 
 type EarningsSummary = {
@@ -124,6 +136,9 @@ export default function Home() {
   const [livePending, setLivePending] = useState<LivePendingReply[]>([]);
   const [livePurchases, setLivePurchases] = useState<LivePurchase[]>([]);
   const [liveBookings, setLiveBookings] = useState<LiveBooking[]>([]);
+  const [liveCustoms, setLiveCustoms] = useState<LiveCustom[]>([]);
+  const [customHistory, setCustomHistory] = useState<LiveCustom[]>([]);
+  const [customLinks, setCustomLinks] = useState<Record<number, string>>({});
   const [earnings, setEarnings] = useState<EarningsSummary>({ weekly_cents: 0, weekly_count: 0, all_time_cents: 0, all_time_count: 0, recent: [] });
   const [bookingType, setBookingType] = useState<"video_chat" | "custom_content" | "in_person">("video_chat");
   const [bookingDuration, setBookingDuration] = useState("");
@@ -136,10 +151,12 @@ export default function Home() {
       setLiveLoading(true);
       const response = await fetch("/api/admin/pending", { cache: "no-store" });
       if (!response.ok) throw new Error("Unable to load the creator inbox");
-      const data = await response.json() as { pending: LivePendingReply[]; purchases: LivePurchase[]; bookings: LiveBooking[]; learned_count: number; earnings: EarningsSummary; settings: CreatorSettings };
+      const data = await response.json() as { pending: LivePendingReply[]; purchases: LivePurchase[]; bookings: LiveBooking[]; customs: LiveCustom[]; custom_history: LiveCustom[]; learned_count: number; earnings: EarningsSummary; settings: CreatorSettings };
       setLivePending(data.pending);
       setLivePurchases(data.purchases);
       setLiveBookings(data.bookings);
+      setLiveCustoms(data.customs || []);
+      setCustomHistory(data.custom_history || []);
       if (data.bookings[0]?.suggested_type) setBookingType(data.bookings[0].suggested_type);
       setEarnings(data.earnings);
       setSettings(data.settings);
@@ -162,10 +179,11 @@ export default function Home() {
     if (blocked) return "Conversation closed";
     if (!verified) return "Waiting for age confirmation";
     if (livePurchases.length) return "Payment approval needed";
+    if (liveCustoms.length) return "Custom content to fulfill";
     if (liveBookings.length) return "Booking approval needed";
     if (livePending.length) return "Tiffani reply needed";
     return "AI assistant active";
-  }, [blocked, liveBookings.length, livePending.length, livePurchases.length, verified]);
+  }, [blocked, liveBookings.length, liveCustoms.length, livePending.length, livePurchases.length, verified]);
 
   function addMessage(role: Message["role"], text: string) {
     setMessages((current) => [
@@ -305,6 +323,26 @@ export default function Home() {
     }
   }
 
+  async function completeCustom(id: number) {
+    const deliveryUrl = customLinks[id]?.trim();
+    if (!deliveryUrl) return;
+    try {
+      setLiveLoading(true);
+      const response = await fetch("/api/admin/custom", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id, delivery_url: deliveryUrl }),
+      });
+      if (!response.ok) throw new Error("Custom delivery failed");
+      setCustomLinks((current) => ({ ...current, [id]: "" }));
+      await loadLivePending();
+    } catch {
+      setLiveError("The custom link was not sent. Check the link and try again.");
+    } finally {
+      setLiveLoading(false);
+    }
+  }
+
   async function updateSetting<K extends keyof CreatorSettings>(key: K, value: CreatorSettings[K]) {
     try {
       const response = await fetch("/api/admin/settings", {
@@ -341,7 +379,7 @@ export default function Home() {
           </div>
         </div>
         <div className="topActions">
-          <span className={`statusPill ${livePending.length || livePurchases.length || liveBookings.length ? "needsReply" : ""}`}>
+          <span className={`statusPill ${livePending.length || livePurchases.length || liveBookings.length || liveCustoms.length ? "needsReply" : ""}`}>
             <i /> {statusText}
           </span>
           <button className="ghostButton" onClick={resetDemo}>Reset test</button>
@@ -513,6 +551,35 @@ export default function Home() {
             <div><span>All time</span><strong>{money(earnings.all_time_cents)}</strong><small>{earnings.all_time_count} approved sales</small></div>
           </div>
 
+          <section className="customQueue">
+            <div className="sectionHeading">
+              <strong>Customs to fulfill</strong>
+              <span>{liveCustoms.length}</span>
+            </div>
+            {liveCustoms.length ? liveCustoms.map((custom) => (
+              <div className="customCard" key={custom.id}>
+                <div className="customMeta">
+                  <strong>{custom.telegram_name}</strong>
+                  <span>{custom.duration_minutes} minutes · {money(custom.amount_cents)}</span>
+                </div>
+                <p>{custom.description}</p>
+                <label className="amountField">
+                  <span>Finished custom link</span>
+                  <input
+                    aria-label={`Delivery link for ${custom.telegram_name}`}
+                    onChange={(event) => setCustomLinks((current) => ({ ...current, [custom.id]: event.target.value }))}
+                    placeholder="https://..."
+                    type="url"
+                    value={customLinks[custom.id] || ""}
+                  />
+                </label>
+                <button className="primaryAction" disabled={liveLoading || !customLinks[custom.id]?.trim()} onClick={() => void completeCustom(custom.id)}>
+                  Send custom and complete
+                </button>
+              </div>
+            )) : <p className="queueNote">No customs waiting to be fulfilled.</p>}
+          </section>
+
           {livePurchases.length ? (
             <div className="takeoverCard purchaseApproval">
               <div className="alertTitle"><span>$</span> Payment approval</div>
@@ -528,7 +595,8 @@ export default function Home() {
             </div>
           ) : liveBookings.length ? (
             <div className="takeoverCard bookingApproval">
-              <div className="alertTitle"><span>□</span> Booking request</div>
+              <div className="alertTitle"><span>□</span> {liveBookings[0].suggested_type === "custom_content" ? "Custom request" : "Booking request"}</div>
+              <div className="requestOwner">{liveBookings[0].telegram_name}</div>
               <p className="fanQuestion">“{liveBookings[0].details}”</p>
               <div className="botPaused">Check the date, time, service, city, and calendar before replying.</div>
               <textarea
@@ -624,6 +692,16 @@ export default function Home() {
               </div>
             )) : <p>No approved sales yet.</p>}
           </div>
+
+          <section className="customHistory">
+            <strong>Completed customs</strong>
+            {customHistory.length ? customHistory.map((custom) => (
+              <div key={custom.id}>
+                <span><b>{custom.telegram_name}</b><small>{custom.duration_minutes} minutes · {money(custom.amount_cents)}</small></span>
+                <time>{custom.completed_at ? new Date(`${custom.completed_at}Z`).toLocaleDateString() : "Completed"}</time>
+              </div>
+            )) : <p>No completed customs yet.</p>}
+          </section>
         </aside>
       </section>
       <footer className="footerNote">Live creator controls · Manual payment approvals · Earnings logged after approval</footer>

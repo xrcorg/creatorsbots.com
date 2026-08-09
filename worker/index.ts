@@ -26,7 +26,7 @@ type TelegramMessage = {
   message_id: number;
   business_connection_id?: string;
   chat: { id: number };
-  from?: { id: number; is_bot?: boolean };
+  from?: { id: number; is_bot?: boolean; username?: string; first_name?: string; last_name?: string };
   text?: string;
   caption?: string;
   photo?: Array<{ file_id: string }>;
@@ -119,6 +119,12 @@ async function prepareDatabase(db: D1Database) {
       name_status TEXT NOT NULL DEFAULT 'awaiting_name',
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS telegram_contacts (
+      chat_id TEXT PRIMARY KEY,
+      username TEXT,
+      display_name TEXT,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS pending_replies (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       chat_id TEXT NOT NULL,
@@ -180,6 +186,20 @@ async function prepareDatabase(db: D1Database) {
       business_connection_id TEXT,
       status TEXT NOT NULL DEFAULT 'awaiting_details',
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS custom_fulfillments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      booking_request_id INTEGER NOT NULL UNIQUE,
+      chat_id TEXT NOT NULL,
+      business_connection_id TEXT,
+      telegram_name TEXT NOT NULL,
+      duration_minutes INTEGER NOT NULL,
+      description TEXT NOT NULL,
+      amount_cents INTEGER NOT NULL,
+      delivery_url TEXT,
+      status TEXT NOT NULL DEFAULT 'awaiting_fulfillment',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      completed_at TEXT
     )`),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('flirty_level', 'very')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('human_takeover', 'on')"),
@@ -371,6 +391,13 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       updated_at = CURRENT_TIMESTAMP`)
     .bind(chatId, userId, connectionId)
     .run();
+  const telegramUsername = message.from?.username ? `@${message.from.username}` : null;
+  const telegramDisplayName = [message.from?.first_name, message.from?.last_name].filter(Boolean).join(" ") || null;
+  await env.DB.prepare(`INSERT INTO telegram_contacts (chat_id, username, display_name)
+    VALUES (?, ?, ?) ON CONFLICT(chat_id) DO UPDATE SET
+    username = COALESCE(excluded.username, telegram_contacts.username),
+    display_name = COALESCE(excluded.display_name, telegram_contacts.display_name),
+    updated_at = CURRENT_TIMESTAMP`).bind(chatId, telegramUsername, telegramDisplayName).run();
 
   const session = await env.DB.prepare("SELECT age_status FROM fan_sessions WHERE chat_id = ?")
     .bind(chatId)
@@ -606,9 +633,20 @@ async function handleAdminPending(request: Request, env: Env) {
     FROM pending_replies WHERE status = 'pending' ORDER BY id ASC LIMIT 100`).all();
   const purchases = await env.DB.prepare(`SELECT id, product_title, price, payment_note, created_at
     FROM purchase_requests WHERE status = 'pending' ORDER BY id ASC LIMIT 100`).all();
-  const bookings = await env.DB.prepare(`SELECT id, details, created_at,
+  const bookings = await env.DB.prepare(`SELECT booking_requests.id, booking_requests.details,
+    booking_requests.created_at,
+    COALESCE(telegram_contacts.username, telegram_contacts.display_name, fan_profiles.name, 'Telegram fan') AS telegram_name,
     CASE WHEN details LIKE 'Custom content request:%' THEN 'custom_content' ELSE 'video_chat' END AS suggested_type
-    FROM booking_requests WHERE status = 'pending' ORDER BY id ASC LIMIT 100`).all();
+    FROM booking_requests
+    LEFT JOIN telegram_contacts ON telegram_contacts.chat_id = booking_requests.chat_id
+    LEFT JOIN fan_profiles ON fan_profiles.chat_id = booking_requests.chat_id
+    WHERE booking_requests.status = 'pending' ORDER BY booking_requests.id ASC LIMIT 100`).all();
+  const customs = await env.DB.prepare(`SELECT id, telegram_name, duration_minutes, description,
+    amount_cents, created_at FROM custom_fulfillments WHERE status = 'awaiting_fulfillment'
+    ORDER BY id ASC LIMIT 100`).all();
+  const customHistory = await env.DB.prepare(`SELECT id, telegram_name, duration_minutes, description,
+    amount_cents, delivery_url, completed_at FROM custom_fulfillments WHERE status = 'completed'
+    ORDER BY completed_at DESC LIMIT 50`).all();
   const learned = await env.DB.prepare("SELECT COUNT(*) AS count FROM learned_answers").first<{ count: number }>();
   const weekly = await env.DB.prepare(`SELECT COALESCE(SUM(amount_cents), 0) AS total_cents,
     COUNT(*) AS transaction_count FROM earnings_events
@@ -622,6 +660,8 @@ async function handleAdminPending(request: Request, env: Env) {
     pending: pending.results,
     purchases: purchases.results,
     bookings: bookings.results,
+    customs: customs.results,
+    custom_history: customHistory.results,
     learned_count: learned?.count || 0,
     earnings: {
       weekly_cents: weekly?.total_cents || 0,
@@ -728,11 +768,18 @@ async function handleAdminBooking(request: Request, env: Env) {
     duration?: string;
   };
   if (!body.id || !body.action) return json({ error: "Booking action is required" }, 400);
-  const booking = await env.DB.prepare(`SELECT id, chat_id, business_connection_id
-    FROM booking_requests WHERE id = ? AND status = 'pending'`).bind(body.id).first<{
+  const booking = await env.DB.prepare(`SELECT booking_requests.id, booking_requests.chat_id,
+    booking_requests.business_connection_id, booking_requests.details,
+    COALESCE(telegram_contacts.username, telegram_contacts.display_name, fan_profiles.name, 'Telegram fan') AS telegram_name
+    FROM booking_requests
+    LEFT JOIN telegram_contacts ON telegram_contacts.chat_id = booking_requests.chat_id
+    LEFT JOIN fan_profiles ON fan_profiles.chat_id = booking_requests.chat_id
+    WHERE booking_requests.id = ? AND booking_requests.status = 'pending'`).bind(body.id).first<{
       id: number;
       chat_id: string;
       business_connection_id: string | null;
+      details: string;
+      telegram_name: string;
     }>();
   if (!booking) return json({ error: "Booking is no longer pending" }, 404);
   if (body.action === "ignore") {
@@ -766,7 +813,45 @@ async function handleAdminBooking(request: Request, env: Env) {
       (source_type, source_id, description, amount_cents) VALUES (?, ?, ?, ?)`)
       .bind(body.service_type, String(booking.id), description, amountCents)
       .run();
+    if (body.service_type === "custom_content") {
+      await env.DB.prepare(`INSERT OR IGNORE INTO custom_fulfillments
+        (booking_request_id, chat_id, business_connection_id, telegram_name, duration_minutes,
+        description, amount_cents) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+        .bind(booking.id, booking.chat_id, booking.business_connection_id, booking.telegram_name,
+          Math.round(duration), booking.details.replace(/^Custom content request:\s*/i, ""), amountCents)
+        .run();
+    }
   }
+  return json({ ok: true });
+}
+
+async function handleAdminCustom(request: Request, env: Env) {
+  if (!isAdminRequest(request)) return json({ error: "Sign in required" }, 401);
+  await prepareDatabase(env.DB);
+  const body = await request.json() as { id?: number; delivery_url?: string };
+  const deliveryUrl = body.delivery_url?.trim();
+  if (!body.id || !deliveryUrl || !/^https?:\/\//i.test(deliveryUrl)) {
+    return json({ error: "A valid delivery link is required" }, 400);
+  }
+  const custom = await env.DB.prepare(`SELECT id, chat_id, business_connection_id
+    FROM custom_fulfillments WHERE id = ? AND status = 'awaiting_fulfillment'`)
+    .bind(body.id)
+    .first<{ id: number; chat_id: string; business_connection_id: string | null }>();
+  if (!custom) return json({ error: "Custom request is no longer awaiting fulfillment" }, 404);
+
+  const deliveryMessage = `I made this for you! ${deliveryUrl}`;
+  const followUp = "I hope you enjoy it! Lmk what you think";
+  const telegramMessage: TelegramMessage = {
+    message_id: 0,
+    chat: { id: Number(custom.chat_id) },
+    business_connection_id: custom.business_connection_id || undefined,
+  };
+  await sendTelegramMessage(env, telegramMessage, deliveryMessage);
+  await sendTelegramMessage(env, telegramMessage, followUp);
+  await saveMessage(env.DB, custom.chat_id, "assistant", deliveryMessage);
+  await saveMessage(env.DB, custom.chat_id, "assistant", followUp);
+  await env.DB.prepare(`UPDATE custom_fulfillments SET delivery_url = ?, status = 'completed',
+    completed_at = CURRENT_TIMESTAMP WHERE id = ?`).bind(deliveryUrl, custom.id).run();
   return json({ ok: true });
 }
 
@@ -811,6 +896,10 @@ const worker = {
 
     if (url.pathname === "/api/admin/booking" && request.method === "POST") {
       return handleAdminBooking(request, env);
+    }
+
+    if (url.pathname === "/api/admin/custom" && request.method === "POST") {
+      return handleAdminCustom(request, env);
     }
 
     if (url.pathname === "/api/admin/settings" && request.method === "POST") {
