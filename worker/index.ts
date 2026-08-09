@@ -608,6 +608,15 @@ async function handleAdminPurchase(request: Request, env: Env) {
     business_connection_id: purchase.business_connection_id || undefined,
   }, responseText);
   await saveMessage(env.DB, purchase.chat_id, "assistant", responseText);
+  if (approved) {
+    const followUp = "I hope you enjoy it! Lmk what you think";
+    await sendTelegramMessage(env, {
+      message_id: 0,
+      chat: { id: Number(purchase.chat_id) },
+      business_connection_id: purchase.business_connection_id || undefined,
+    }, followUp);
+    await saveMessage(env.DB, purchase.chat_id, "assistant", followUp);
+  }
   await env.DB.prepare(`UPDATE purchase_requests SET status = ?, resolved_at = CURRENT_TIMESTAMP
     WHERE id = ?`).bind(approved ? "approved" : "declined", purchase.id).run();
   if (approved) {
