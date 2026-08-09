@@ -485,6 +485,10 @@ function askedToShowTrailer(text: string) {
   return /\b(?:want|wanna|like)\s+(?:me\s+)?to\s+(?:see|show|send)(?:\s+(?:you|me))?\s+(?:the\s+|a\s+)?(?:trailer|preview)|\b(?:want|wanna|like)\s+(?:to\s+)?see\s+(?:the\s+|a\s+)?(?:trailer|preview)\b/i.test(text);
 }
 
+function isTrailerAffirmativeReply(text: string) {
+  return isAffirmativeReply(text) || /^(alright|i guess|okay i guess|ok i guess)[.! ]*$/i.test(text.trim());
+}
+
 function isPaymentSent(text: string) {
   return /\b(payment sent|payment screenshot|receipt|paid|i paid|i sent it|just sent it|sent it via|sent (the )?(money|payment)|cashapp sent|venmo sent|zelle sent)\b/i.test(text);
 }
@@ -1224,7 +1228,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     return json({ ok: true });
   }
 
-  if (isAffirmativeReply(message.text)) {
+  if (isTrailerAffirmativeReply(message.text)) {
     const lastAssistantMessage = await env.DB.prepare(`SELECT content FROM chat_messages
       WHERE chat_id = ? AND role = 'assistant' ORDER BY id DESC LIMIT 1`)
       .bind(chatId).first<{ content: string }>();
