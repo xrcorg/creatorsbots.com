@@ -90,6 +90,19 @@ type SextingScript = {
   created_at: string;
 };
 
+type DailyTask = {
+  id: number;
+  title: string;
+  task_type: "video_chat" | "custom" | "delivery" | "follow_up" | "in_person" | "other";
+  scheduled_at: string;
+  fan_name: string;
+  details: string;
+  amount_cents: number;
+  status: "open" | "completed";
+  created_at: string;
+  completed_at?: string;
+};
+
 type EarningsSummary = {
   weekly_cents: number;
   weekly_count: number;
@@ -200,6 +213,9 @@ export default function Home() {
   const [sextingMedia, setSextingMedia] = useState<SextingMedia[]>([]);
   const [contentProducts, setContentProducts] = useState<ContentProduct[]>([]);
   const [sextingScripts, setSextingScripts] = useState<SextingScript[]>([]);
+  const [dailyTasks, setDailyTasks] = useState<DailyTask[]>([]);
+  const [agendaDate, setAgendaDate] = useState(() => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles" }).format(new Date()));
+  const [taskForm, setTaskForm] = useState({ title: "", task_type: "video_chat" as DailyTask["task_type"], scheduled_at: "", fan_name: "", details: "", amount: "" });
   const [scriptForm, setScriptForm] = useState({ stage: "warmup" as SextingScript["stage"], title: "", script_text: "", media_label: "" });
   const [productForm, setProductForm] = useState({ content_type: "video" as ContentProduct["content_type"], title: "", price: "", genre: "", actors: "", trailer_url: "", delivery_url: "" });
   const [mediaLabel, setMediaLabel] = useState("");
@@ -220,7 +236,7 @@ export default function Home() {
       setLiveLoading(true);
       const response = await fetch("/api/admin/pending", { cache: "no-store" });
       if (!response.ok) throw new Error("Unable to load the creator inbox");
-      const data = await response.json() as { pending: LivePendingReply[]; purchases: LivePurchase[]; purchase_history: LivePurchase[]; bookings: LiveBooking[]; customs: LiveCustom[]; custom_history: LiveCustom[]; sexting_sessions: LiveSextingSession[]; sexting_history: LiveSextingSession[]; sexting_media: SextingMedia[]; sexting_scripts: SextingScript[]; products: ContentProduct[]; stars: { total: number; count: number }; learned_count: number; earnings: EarningsSummary; settings: CreatorSettings };
+      const data = await response.json() as { pending: LivePendingReply[]; purchases: LivePurchase[]; purchase_history: LivePurchase[]; bookings: LiveBooking[]; customs: LiveCustom[]; custom_history: LiveCustom[]; sexting_sessions: LiveSextingSession[]; sexting_history: LiveSextingSession[]; sexting_media: SextingMedia[]; sexting_scripts: SextingScript[]; daily_tasks: DailyTask[]; products: ContentProduct[]; stars: { total: number; count: number }; learned_count: number; earnings: EarningsSummary; settings: CreatorSettings };
       setLivePending(data.pending);
       setLivePurchases(data.purchases);
       setPurchaseHistory(data.purchase_history || []);
@@ -233,6 +249,7 @@ export default function Home() {
       setSextingMedia(data.sexting_media || []);
       setContentProducts(data.products || []);
       setSextingScripts(data.sexting_scripts || []);
+      setDailyTasks(data.daily_tasks || []);
       if (data.bookings[0]?.suggested_type) setBookingType(data.bookings[0].suggested_type);
       setEarnings(data.earnings);
       setSettings(data.settings);
@@ -586,6 +603,46 @@ export default function Home() {
     }
   }
 
+  async function addDailyTask(event: FormEvent) {
+    event.preventDefault();
+    try {
+      setLiveLoading(true);
+      const response = await fetch("/api/admin/tasks", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "create", ...taskForm }),
+      });
+      if (!response.ok) throw new Error("Task could not be added");
+      setTaskForm({ title: "", task_type: "video_chat", scheduled_at: "", fan_name: "", details: "", amount: "" });
+      await loadLivePending();
+    } catch {
+      setLiveError("The task could not be added. Check the date and time and try again.");
+    } finally {
+      setLiveLoading(false);
+    }
+  }
+
+  async function updateDailyTask(id: number, action: "complete" | "reopen" | "remove") {
+    try {
+      setLiveLoading(true);
+      const response = await fetch("/api/admin/tasks", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id, action }),
+      });
+      if (!response.ok) throw new Error("Task could not be updated");
+      await loadLivePending();
+    } catch {
+      setLiveError("The task could not be updated. Please try again.");
+    } finally {
+      setLiveLoading(false);
+    }
+  }
+
+  const selectedAgendaTasks = dailyTasks.filter((task) => task.scheduled_at.slice(0, 10) === agendaDate);
+  const openAgendaCount = selectedAgendaTasks.filter((task) => task.status === "open").length;
+  const unscheduledCount = liveBookings.length + liveCustoms.length + livePurchases.length + sextingSessions.length;
+
   function resetDemo() {
     setMessages(initialMessages);
     setInput("");
@@ -805,6 +862,46 @@ export default function Home() {
             <span>Telegram Stars earned</span>
             <strong>⭐ {starsSummary.total.toLocaleString()}</strong>
             <small>{starsSummary.count} paid sexting sessions</small>
+          </section>
+
+          <section className="dailyAgenda">
+            <div className="sectionHeading"><strong>Daily task list</strong><span>{openAgendaCount}</span></div>
+            <div className="agendaControls">
+              <label><span>Day</span><input type="date" value={agendaDate} onChange={(event) => setAgendaDate(event.target.value)} /></label>
+              <small>Pacific time</small>
+            </div>
+            {unscheduledCount > 0 && (
+              <div className="needsScheduling">
+                <strong>{unscheduledCount} items need attention</strong>
+                <small>{liveBookings.length} bookings · {liveCustoms.length} customs · {livePurchases.length} deliveries · {sextingSessions.length} sexting sessions</small>
+              </div>
+            )}
+            <div className="agendaList">
+              {selectedAgendaTasks.length ? selectedAgendaTasks.map((task) => (
+                <article className={task.status === "completed" ? "completed" : ""} key={task.id}>
+                  <time>{new Date(task.scheduled_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</time>
+                  <div>
+                    <span>{task.task_type.replaceAll("_", " ")}</span>
+                    <strong>{task.title}</strong>
+                    {task.fan_name && <small>{task.fan_name}</small>}
+                    {task.details && <p>{task.details}</p>}
+                  </div>
+                  {task.amount_cents > 0 && <b>{money(task.amount_cents)}</b>}
+                  <button type="button" onClick={() => void updateDailyTask(task.id, task.status === "open" ? "complete" : "reopen")}>{task.status === "open" ? "Complete" : "Reopen"}</button>
+                  <button className="removeTask" type="button" onClick={() => void updateDailyTask(task.id, "remove")}>Remove</button>
+                </article>
+              )) : <p className="queueNote">Nothing scheduled for this day.</p>}
+            </div>
+            <form className="taskForm" onSubmit={addDailyTask}>
+              <strong>Add a task</strong>
+              <label><span>Task</span><input required value={taskForm.title} onChange={(event) => setTaskForm((current) => ({ ...current, title: event.target.value }))} placeholder="Video chat with Alex" /></label>
+              <label><span>Type</span><select value={taskForm.task_type} onChange={(event) => setTaskForm((current) => ({ ...current, task_type: event.target.value as DailyTask["task_type"] }))}><option value="video_chat">Video chat</option><option value="custom">Custom</option><option value="delivery">Content delivery</option><option value="follow_up">Follow up</option><option value="in_person">In person</option><option value="other">Other</option></select></label>
+              <label><span>Date and time</span><input required type="datetime-local" value={taskForm.scheduled_at} onChange={(event) => setTaskForm((current) => ({ ...current, scheduled_at: event.target.value }))} /></label>
+              <label><span>Fan or client</span><input value={taskForm.fan_name} onChange={(event) => setTaskForm((current) => ({ ...current, fan_name: event.target.value }))} placeholder="@username" /></label>
+              <label><span>Amount</span><input inputMode="decimal" min="0" step="0.01" type="number" value={taskForm.amount} onChange={(event) => setTaskForm((current) => ({ ...current, amount: event.target.value }))} placeholder="250.00" /></label>
+              <label className="taskDetails"><span>Breakdown and notes</span><textarea value={taskForm.details} onChange={(event) => setTaskForm((current) => ({ ...current, details: event.target.value }))} placeholder="What needs to happen, links, preparation, and follow up details" /></label>
+              <button className="primaryAction" disabled={liveLoading}>Add to task list</button>
+            </form>
           </section>
 
           <section className="sextingQueue">

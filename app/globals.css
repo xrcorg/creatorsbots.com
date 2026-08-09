@@ -167,6 +167,28 @@ button { cursor: pointer; }
 .starsOverview { display: grid; gap: 4px; margin-bottom: 16px; padding: 14px; border: 1px solid #ead7a7; border-radius: 14px; background: #fffbed; }
 .starsOverview span, .starsOverview small { color: var(--muted); font-size: 9px; }
 .starsOverview strong { color: #9b6d00; font-size: 20px; }
+.dailyAgenda { margin-bottom: 16px; padding: 14px; border: 1px solid #e8c9da; border-radius: 16px; background: #fff8fb; }
+.agendaControls { display: flex; align-items: end; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.agendaControls label { flex: 1; }
+.agendaControls span, .taskForm label > span { display: block; margin-bottom: 4px; color: var(--muted); font-size: 9px; }
+.agendaControls input, .taskForm input, .taskForm select, .taskForm textarea { width: 100%; border: 1px solid var(--line); border-radius: 9px; padding: 8px; background: white; color: var(--ink); font-size: 10px; }
+.agendaControls small { padding-bottom: 9px; color: var(--muted); font-size: 8px; }
+.needsScheduling { display: grid; gap: 3px; margin-bottom: 10px; padding: 10px; border-radius: 11px; background: #fff0f7; color: var(--deep-pink); font-size: 9px; }
+.needsScheduling small { color: var(--muted); font-size: 8px; }
+.agendaList { display: grid; gap: 8px; }
+.agendaList article { display: grid; grid-template-columns: 54px minmax(0, 1fr) auto; gap: 8px; align-items: start; padding: 10px; border: 1px solid #f1d3e2; border-radius: 12px; background: white; }
+.agendaList article.completed { opacity: .58; }
+.agendaList article time { color: var(--deep-pink); font-size: 10px; font-weight: 850; }
+.agendaList article div { display: grid; gap: 3px; }
+.agendaList article div > span { color: var(--muted); font-size: 7px; text-transform: capitalize; }
+.agendaList article strong { font-size: 10px; }
+.agendaList article small, .agendaList article p { margin: 0; color: var(--muted); font-size: 8px; line-height: 1.4; }
+.agendaList article b { color: var(--deep-pink); font-size: 9px; }
+.agendaList article button { grid-column: 2; border: 0; border-radius: 8px; padding: 6px; background: var(--pink); color: white; font-size: 8px; }
+.agendaList article .removeTask { grid-column: 3; background: transparent; color: var(--muted); text-decoration: underline; }
+.taskForm { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid #eed8e3; }
+.taskForm > strong, .taskForm label:first-of-type, .taskForm .taskDetails, .taskForm button { grid-column: 1 / -1; }
+.taskForm textarea { min-height: 66px; resize: vertical; }
 .sextingQueue { margin-bottom: 16px; padding: 14px; border: 1px solid #e8c9da; border-radius: 16px; background: #fff; }
 .sessionCard { margin-top: 10px; padding: 12px; border: 1px solid #f1d3e2; border-radius: 14px; background: #fff8fb; }
 .sessionCard p { margin: 9px 0 4px; font-size: 11px; font-weight: 750; }

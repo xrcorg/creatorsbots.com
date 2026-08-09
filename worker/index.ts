@@ -332,6 +332,20 @@ async function prepareDatabase(db: D1Database) {
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_sexting_scripts_active_stage
       ON sexting_scripts(active, stage)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS daily_tasks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      task_type TEXT NOT NULL DEFAULT 'other',
+      scheduled_at TEXT NOT NULL,
+      fan_name TEXT NOT NULL DEFAULT '',
+      details TEXT NOT NULL DEFAULT '',
+      amount_cents INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'open',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      completed_at TEXT
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_daily_tasks_scheduled_status
+      ON daily_tasks(scheduled_at, status)`),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('flirty_level', 'very')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('human_takeover', 'on')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('learning', 'approval')"),
@@ -1354,6 +1368,9 @@ async function handleAdminPending(request: Request, env: Env) {
     FROM content_products ORDER BY id DESC LIMIT 200`).all();
   const sextingScripts = await env.DB.prepare(`SELECT id, stage, title, script_text,
     media_label, active, created_at FROM sexting_scripts ORDER BY id ASC LIMIT 200`).all();
+  const dailyTasks = await env.DB.prepare(`SELECT id, title, task_type, scheduled_at,
+    fan_name, details, amount_cents, status, created_at, completed_at
+    FROM daily_tasks ORDER BY datetime(scheduled_at) ASC, id ASC LIMIT 500`).all();
   const learned = await env.DB.prepare("SELECT COUNT(*) AS count FROM learned_answers").first<{ count: number }>();
   const weekly = await env.DB.prepare(`SELECT COALESCE(SUM(amount_cents), 0) AS total_cents,
     COUNT(*) AS transaction_count FROM earnings_events
@@ -1375,6 +1392,7 @@ async function handleAdminPending(request: Request, env: Env) {
     sexting_media: sextingMedia.results,
     products: contentProducts.results,
     sexting_scripts: sextingScripts.results,
+    daily_tasks: dailyTasks.results,
     learned_count: learned?.count || 0,
     earnings: {
       weekly_cents: weekly?.total_cents || 0,
@@ -1678,6 +1696,44 @@ async function handleAdminCustom(request: Request, env: Env) {
   return json({ ok: true });
 }
 
+async function handleAdminTasks(request: Request, env: Env) {
+  if (!isAdminRequest(request)) return json({ error: "Sign in required" }, 401);
+  await prepareDatabase(env.DB);
+  const body = await request.json() as {
+    id?: number;
+    action?: "create" | "complete" | "reopen" | "remove";
+    title?: string;
+    task_type?: string;
+    scheduled_at?: string;
+    fan_name?: string;
+    details?: string;
+    amount?: string;
+  };
+  if (body.action === "create") {
+    const title = body.title?.trim();
+    const scheduledAt = body.scheduled_at?.trim();
+    if (!title || !scheduledAt || Number.isNaN(Date.parse(scheduledAt))) {
+      return json({ error: "A task title, date, and time are required" }, 400);
+    }
+    const amount = Number(body.amount || 0);
+    await env.DB.prepare(`INSERT INTO daily_tasks
+      (title, task_type, scheduled_at, fan_name, details, amount_cents)
+      VALUES (?, ?, ?, ?, ?, ?)`)
+      .bind(title, body.task_type || "other", scheduledAt, body.fan_name?.trim() || "",
+        body.details?.trim() || "", Number.isFinite(amount) ? Math.round(amount * 100) : 0).run();
+    return json({ ok: true });
+  }
+  if (!body.id || !body.action) return json({ error: "A task action is required" }, 400);
+  if (body.action === "remove") {
+    await env.DB.prepare("DELETE FROM daily_tasks WHERE id = ?").bind(body.id).run();
+    return json({ ok: true });
+  }
+  const status = body.action === "complete" ? "completed" : "open";
+  await env.DB.prepare(`UPDATE daily_tasks SET status = ?, completed_at = ? WHERE id = ?`)
+    .bind(status, body.action === "complete" ? new Date().toISOString() : null, body.id).run();
+  return json({ ok: true });
+}
+
 async function handleAdminSexting(request: Request, env: Env) {
   if (!isAdminRequest(request)) return json({ error: "Sign in required" }, 401);
   await prepareDatabase(env.DB);
@@ -1814,6 +1870,10 @@ const worker = {
 
     if (url.pathname === "/api/admin/custom" && request.method === "POST") {
       return handleAdminCustom(request, env);
+    }
+
+    if (url.pathname === "/api/admin/tasks" && request.method === "POST") {
+      return handleAdminTasks(request, env);
     }
 
     if (url.pathname === "/api/admin/sexting" && request.method === "POST") {

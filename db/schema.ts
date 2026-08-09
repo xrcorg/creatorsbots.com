@@ -36,3 +36,18 @@ export const sextingScripts = sqliteTable("sexting_scripts", {
 }, (table) => [
   index("idx_sexting_scripts_active_stage").on(table.active, table.stage),
 ]);
+
+export const dailyTasks = sqliteTable("daily_tasks", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  title: text("title").notNull(),
+  taskType: text("task_type").notNull().default("other"),
+  scheduledAt: text("scheduled_at").notNull(),
+  fanName: text("fan_name").notNull().default(""),
+  details: text("details").notNull().default(""),
+  amountCents: integer("amount_cents").notNull().default(0),
+  status: text("status").notNull().default("open"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  completedAt: text("completed_at"),
+}, (table) => [
+  index("idx_daily_tasks_scheduled_status").on(table.scheduledAt, table.status),
+]);
