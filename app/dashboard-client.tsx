@@ -27,6 +27,7 @@ type LiveBooking = {
   id: number;
   details: string;
   created_at: string;
+  suggested_type: "video_chat" | "custom_content";
 };
 
 type EarningsSummary = {
@@ -124,7 +125,8 @@ export default function Home() {
   const [livePurchases, setLivePurchases] = useState<LivePurchase[]>([]);
   const [liveBookings, setLiveBookings] = useState<LiveBooking[]>([]);
   const [earnings, setEarnings] = useState<EarningsSummary>({ weekly_cents: 0, weekly_count: 0, all_time_cents: 0, all_time_count: 0, recent: [] });
-  const [bookingAmount, setBookingAmount] = useState("");
+  const [bookingType, setBookingType] = useState<"video_chat" | "custom_content" | "in_person">("video_chat");
+  const [bookingDuration, setBookingDuration] = useState("");
   const [settings, setSettings] = useState<CreatorSettings>({ flirty_level: "very", human_takeover: "on", learning: "approval", custom_approval: "required" });
   const [liveLoading, setLiveLoading] = useState(false);
   const [liveError, setLiveError] = useState("");
@@ -138,6 +140,7 @@ export default function Home() {
       setLivePending(data.pending);
       setLivePurchases(data.purchases);
       setLiveBookings(data.bookings);
+      if (data.bookings[0]?.suggested_type) setBookingType(data.bookings[0].suggested_type);
       setEarnings(data.earnings);
       setSettings(data.settings);
       setSavedAnswers(data.learned_count);
@@ -284,17 +287,17 @@ export default function Home() {
     if (!current) return;
     const answer = creatorReply.trim();
     if (action !== "ignore" && !answer) return;
-    if (action === "approve" && !bookingAmount.trim()) return;
+    if (action === "approve" && !bookingDuration.trim()) return;
     try {
       setLiveLoading(true);
       const response = await fetch("/api/admin/booking", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ id: current.id, action, answer, amount: bookingAmount }),
+        body: JSON.stringify({ id: current.id, action, answer, service_type: bookingType, duration: bookingDuration }),
       });
       if (!response.ok) throw new Error("Booking update failed");
       setCreatorReply("");
-      setBookingAmount("");
+      setBookingDuration("");
       await loadLivePending();
     } catch {
       setLiveError("The booking update was not sent. Please try again.");
@@ -536,9 +539,21 @@ export default function Home() {
                 value={creatorReply}
               />
               <label className="amountField">
-                <span>Approved booking amount</span>
-                <input inputMode="decimal" onChange={(event) => setBookingAmount(event.target.value)} placeholder="0.00" value={bookingAmount} />
+                <span>Service</span>
+                <select onChange={(event) => setBookingType(event.target.value as typeof bookingType)} value={bookingType}>
+                  <option value="video_chat">Video chat</option>
+                  <option value="custom_content">Custom content</option>
+                  <option value="in_person">In person meet</option>
+                </select>
               </label>
+              <label className="amountField">
+                <span>{bookingType === "in_person" ? "Hours" : "Minutes"}</span>
+                <input inputMode="decimal" min={bookingType === "in_person" ? "1" : "5"} onChange={(event) => setBookingDuration(event.target.value)} placeholder={bookingType === "in_person" ? "1" : "5"} value={bookingDuration} />
+              </label>
+              <div className="calculatedTotal">
+                Total: {money(Math.round(Number(bookingDuration || 0) * (bookingType === "in_person" ? 150000 : 5000)))}
+                {bookingType === "in_person" && <small>Excluded from earnings</small>}
+              </div>
               <button className="primaryAction" disabled={liveLoading} onClick={() => void resolveBooking("approve")}>
                 Approve booking and send
               </button>
@@ -595,7 +610,9 @@ export default function Home() {
             <div><span>Human takeover</span><button className="settingToggle" onClick={() => void updateSetting("human_takeover", settings.human_takeover === "on" ? "off" : "on")}>{settings.human_takeover}</button></div>
             <div><span>Learning</span><button className="settingToggle" onClick={() => void updateSetting("learning", settings.learning === "approval" ? "off" : "approval")}>{settings.learning === "approval" ? "Approval only" : "Off"}</button></div>
             <div><span>Custom approval</span><button className="settingToggle" onClick={() => void updateSetting("custom_approval", settings.custom_approval === "required" ? "off" : "required")}>{settings.custom_approval === "required" ? "Required" : "Off"}</button></div>
-            <div><span>Custom video rate</span><strong>$50 per minute · 5 minute minimum</strong></div>
+            <div><span>Video chat</span><strong>$50 per minute · 5 minute minimum</strong></div>
+            <div><span>Custom content</span><strong>$50 per minute · 5 minute minimum</strong></div>
+            <div><span>In person meet</span><strong>$1,500 per hour · excluded from earnings</strong></div>
             <div><span>Age gate</span><strong>Required</strong></div>
           </div>
 

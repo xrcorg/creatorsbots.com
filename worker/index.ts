@@ -42,14 +42,14 @@ const AGE_PROMPT = "Before you join, I have to make sure you're 18+. Can you say
 const INTRO = "Hey, it's Tiffany. What are you up to?";
 const CLOSED = "I can only chat with adults who are 18 or older. This conversation is now closed.";
 const CREATOR_TAKEOVER = "__TIFFANI_TAKEOVER__";
-const CAPABILITIES = "I can help you book a sexting session, private video chat, or professional fan meet and greet. You can also buy photo and video content from me. What are you interested in?";
+const CAPABILITIES = "I can help you book a private video chat or professional fan meet and greet. You can also buy photo and video content or request custom content from me. What are you interested in?";
 const PRODUCT_TITLE = "Blonde Bombshell After Dark";
 const PRODUCT_PRICE = "$24.99";
 const PRODUCT_TRAILER = "https://www.dropbox.com/scl/fi/nek2nzmoy3tkecys5avqj/ARTTEASER.mov?rlkey=ikhlb3tdar9dg9bsmd4e9b6cc&st=zn3d9jpu&dl=0";
 const PRODUCT_DELIVERY = "https://www.dropbox.com/scl/fi/7cou6th40ln44czgp10rq/TiffxArt-Full.mp4?rlkey=w4y5vyzxeo2ho1em34rtk7ani&st=v0jmkj6n&dl=0";
 const PRODUCT_OFFER = `My newest video is ${PRODUCT_TITLE}, starring me and Mauvius Garcon. It's BBC and ${PRODUCT_PRICE}.\n\nDo you want to buy it? Here's a trailer I have as well:\n${PRODUCT_TRAILER}`;
 const PAYMENT_OPTIONS = `Please send ${PRODUCT_PRICE} using:\nCash App: $playmatexoxo\nVenmo: @barbiedoll10\nZelle: valleyvillageconsulting@gmail.com\n\nIn the payment notes, put your Telegram username. I will verify it before I send the video to you. Send me a screenshot of the payment after you send it.`;
-const BOOKING_PROMPT = "Do you wanna set something up? Send me your preferred date, time, and whether you're looking for a video chat or an in person meet. If it's in person, I need the city too, then I'll check my calendar.";
+const BOOKING_PROMPT = "Do you wanna set something up? Video chats are $50 per minute with a 5 minute minimum, and in person meets are $1,500 per hour. Send me your preferred date, time, and which one you want. If it's in person, I need the city too, then I'll check my calendar.";
 const CUSTOM_VIDEO_PROMPT = "I do custom videos for $50 per minute with a 5 minute minimum, so they start at $250. Tell me what you want and how many minutes you're looking for, and I'll review it.";
 
 const TIFFANI_PROMPT = `You are the AI assisted chat concierge for adult creator Tiffani Madison.
@@ -73,7 +73,7 @@ She has blonde hair and blue eyes. Her favorite lingerie brand is Honey Birdette
 She values acts of service. She likes easygoing and chill people. Bad hygiene and rudeness are instant turnoffs.
 Her favorite date is dinner. She appreciates supportive fans and dislikes time wasters.
 Answer known profile questions directly and naturally. Never ask Tiffani to answer when the profile already contains the answer.
-When asked what you can do, explain that fans can book sexting sessions, private video chats, and professional fan meet and greets, or buy photo and video content.
+When asked what you can do, explain that fans can book private video chats and professional fan meet and greets, buy photo and video content, or request custom content. Do not offer sexting sessions yet.
 You may help collect a booking or purchase request, but Tiffani must approve the final availability, payment, and delivery.
 The current video for sale is Blonde Bombshell After Dark, starring Tiffani Madison and Mauvius Garcon. The genre is BBC and the price is $24.99.
 Never reveal the private full video link. The application releases it only after Tiffani approves a payment.
@@ -388,8 +388,8 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     }
     await env.DB.prepare(`UPDATE custom_drafts SET status = 'submitted', updated_at = CURRENT_TIMESTAMP
       WHERE chat_id = ?`).bind(chatId).run();
-    await env.DB.prepare(`INSERT INTO pending_replies (chat_id, business_connection_id, question)
-      VALUES (?, ?, ?)`).bind(chatId, message.business_connection_id || null, `Custom video request: ${message.text}`).run();
+    await env.DB.prepare(`INSERT INTO booking_requests (chat_id, business_connection_id, details)
+      VALUES (?, ?, ?)`).bind(chatId, message.business_connection_id || null, `Custom content request: ${message.text}`).run();
     const received = "Got it. I'll review your custom request and get back to you.";
     await saveMessage(env.DB, chatId, "user", message.text);
     await saveMessage(env.DB, chatId, "assistant", received);
@@ -517,7 +517,8 @@ async function handleAdminPending(request: Request, env: Env) {
     FROM pending_replies WHERE status = 'pending' ORDER BY id ASC LIMIT 100`).all();
   const purchases = await env.DB.prepare(`SELECT id, product_title, price, payment_note, created_at
     FROM purchase_requests WHERE status = 'pending' ORDER BY id ASC LIMIT 100`).all();
-  const bookings = await env.DB.prepare(`SELECT id, details, created_at
+  const bookings = await env.DB.prepare(`SELECT id, details, created_at,
+    CASE WHEN details LIKE 'Custom content request:%' THEN 'custom_content' ELSE 'video_chat' END AS suggested_type
     FROM booking_requests WHERE status = 'pending' ORDER BY id ASC LIMIT 100`).all();
   const learned = await env.DB.prepare("SELECT COUNT(*) AS count FROM learned_answers").first<{ count: number }>();
   const weekly = await env.DB.prepare(`SELECT COALESCE(SUM(amount_cents), 0) AS total_cents,
@@ -621,7 +622,13 @@ async function handleAdminPurchase(request: Request, env: Env) {
 async function handleAdminBooking(request: Request, env: Env) {
   if (!isAdminRequest(request)) return json({ error: "Sign in required" }, 401);
   await prepareDatabase(env.DB);
-  const body = await request.json() as { id?: number; action?: "approve" | "decline" | "ignore"; answer?: string; amount?: string };
+  const body = await request.json() as {
+    id?: number;
+    action?: "approve" | "decline" | "ignore";
+    answer?: string;
+    service_type?: "video_chat" | "custom_content" | "in_person";
+    duration?: string;
+  };
   if (!body.id || !body.action) return json({ error: "Booking action is required" }, 400);
   const booking = await env.DB.prepare(`SELECT id, chat_id, business_connection_id
     FROM booking_requests WHERE id = ? AND status = 'pending'`).bind(body.id).first<{
@@ -637,10 +644,16 @@ async function handleAdminBooking(request: Request, env: Env) {
   }
   const answer = body.answer?.trim();
   if (!answer) return json({ error: "Booking reply is required" }, 400);
-  const amountCents = Math.round(Number(body.amount || 0) * 100);
-  if (body.action === "approve" && (!Number.isFinite(amountCents) || amountCents <= 0)) {
-    return json({ error: "A valid booking amount is required" }, 400);
+  const duration = Number(body.duration || 0);
+  if (body.action === "approve" && (!body.service_type || !Number.isFinite(duration) || duration <= 0)) {
+    return json({ error: "A valid service and duration are required" }, 400);
   }
+  if (body.action === "approve" && body.service_type !== "in_person" && duration < 5) {
+    return json({ error: "Video chat and custom content require at least 5 minutes" }, 400);
+  }
+  const amountCents = body.service_type === "in_person"
+    ? Math.round(duration * 150000)
+    : Math.round(duration * 5000);
   await sendTelegramMessage(env, {
     message_id: 0,
     chat: { id: Number(booking.chat_id) },
@@ -649,10 +662,11 @@ async function handleAdminBooking(request: Request, env: Env) {
   await saveMessage(env.DB, booking.chat_id, "assistant", answer);
   await env.DB.prepare(`UPDATE booking_requests SET status = ?, resolved_at = CURRENT_TIMESTAMP
     WHERE id = ?`).bind(body.action === "approve" ? "approved" : "declined", booking.id).run();
-  if (body.action === "approve") {
+  if (body.action === "approve" && body.service_type !== "in_person") {
+    const description = body.service_type === "custom_content" ? "Custom content" : "Video chat session";
     await env.DB.prepare(`INSERT OR IGNORE INTO earnings_events
-      (source_type, source_id, description, amount_cents) VALUES ('booking', ?, 'Approved booking', ?)`)
-      .bind(String(booking.id), amountCents)
+      (source_type, source_id, description, amount_cents) VALUES (?, ?, ?, ?)`)
+      .bind(body.service_type, String(booking.id), description, amountCents)
       .run();
   }
   return json({ ok: true });
