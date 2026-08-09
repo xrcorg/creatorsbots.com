@@ -40,7 +40,7 @@ type TelegramUpdate = {
 
 const AGE_PROMPT = "Before you join, I have to make sure you're 18+. Can you say yes or no?";
 const INTRO = "Hey, it's Tiffany. What are you up to?";
-const NAME_PROMPT = "What should I call you?";
+const NAME_PROMPT = "What's your name, babe?";
 const CLOSED = "I can only chat with adults who are 18 or older. This conversation is now closed.";
 const CREATOR_TAKEOVER = "__TIFFANI_TAKEOVER__";
 const CAPABILITIES = "I can help you book a private video chat or professional fan meet and greet. You can also buy photo and video content or request custom content from me. What are you interested in?";
