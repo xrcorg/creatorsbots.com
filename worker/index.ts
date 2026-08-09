@@ -279,6 +279,8 @@ async function prepareDatabase(db: D1Database) {
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('tone_guidance', 'Short, blunt, warm, confident, flirty, and natural')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('creator_feedback', '')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_enabled', 'on')"),
+    db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_rate', '10')"),
+    db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_5_stars', '3850')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_15_stars', '6000')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_30_stars', '10000')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_media_stars', '10000')"),
@@ -392,14 +394,12 @@ function isSextingQuestion(text: string) {
 }
 
 function sextingPackage(text: string, settings: Record<string, string>) {
-  if (/\b(photos?|pics?|media)\b/i.test(text)) return { key: "media15", title: "15 minute sexting with photos", minutes: 15, stars: Number(settings.sexting_media_stars || 10000) };
-  if (/\b30\b/.test(text)) return { key: "text30", title: "30 minute text sexting", minutes: 30, stars: Number(settings.sexting_30_stars || 10000) };
-  if (/\b15\b/.test(text)) return { key: "text15", title: "15 minute text sexting", minutes: 15, stars: Number(settings.sexting_15_stars || 6000) };
+  if (/\b(5|five)\b/.test(text)) return { key: "text5", title: "5 minute sexting session", minutes: 5, stars: Number(settings.sexting_5_stars || 3850) };
   return null;
 }
 
 function sextingMenu(settings: Record<string, string>) {
-  return `I have three sexting packages, babe:\n15 minutes text only: ${settings.sexting_15_stars || "6000"} Stars\n30 minutes text only: ${settings.sexting_30_stars || "10000"} Stars\n15 minutes with photos: ${settings.sexting_media_stars || "10000"} Stars\n\nTell me which one you want.`;
+  return `Sexting is ${dollars(settings.sexting_rate, 10)} per minute with a 5 minute minimum, babe. A 5 minute session is ${settings.sexting_5_stars || "3850"} Stars. You can add another 5 minutes whenever you want. Tell me if you want 5 minutes.`;
 }
 
 function randomTodayActivity() {
@@ -510,9 +510,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     await prepareDatabase(env.DB);
     const settings = await getSettings(env.DB);
     const [, key] = update.pre_checkout_query.invoice_payload.split(":");
-    const expectedStars = key === "text15" ? Number(settings.sexting_15_stars || 6000)
-      : key === "text30" ? Number(settings.sexting_30_stars || 10000)
-        : key === "media15" ? Number(settings.sexting_media_stars || 10000) : 0;
+    const expectedStars = key === "text5" ? Number(settings.sexting_5_stars || 3850) : 0;
     const valid = settings.sexting_enabled !== "off" && update.pre_checkout_query.currency === "XTR" &&
       update.pre_checkout_query.invoice_payload.startsWith("sexting:") &&
       update.pre_checkout_query.total_amount === expectedStars;
@@ -1196,8 +1194,8 @@ async function handleAdminSettings(request: Request, env: Env) {
     custom_approval: ["required", "off"],
     sexting_enabled: ["on", "off"],
   };
-  const rateKeys = ["video_chat_rate", "custom_content_rate", "in_person_rate"];
-  const starKeys = ["sexting_15_stars", "sexting_30_stars", "sexting_media_stars"];
+  const rateKeys = ["video_chat_rate", "custom_content_rate", "in_person_rate", "sexting_rate"];
+  const starKeys = ["sexting_5_stars"];
   const textKeys = ["preferred_topics", "avoid_topics", "tone_guidance", "creator_feedback"];
   const validRate = body.key && rateKeys.includes(body.key) && body.value &&
     Number.isFinite(Number(body.value)) && Number(body.value) > 0 && Number(body.value) <= 100000;

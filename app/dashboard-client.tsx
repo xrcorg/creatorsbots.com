@@ -87,9 +87,8 @@ type CreatorSettings = {
   tone_guidance: string;
   creator_feedback: string;
   sexting_enabled: "on" | "off";
-  sexting_15_stars: string;
-  sexting_30_stars: string;
-  sexting_media_stars: string;
+  sexting_rate: string;
+  sexting_5_stars: string;
 };
 
 function money(cents: number) {
@@ -184,7 +183,7 @@ export default function Home() {
   const [earningsView, setEarningsView] = useState<"weekly" | "all" | null>(null);
   const [bookingType, setBookingType] = useState<"video_chat" | "custom_content" | "in_person">("video_chat");
   const [bookingDuration, setBookingDuration] = useState("");
-  const [settings, setSettings] = useState<CreatorSettings>({ flirty_level: "very", human_takeover: "on", learning: "approval", custom_approval: "required", video_chat_rate: "50", custom_content_rate: "50", in_person_rate: "1500", preferred_topics: "", avoid_topics: "", tone_guidance: "Short, blunt, warm, confident, flirty, and natural", creator_feedback: "", sexting_enabled: "on", sexting_15_stars: "6000", sexting_30_stars: "10000", sexting_media_stars: "10000" });
+  const [settings, setSettings] = useState<CreatorSettings>({ flirty_level: "very", human_takeover: "on", learning: "approval", custom_approval: "required", video_chat_rate: "50", custom_content_rate: "50", in_person_rate: "1500", preferred_topics: "", avoid_topics: "", tone_guidance: "Short, blunt, warm, confident, flirty, and natural", creator_feedback: "", sexting_enabled: "on", sexting_rate: "10", sexting_5_stars: "3850" });
   const [liveLoading, setLiveLoading] = useState(false);
   const [liveError, setLiveError] = useState("");
 
@@ -840,9 +839,9 @@ export default function Home() {
             <div className="rateSetting"><span>Video chat per minute</span><label>$<input aria-label="Video chat rate per minute" inputMode="decimal" min="1" onBlur={() => void updateSetting("video_chat_rate", settings.video_chat_rate)} onChange={(event) => setSettings((current) => ({ ...current, video_chat_rate: event.target.value }))} type="number" value={settings.video_chat_rate} /></label></div>
             <div className="rateSetting"><span>Custom content per minute</span><label>$<input aria-label="Custom content rate per minute" inputMode="decimal" min="1" onBlur={() => void updateSetting("custom_content_rate", settings.custom_content_rate)} onChange={(event) => setSettings((current) => ({ ...current, custom_content_rate: event.target.value }))} type="number" value={settings.custom_content_rate} /></label></div>
             <div className="rateSetting"><span>In person meet per hour</span><label>$<input aria-label="In person meet rate per hour" inputMode="decimal" min="1" onBlur={() => void updateSetting("in_person_rate", settings.in_person_rate)} onChange={(event) => setSettings((current) => ({ ...current, in_person_rate: event.target.value }))} type="number" value={settings.in_person_rate} /></label></div>
-            <div className="rateSetting"><span>15 minute sexting</span><label>⭐<input aria-label="15 minute sexting price in Stars" inputMode="numeric" min="1" onBlur={() => void updateSetting("sexting_15_stars", settings.sexting_15_stars)} onChange={(event) => setSettings((current) => ({ ...current, sexting_15_stars: event.target.value }))} type="number" value={settings.sexting_15_stars} /></label></div>
-            <div className="rateSetting"><span>30 minute sexting</span><label>⭐<input aria-label="30 minute sexting price in Stars" inputMode="numeric" min="1" onBlur={() => void updateSetting("sexting_30_stars", settings.sexting_30_stars)} onChange={(event) => setSettings((current) => ({ ...current, sexting_30_stars: event.target.value }))} type="number" value={settings.sexting_30_stars} /></label></div>
-            <div className="rateSetting"><span>15 minutes with photos</span><label>⭐<input aria-label="Sexting with photos price in Stars" inputMode="numeric" min="1" onBlur={() => void updateSetting("sexting_media_stars", settings.sexting_media_stars)} onChange={(event) => setSettings((current) => ({ ...current, sexting_media_stars: event.target.value }))} type="number" value={settings.sexting_media_stars} /></label></div>
+            <div className="rateSetting"><span>Sexting per minute</span><label>$<input aria-label="Sexting rate per minute" inputMode="decimal" min="1" onBlur={() => void updateSetting("sexting_rate", settings.sexting_rate)} onChange={(event) => setSettings((current) => ({ ...current, sexting_rate: event.target.value }))} type="number" value={settings.sexting_rate} /></label></div>
+            <div><span>Sexting minimum</span><strong>5 minutes</strong></div>
+            <div className="rateSetting"><span>5 minute Stars price</span><label>⭐<input aria-label="5 minute sexting price in Stars" inputMode="numeric" min="1" onBlur={() => void updateSetting("sexting_5_stars", settings.sexting_5_stars)} onChange={(event) => setSettings((current) => ({ ...current, sexting_5_stars: event.target.value }))} type="number" value={settings.sexting_5_stars} /></label></div>
             <div><span>Age gate</span><strong>Required</strong></div>
           </div>
 
