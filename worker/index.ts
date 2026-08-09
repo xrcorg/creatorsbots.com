@@ -58,7 +58,7 @@ const INTRO = "Hey, it's Tiffany. What are you up to?";
 const NAME_PROMPT = "What's your name, babe?";
 const CLOSED = "I can only chat with adults who are 18 or older. This conversation is now closed.";
 const CREATOR_TAKEOVER = "__TIFFANI_TAKEOVER__";
-const CAPABILITIES = "I can help you book a private video chat or professional fan meet and greet. You can also buy photo and video content, request custom content, or book a paid sexting session. What are you interested in?";
+const CAPABILITIES = "I can help you book a private video chat with me here on Telegram or an in person fan meet and greet. You can also buy photo and video content, request custom content, or book a paid sexting session. What sounds fun?";
 const INSTAGRAM_URL = "https://www.instagram.com/tiffanimadisonvip/?hl=en";
 const PORNHUB_URL = "https://www.pornhub.com/pornstar/tiffani-madison";
 const X_URL = "https://x.com/TiffaniMadison_";
@@ -109,7 +109,7 @@ function dollars(value: string | undefined, fallback: number) {
 
 function bookingPrompt(settings: Record<string, string>) {
   void settings;
-  return "Yeah babe. Did you want a video chat or an in person meet?";
+  return "Yeah babe. Did you want a video chat with me here on Telegram or an in person meet?";
 }
 
 function customVideoPrompt(settings: Record<string, string>) {
@@ -138,12 +138,12 @@ She has blonde hair and blue eyes. Her favorite lingerie brand is Honey Birdette
 She values acts of service. She likes easygoing and chill people. Bad hygiene and rudeness are instant turnoffs.
 Her favorite date is dinner. She appreciates supportive fans and dislikes time wasters.
 Answer known profile questions directly and naturally. Never ask Tiffani to answer when the profile already contains the answer.
-When asked what you can do, explain that fans can book private video chats and professional fan meet and greets, buy photo and video content, request custom content, or book a paid sexting session.
+When asked what you can do, explain that fans can book private video chats with me on Telegram and professional fan meet and greets, buy photo and video content, request custom content, or book a paid sexting session.
 You may help collect a booking or purchase request, but Tiffani must approve the final availability, payment, and delivery.
 The current video for sale is Blonde Bombshell After Dark, starring Tiffani Madison and Mauvius Garcon. The genre is BBC and the price is $24.99.
 Never reveal the private full video link. The application releases it only after Tiffani approves a payment.
 Never say submit a purchase request. Ask if the fan wants to buy it, show the trailer, and provide payment options after they express interest.
-For video chats and professional fan meet and greets, ask for the preferred date, time, service type, and city for an in person meeting. Never promise availability before Tiffani checks her calendar.
+For video chats and professional fan meet and greets, ask for the preferred date, time, service type, and city for an in person meeting. Always explain that video chats happen directly through Telegram. Never promise availability before Tiffani checks her calendar.
 Use the current rates supplied below whenever discussing prices. Video chats and custom content have a 5 minute minimum. Never approve a custom request automatically.
 Never claim every message is being typed live. If directly asked about automation, say it is my account, sometimes my chat automatically responds to basic questions, and I personally handle anything that needs me.
 Never invent a custom content turnaround time or completion date. Only give one after the creator approves it.
@@ -1117,7 +1117,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       return json({ ok: true });
     }
     if (/^(you|with you|a meeting with you|meet with you)\??[.! ]*$/i.test(message.text.trim())) {
-      const clarification = "Yes, with me, babe. Send me your preferred date and time, and let me know if you want a video chat or an in person meet. If it's in person, tell me the city too.";
+      const clarification = "Yes, with me, babe. Send me your preferred date and time, and let me know if you want a video chat here on Telegram or an in person meet. If it's in person, tell me the city too.";
       await saveMessage(env.DB, chatId, "user", message.text);
       await saveMessage(env.DB, chatId, "assistant", clarification);
       await sendTelegramMessage(env, message, clarification);
@@ -1131,7 +1131,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     const missingBookingDetails = bookingDetailsMissing(combinedBookingDetails);
     if (missingBookingDetails.length) {
       const detailsPrompt = missingBookingDetails.includes("video chat or in person meet")
-        ? "Did you want a video chat or an in person meet, babe?"
+        ? "Did you want a video chat here on Telegram or an in person meet, babe?"
         : missingBookingDetails.includes("preferred date") && missingBookingDetails.includes("preferred time")
           ? "What date and time works best for you?"
           : missingBookingDetails.includes("preferred date")
@@ -1619,12 +1619,15 @@ async function handleAdminBooking(request: Request, env: Env) {
       ? Number(settings.custom_content_rate || 50)
       : Number(settings.video_chat_rate || 50);
   const amountCents = Math.round(duration * rate * 100);
+  const fanAnswer = body.action === "approve" && body.service_type === "video_chat" && !/\btelegram\b/i.test(answer)
+    ? `${answer}\n\nWe'll do the video chat right here on Telegram.`
+    : answer;
   await sendTelegramMessage(env, {
     message_id: 0,
     chat: { id: Number(booking.chat_id) },
     business_connection_id: booking.business_connection_id || undefined,
-  }, answer);
-  await saveMessage(env.DB, booking.chat_id, "assistant", answer);
+  }, fanAnswer);
+  await saveMessage(env.DB, booking.chat_id, "assistant", fanAnswer);
   await env.DB.prepare(`UPDATE booking_requests SET status = ?, resolved_at = CURRENT_TIMESTAMP
     WHERE id = ?`).bind(body.action === "approve" ? "approved" : "declined", booking.id).run();
   if (body.action === "approve" && body.service_type !== "in_person") {
