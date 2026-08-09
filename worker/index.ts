@@ -28,6 +28,8 @@ type TelegramMessage = {
   chat: { id: number };
   from?: { id: number; is_bot?: boolean };
   text?: string;
+  caption?: string;
+  photo?: Array<{ file_id: string }>;
 };
 
 type TelegramUpdate = {
@@ -46,7 +48,7 @@ const PRODUCT_PRICE = "$24.99";
 const PRODUCT_TRAILER = "https://www.dropbox.com/scl/fi/nek2nzmoy3tkecys5avqj/ARTTEASER.mov?rlkey=ikhlb3tdar9dg9bsmd4e9b6cc&st=zn3d9jpu&dl=0";
 const PRODUCT_DELIVERY = "https://www.dropbox.com/scl/fi/7cou6th40ln44czgp10rq/TiffxArt-Full.mp4?rlkey=w4y5vyzxeo2ho1em34rtk7ani&st=v0jmkj6n&dl=0";
 const PRODUCT_OFFER = `My newest video is ${PRODUCT_TITLE}, starring me and Mauvius Garcon. It's BBC and ${PRODUCT_PRICE}.\n\nDo you want to buy it? Here's a trailer I have as well:\n${PRODUCT_TRAILER}`;
-const PAYMENT_OPTIONS = `You can send ${PRODUCT_PRICE} using:\nCash App: $playmatexoxo\nVenmo: @barbiedoll10\nZelle: valleyvillageconsulting@gmail.com\n\nAfter paying, message me with “payment sent” and the payment method you used. Tiffani will verify it before the full video is delivered.`;
+const PAYMENT_OPTIONS = `Please send ${PRODUCT_PRICE} using:\nCash App: $playmatexoxo\nVenmo: @barbiedoll10\nZelle: valleyvillageconsulting@gmail.com\n\nIn the payment notes, put your Telegram username. I will verify it before I send the video to you. Send me a screenshot of the payment after you send it.`;
 const BOOKING_PROMPT = "Do you wanna set something up? Send me your preferred date, time, and whether you're looking for a video chat or an in person meet. If it's in person, I need the city too, then I'll check my calendar.";
 
 const TIFFANI_PROMPT = `You are the AI assisted chat concierge for adult creator Tiffani Madison.
@@ -191,7 +193,7 @@ function isProductQuestion(text: string) {
 }
 
 function isPaymentSent(text: string) {
-  return /\b(payment sent|paid|i paid|sent (the )?(money|payment)|cashapp sent|venmo sent|zelle sent)\b/i.test(text);
+  return /\b(payment sent|payment screenshot|receipt|paid|i paid|sent (the )?(money|payment)|cashapp sent|venmo sent|zelle sent)\b/i.test(text);
 }
 
 function isBuyConfirmation(text: string) {
@@ -284,7 +286,11 @@ async function handleTelegramWebhook(request: Request, env: Env) {
 
   const update = await request.json() as TelegramUpdate;
   const message = update.business_message || update.message;
-  if (!message?.text || message.from?.is_bot) return json({ ok: true });
+  if (!message || message.from?.is_bot) return json({ ok: true });
+  if (!message.text && message.photo?.length) {
+    message.text = message.caption?.trim() || "Payment screenshot sent";
+  }
+  if (!message.text) return json({ ok: true });
 
   await prepareDatabase(env.DB);
   const chatId = String(message.chat.id);
