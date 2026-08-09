@@ -475,7 +475,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
         .bind(chatId, message.business_connection_id || null, PRODUCT_TITLE, PRODUCT_PRICE, message.text)
         .run();
     }
-    const confirmation = "I got your payment message. I'll verify it before I send the video to you.";
+    const confirmation = "Ok, thanks babe. Let me check when I get the chance and I'll send you the link!";
     await saveMessage(env.DB, chatId, "user", message.text);
     await saveMessage(env.DB, chatId, "assistant", confirmation);
     await sendTelegramMessage(env, message, confirmation);
