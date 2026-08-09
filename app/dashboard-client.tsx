@@ -42,6 +42,19 @@ type LiveCustom = {
   completed_at?: string;
 };
 
+type LiveSextingSession = {
+  id: number;
+  telegram_name: string;
+  package_title: string;
+  duration_minutes: number;
+  stars: number;
+  status: "paid" | "active" | "completed";
+  created_at?: string;
+  started_at?: string;
+  ends_at?: string;
+  completed_at?: string;
+};
+
 type EarningsSummary = {
   weekly_cents: number;
   weekly_count: number;
@@ -63,6 +76,10 @@ type CreatorSettings = {
   avoid_topics: string;
   tone_guidance: string;
   creator_feedback: string;
+  sexting_enabled: "on" | "off";
+  sexting_15_stars: string;
+  sexting_30_stars: string;
+  sexting_media_stars: string;
 };
 
 function money(cents: number) {
@@ -146,12 +163,15 @@ export default function Home() {
   const [liveBookings, setLiveBookings] = useState<LiveBooking[]>([]);
   const [liveCustoms, setLiveCustoms] = useState<LiveCustom[]>([]);
   const [customHistory, setCustomHistory] = useState<LiveCustom[]>([]);
+  const [sextingSessions, setSextingSessions] = useState<LiveSextingSession[]>([]);
+  const [sextingHistory, setSextingHistory] = useState<LiveSextingSession[]>([]);
+  const [starsSummary, setStarsSummary] = useState({ total: 0, count: 0 });
   const [customLinks, setCustomLinks] = useState<Record<number, string>>({});
   const [earnings, setEarnings] = useState<EarningsSummary>({ weekly_cents: 0, weekly_count: 0, all_time_cents: 0, all_time_count: 0, recent: [], history: [] });
   const [earningsView, setEarningsView] = useState<"weekly" | "all" | null>(null);
   const [bookingType, setBookingType] = useState<"video_chat" | "custom_content" | "in_person">("video_chat");
   const [bookingDuration, setBookingDuration] = useState("");
-  const [settings, setSettings] = useState<CreatorSettings>({ flirty_level: "very", human_takeover: "on", learning: "approval", custom_approval: "required", video_chat_rate: "50", custom_content_rate: "50", in_person_rate: "1500", preferred_topics: "", avoid_topics: "", tone_guidance: "Short, blunt, warm, confident, flirty, and natural", creator_feedback: "" });
+  const [settings, setSettings] = useState<CreatorSettings>({ flirty_level: "very", human_takeover: "on", learning: "approval", custom_approval: "required", video_chat_rate: "50", custom_content_rate: "50", in_person_rate: "1500", preferred_topics: "", avoid_topics: "", tone_guidance: "Short, blunt, warm, confident, flirty, and natural", creator_feedback: "", sexting_enabled: "on", sexting_15_stars: "6000", sexting_30_stars: "10000", sexting_media_stars: "10000" });
   const [liveLoading, setLiveLoading] = useState(false);
   const [liveError, setLiveError] = useState("");
 
@@ -160,12 +180,15 @@ export default function Home() {
       setLiveLoading(true);
       const response = await fetch("/api/admin/pending", { cache: "no-store" });
       if (!response.ok) throw new Error("Unable to load the creator inbox");
-      const data = await response.json() as { pending: LivePendingReply[]; purchases: LivePurchase[]; bookings: LiveBooking[]; customs: LiveCustom[]; custom_history: LiveCustom[]; learned_count: number; earnings: EarningsSummary; settings: CreatorSettings };
+      const data = await response.json() as { pending: LivePendingReply[]; purchases: LivePurchase[]; bookings: LiveBooking[]; customs: LiveCustom[]; custom_history: LiveCustom[]; sexting_sessions: LiveSextingSession[]; sexting_history: LiveSextingSession[]; stars: { total: number; count: number }; learned_count: number; earnings: EarningsSummary; settings: CreatorSettings };
       setLivePending(data.pending);
       setLivePurchases(data.purchases);
       setLiveBookings(data.bookings);
       setLiveCustoms(data.customs || []);
       setCustomHistory(data.custom_history || []);
+      setSextingSessions(data.sexting_sessions || []);
+      setSextingHistory(data.sexting_history || []);
+      setStarsSummary(data.stars || { total: 0, count: 0 });
       if (data.bookings[0]?.suggested_type) setBookingType(data.bookings[0].suggested_type);
       setEarnings(data.earnings);
       setSettings(data.settings);
@@ -188,11 +211,12 @@ export default function Home() {
     if (blocked) return "Conversation closed";
     if (!verified) return "Waiting for age confirmation";
     if (livePurchases.length) return "Payment approval needed";
+    if (sextingSessions.length) return "Paid sexting session waiting";
     if (liveCustoms.length) return "Custom content to fulfill";
     if (liveBookings.length) return "Booking approval needed";
     if (livePending.length) return "Tiffani reply needed";
     return "AI assistant active";
-  }, [blocked, liveBookings.length, liveCustoms.length, livePending.length, livePurchases.length, verified]);
+  }, [blocked, liveBookings.length, liveCustoms.length, livePending.length, livePurchases.length, sextingSessions.length, verified]);
 
   function addMessage(role: Message["role"], text: string) {
     setMessages((current) => [
@@ -352,6 +376,23 @@ export default function Home() {
     }
   }
 
+  async function updateSextingSession(id: number, action: "start" | "complete") {
+    try {
+      setLiveLoading(true);
+      const response = await fetch("/api/admin/sexting", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id, action }),
+      });
+      if (!response.ok) throw new Error("Session update failed");
+      await loadLivePending();
+    } catch {
+      setLiveError("The sexting session could not be updated. Please try again.");
+    } finally {
+      setLiveLoading(false);
+    }
+  }
+
   async function updateSetting<K extends keyof CreatorSettings>(key: K, value: CreatorSettings[K]) {
     try {
       const response = await fetch("/api/admin/settings", {
@@ -388,7 +429,7 @@ export default function Home() {
           </div>
         </div>
         <div className="topActions">
-          <span className={`statusPill ${livePending.length || livePurchases.length || liveBookings.length || liveCustoms.length ? "needsReply" : ""}`}>
+          <span className={`statusPill ${livePending.length || livePurchases.length || liveBookings.length || liveCustoms.length || sextingSessions.length ? "needsReply" : ""}`}>
             <i /> {statusText}
           </span>
           <button className="ghostButton" onClick={resetDemo}>Reset test</button>
@@ -581,6 +622,26 @@ export default function Home() {
             </section>
           )}
 
+          <section className="starsOverview">
+            <span>Telegram Stars earned</span>
+            <strong>⭐ {starsSummary.total.toLocaleString()}</strong>
+            <small>{starsSummary.count} paid sexting sessions</small>
+          </section>
+
+          <section className="sextingQueue">
+            <div className="sectionHeading"><strong>Sexting sessions</strong><span>{sextingSessions.length}</span></div>
+            {sextingSessions.length ? sextingSessions.map((session) => (
+              <div className="sessionCard" key={session.id}>
+                <div className="customMeta"><strong>{session.telegram_name}</strong><span>⭐ {session.stars.toLocaleString()}</span></div>
+                <p>{session.package_title}</p>
+                <small>{session.status === "paid" ? "Paid and waiting to start" : `Active until ${session.ends_at ? new Date(`${session.ends_at}Z`).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "complete"}`}</small>
+                <button className="primaryAction" disabled={liveLoading} onClick={() => void updateSextingSession(session.id, session.status === "paid" ? "start" : "complete")}>
+                  {session.status === "paid" ? "Start session" : "Complete session"}
+                </button>
+              </div>
+            )) : <p className="queueNote">No paid sexting sessions waiting.</p>}
+          </section>
+
           <section className="customQueue">
             <div className="sectionHeading">
               <strong>Customs to fulfill</strong>
@@ -707,9 +768,13 @@ export default function Home() {
             <div><span>Human takeover</span><button className="settingToggle" onClick={() => void updateSetting("human_takeover", settings.human_takeover === "on" ? "off" : "on")}>{settings.human_takeover}</button></div>
             <div><span>Learning</span><button className="settingToggle" onClick={() => void updateSetting("learning", settings.learning === "approval" ? "off" : "approval")}>{settings.learning === "approval" ? "Approval only" : "Off"}</button></div>
             <div><span>Custom approval</span><button className="settingToggle" onClick={() => void updateSetting("custom_approval", settings.custom_approval === "required" ? "off" : "required")}>{settings.custom_approval === "required" ? "Required" : "Off"}</button></div>
+            <div><span>Sexting</span><button className="settingToggle" onClick={() => void updateSetting("sexting_enabled", settings.sexting_enabled === "on" ? "off" : "on")}>{settings.sexting_enabled}</button></div>
             <div className="rateSetting"><span>Video chat per minute</span><label>$<input aria-label="Video chat rate per minute" inputMode="decimal" min="1" onBlur={() => void updateSetting("video_chat_rate", settings.video_chat_rate)} onChange={(event) => setSettings((current) => ({ ...current, video_chat_rate: event.target.value }))} type="number" value={settings.video_chat_rate} /></label></div>
             <div className="rateSetting"><span>Custom content per minute</span><label>$<input aria-label="Custom content rate per minute" inputMode="decimal" min="1" onBlur={() => void updateSetting("custom_content_rate", settings.custom_content_rate)} onChange={(event) => setSettings((current) => ({ ...current, custom_content_rate: event.target.value }))} type="number" value={settings.custom_content_rate} /></label></div>
             <div className="rateSetting"><span>In person meet per hour</span><label>$<input aria-label="In person meet rate per hour" inputMode="decimal" min="1" onBlur={() => void updateSetting("in_person_rate", settings.in_person_rate)} onChange={(event) => setSettings((current) => ({ ...current, in_person_rate: event.target.value }))} type="number" value={settings.in_person_rate} /></label></div>
+            <div className="rateSetting"><span>15 minute sexting</span><label>⭐<input aria-label="15 minute sexting price in Stars" inputMode="numeric" min="1" onBlur={() => void updateSetting("sexting_15_stars", settings.sexting_15_stars)} onChange={(event) => setSettings((current) => ({ ...current, sexting_15_stars: event.target.value }))} type="number" value={settings.sexting_15_stars} /></label></div>
+            <div className="rateSetting"><span>30 minute sexting</span><label>⭐<input aria-label="30 minute sexting price in Stars" inputMode="numeric" min="1" onBlur={() => void updateSetting("sexting_30_stars", settings.sexting_30_stars)} onChange={(event) => setSettings((current) => ({ ...current, sexting_30_stars: event.target.value }))} type="number" value={settings.sexting_30_stars} /></label></div>
+            <div className="rateSetting"><span>15 minutes with photos</span><label>⭐<input aria-label="Sexting with photos price in Stars" inputMode="numeric" min="1" onBlur={() => void updateSetting("sexting_media_stars", settings.sexting_media_stars)} onChange={(event) => setSettings((current) => ({ ...current, sexting_media_stars: event.target.value }))} type="number" value={settings.sexting_media_stars} /></label></div>
             <div><span>Age gate</span><strong>Required</strong></div>
           </div>
 
@@ -775,6 +840,15 @@ export default function Home() {
                 <time>{custom.completed_at ? new Date(`${custom.completed_at}Z`).toLocaleDateString() : "Completed"}</time>
               </div>
             )) : <p>No completed customs yet.</p>}
+          </section>
+          <section className="customHistory">
+            <strong>Completed sexting sessions</strong>
+            {sextingHistory.length ? sextingHistory.map((session) => (
+              <div key={session.id}>
+                <span><b>{session.telegram_name}</b><small>{session.package_title}</small></span>
+                <time>⭐ {session.stars.toLocaleString()}</time>
+              </div>
+            )) : <p>No completed sexting sessions yet.</p>}
           </section>
         </aside>
       </section>

@@ -30,12 +30,25 @@ type TelegramMessage = {
   text?: string;
   caption?: string;
   photo?: Array<{ file_id: string }>;
+  successful_payment?: {
+    currency: string;
+    total_amount: number;
+    invoice_payload: string;
+    telegram_payment_charge_id: string;
+  };
 };
 
 type TelegramUpdate = {
   update_id: number;
   business_message?: TelegramMessage;
   message?: TelegramMessage;
+  pre_checkout_query?: {
+    id: string;
+    from: { id: number };
+    currency: string;
+    total_amount: number;
+    invoice_payload: string;
+  };
 };
 
 const AGE_PROMPT = "Before you join, I have to make sure you're 18+. Can you say yes or no?";
@@ -43,7 +56,7 @@ const INTRO = "Hey, it's Tiffany. What are you up to?";
 const NAME_PROMPT = "What's your name, babe?";
 const CLOSED = "I can only chat with adults who are 18 or older. This conversation is now closed.";
 const CREATOR_TAKEOVER = "__TIFFANI_TAKEOVER__";
-const CAPABILITIES = "I can help you book a private video chat or professional fan meet and greet. You can also buy photo and video content or request custom content from me. What are you interested in?";
+const CAPABILITIES = "I can help you book a private video chat or professional fan meet and greet. You can also buy photo and video content, request custom content, or book a paid sexting session. What are you interested in?";
 const INSTAGRAM_URL = "https://www.instagram.com/tiffanimadisonvip/?hl=en";
 const PORNHUB_URL = "https://www.pornhub.com/pornstar/tiffani-madison";
 const X_URL = "https://x.com/TiffaniMadison_";
@@ -52,6 +65,7 @@ const INSTAGRAM_REPLY = `You can follow me on Instagram here, babe: ${INSTAGRAM_
 const PORNHUB_REPLY = `You can find my Pornhub here, babe: ${PORNHUB_URL}`;
 const X_REPLY = `You can follow me on X here, babe: ${X_URL}`;
 const SOCIALS_REPLY = `You can find all my links here, babe: ${ALL_LINKS_URL}`;
+const PAYMENT_TERMS = "Sexting sessions are for verified adults only. Sessions begin after successful payment and creator availability. Illegal, nonconsensual, and prohibited requests are refused. Contact me here for payment support.";
 const PRODUCT_TITLE = "Blonde Bombshell After Dark";
 const PRODUCT_PRICE = "$24.99";
 const PRODUCT_TRAILER = "https://www.dropbox.com/scl/fi/nek2nzmoy3tkecys5avqj/ARTTEASER.mov?rlkey=ikhlb3tdar9dg9bsmd4e9b6cc&st=zn3d9jpu&dl=0";
@@ -93,7 +107,7 @@ She has blonde hair and blue eyes. Her favorite lingerie brand is Honey Birdette
 She values acts of service. She likes easygoing and chill people. Bad hygiene and rudeness are instant turnoffs.
 Her favorite date is dinner. She appreciates supportive fans and dislikes time wasters.
 Answer known profile questions directly and naturally. Never ask Tiffani to answer when the profile already contains the answer.
-When asked what you can do, explain that fans can book private video chats and professional fan meet and greets, buy photo and video content, or request custom content. Do not offer sexting sessions yet.
+When asked what you can do, explain that fans can book private video chats and professional fan meet and greets, buy photo and video content, request custom content, or book a paid sexting session.
 You may help collect a booking or purchase request, but Tiffani must approve the final availability, payment, and delivery.
 The current video for sale is Blonde Bombshell After Dark, starring Tiffani Madison and Mauvius Garcon. The genre is BBC and the price is $24.99.
 Never reveal the private full video link. The application releases it only after Tiffani approves a payment.
@@ -220,6 +234,28 @@ async function prepareDatabase(db: D1Database) {
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       completed_at TEXT
     )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS sexting_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      chat_id TEXT NOT NULL,
+      business_connection_id TEXT,
+      telegram_name TEXT NOT NULL,
+      package_key TEXT NOT NULL,
+      package_title TEXT NOT NULL,
+      duration_minutes INTEGER NOT NULL,
+      stars INTEGER NOT NULL,
+      telegram_charge_id TEXT NOT NULL UNIQUE,
+      status TEXT NOT NULL DEFAULT 'paid',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      started_at TEXT,
+      ends_at TEXT,
+      completed_at TEXT
+    )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS sexting_drafts (
+      chat_id TEXT PRIMARY KEY,
+      business_connection_id TEXT,
+      status TEXT NOT NULL DEFAULT 'awaiting_package',
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('flirty_level', 'very')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('human_takeover', 'on')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('learning', 'approval')"),
@@ -231,6 +267,10 @@ async function prepareDatabase(db: D1Database) {
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('avoid_topics', '')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('tone_guidance', 'Short, blunt, warm, confident, flirty, and natural')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('creator_feedback', '')"),
+    db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_enabled', 'on')"),
+    db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_15_stars', '6000')"),
+    db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_30_stars', '10000')"),
+    db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_media_stars', '10000')"),
   ]);
 }
 
@@ -254,6 +294,34 @@ async function sendTelegramMessage(env: Env, message: TelegramMessage, text: str
   if (!response.ok) {
     throw new Error(`Telegram send failed with status ${response.status}`);
   }
+}
+
+async function answerPreCheckout(env: Env, queryId: string, ok: boolean, errorMessage?: string) {
+  const response = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/answerPreCheckoutQuery`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ pre_checkout_query_id: queryId, ok, error_message: errorMessage }),
+  });
+  if (!response.ok) throw new Error(`Telegram checkout response failed with status ${response.status}`);
+}
+
+async function sendStarsInvoice(env: Env, message: TelegramMessage, title: string, description: string, payload: string, stars: number) {
+  const body: Record<string, unknown> = {
+    chat_id: message.chat.id,
+    title,
+    description,
+    payload,
+    currency: "XTR",
+    prices: [{ label: title, amount: stars }],
+    provider_token: "",
+  };
+  if (message.business_connection_id) body.business_connection_id = message.business_connection_id;
+  const response = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendInvoice`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) throw new Error(`Telegram invoice failed with status ${response.status}`);
 }
 
 function isAdultYes(text: string) {
@@ -306,6 +374,21 @@ function isCustomVideoQuestion(text: string) {
 
 function isTodayActivityQuestion(text: string) {
   return /\b(what are you doing today|what are you up to today|what do you have planned today|plans for today|what's your day looking like|whats your day looking like)\b/i.test(text);
+}
+
+function isSextingQuestion(text: string) {
+  return /\b(sext|sexting|dirty text|dirty texting|text session)\b/i.test(text);
+}
+
+function sextingPackage(text: string, settings: Record<string, string>) {
+  if (/\b(photos?|pics?|media)\b/i.test(text)) return { key: "media15", title: "15 minute sexting with photos", minutes: 15, stars: Number(settings.sexting_media_stars || 10000) };
+  if (/\b30\b/.test(text)) return { key: "text30", title: "30 minute text sexting", minutes: 30, stars: Number(settings.sexting_30_stars || 10000) };
+  if (/\b15\b/.test(text)) return { key: "text15", title: "15 minute text sexting", minutes: 15, stars: Number(settings.sexting_15_stars || 6000) };
+  return null;
+}
+
+function sextingMenu(settings: Record<string, string>) {
+  return `I have three sexting packages, babe:\n15 minutes text only: ${settings.sexting_15_stars || "6000"} Stars\n30 minutes text only: ${settings.sexting_30_stars || "10000"} Stars\n15 minutes with photos: ${settings.sexting_media_stars || "10000"} Stars\n\nTell me which one you want.`;
 }
 
 function randomTodayActivity() {
@@ -412,14 +495,46 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   }
 
   const update = await request.json() as TelegramUpdate;
+  if (update.pre_checkout_query) {
+    await prepareDatabase(env.DB);
+    const settings = await getSettings(env.DB);
+    const [, key] = update.pre_checkout_query.invoice_payload.split(":");
+    const expectedStars = key === "text15" ? Number(settings.sexting_15_stars || 6000)
+      : key === "text30" ? Number(settings.sexting_30_stars || 10000)
+        : key === "media15" ? Number(settings.sexting_media_stars || 10000) : 0;
+    const valid = settings.sexting_enabled !== "off" && update.pre_checkout_query.currency === "XTR" &&
+      update.pre_checkout_query.invoice_payload.startsWith("sexting:") &&
+      update.pre_checkout_query.total_amount === expectedStars;
+    await answerPreCheckout(env, update.pre_checkout_query.id, valid,
+      valid ? undefined : "This package is no longer available.");
+    return json({ ok: true });
+  }
   const message = update.business_message || update.message;
   if (!message || message.from?.is_bot) return json({ ok: true });
+  await prepareDatabase(env.DB);
+  if (message.successful_payment?.currency === "XTR" && message.successful_payment.invoice_payload.startsWith("sexting:")) {
+    const [, key, minutesText, title] = message.successful_payment.invoice_payload.split(":");
+    const minutes = Number(minutesText);
+    const contact = await env.DB.prepare(`SELECT COALESCE(telegram_contacts.username,
+      telegram_contacts.display_name, fan_profiles.name, 'Telegram fan') AS telegram_name
+      FROM fan_sessions
+      LEFT JOIN telegram_contacts ON telegram_contacts.chat_id = fan_sessions.chat_id
+      LEFT JOIN fan_profiles ON fan_profiles.chat_id = fan_sessions.chat_id
+      WHERE fan_sessions.chat_id = ?`).bind(String(message.chat.id)).first<{ telegram_name: string }>();
+    await env.DB.prepare(`INSERT OR IGNORE INTO sexting_sessions
+      (chat_id, business_connection_id, telegram_name, package_key, package_title,
+      duration_minutes, stars, telegram_charge_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+      .bind(String(message.chat.id), message.business_connection_id || null,
+        contact?.telegram_name || "Telegram fan", key, title || "Sexting session", minutes,
+        message.successful_payment.total_amount, message.successful_payment.telegram_payment_charge_id)
+      .run();
+    await sendTelegramMessage(env, message, "I got your Stars payment, babe. I'll let you know when I'm ready to start our session.");
+    return json({ ok: true });
+  }
   if (!message.text && message.photo?.length) {
     message.text = message.caption?.trim() || "Payment screenshot sent";
   }
   if (!message.text) return json({ ok: true });
-
-  await prepareDatabase(env.DB);
   const chatId = String(message.chat.id);
   const userId = message.from?.id ? String(message.from.id) : null;
   const connectionId = message.business_connection_id || null;
@@ -501,6 +616,53 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   }
 
   const settings = await getSettings(env.DB);
+  if (/^\/(terms|paysupport)\b/i.test(message.text)) {
+    await sendTelegramMessage(env, message, PAYMENT_TERMS);
+    return json({ ok: true });
+  }
+
+  const sextingDraft = await env.DB.prepare(`SELECT status FROM sexting_drafts WHERE chat_id = ?`)
+    .bind(chatId).first<{ status: string }>();
+  if (sextingDraft?.status === "awaiting_package") {
+    if (/\b(cancel|never mind|nevermind)\b/i.test(message.text)) {
+      await env.DB.prepare(`UPDATE sexting_drafts SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+        WHERE chat_id = ?`).bind(chatId).run();
+      await sendTelegramMessage(env, message, "No problem, babe. I cancelled it.");
+      return json({ ok: true });
+    }
+    const selected = sextingPackage(message.text, settings);
+    if (!selected) {
+      await sendTelegramMessage(env, message, sextingMenu(settings));
+      return json({ ok: true });
+    }
+    await sendStarsInvoice(env, message, selected.title,
+      `${selected.minutes} minute private sexting session for verified adults.`,
+      `sexting:${selected.key}:${selected.minutes}:${selected.title}`, selected.stars);
+    await env.DB.prepare(`UPDATE sexting_drafts SET status = 'invoice_sent', updated_at = CURRENT_TIMESTAMP
+      WHERE chat_id = ?`).bind(chatId).run();
+    return json({ ok: true });
+  }
+
+  if (isSextingQuestion(message.text)) {
+    if (settings.sexting_enabled === "off") {
+      await sendTelegramMessage(env, message, "I'm not offering sexting sessions right now, babe.");
+      return json({ ok: true });
+    }
+    const selected = sextingPackage(message.text, settings);
+    if (selected) {
+      await sendStarsInvoice(env, message, selected.title,
+        `${selected.minutes} minute private sexting session for verified adults.`,
+        `sexting:${selected.key}:${selected.minutes}:${selected.title}`, selected.stars);
+      return json({ ok: true });
+    }
+    await env.DB.prepare(`INSERT INTO sexting_drafts (chat_id, business_connection_id, status)
+      VALUES (?, ?, 'awaiting_package') ON CONFLICT(chat_id) DO UPDATE SET
+      business_connection_id = excluded.business_connection_id, status = 'awaiting_package',
+      updated_at = CURRENT_TIMESTAMP`).bind(chatId, message.business_connection_id || null).run();
+    await sendTelegramMessage(env, message, sextingMenu(settings));
+    return json({ ok: true });
+  }
+
   const customDraft = await env.DB.prepare(`SELECT status FROM custom_drafts
     WHERE chat_id = ?`).bind(chatId).first<{ status: string }>();
   if (customDraft?.status === "awaiting_details") {
@@ -706,6 +868,14 @@ async function handleAdminPending(request: Request, env: Env) {
   const customHistory = await env.DB.prepare(`SELECT id, telegram_name, duration_minutes, description,
     amount_cents, delivery_url, completed_at FROM custom_fulfillments WHERE status = 'completed'
     ORDER BY completed_at DESC LIMIT 50`).all();
+  const sextingSessions = await env.DB.prepare(`SELECT id, telegram_name, package_title,
+    duration_minutes, stars, status, created_at, started_at, ends_at
+    FROM sexting_sessions WHERE status IN ('paid', 'active') ORDER BY id ASC LIMIT 100`).all();
+  const sextingHistory = await env.DB.prepare(`SELECT id, telegram_name, package_title,
+    duration_minutes, stars, completed_at FROM sexting_sessions WHERE status = 'completed'
+    ORDER BY completed_at DESC LIMIT 100`).all();
+  const starsSummary = await env.DB.prepare(`SELECT COALESCE(SUM(stars), 0) AS total_stars,
+    COUNT(*) AS transaction_count FROM sexting_sessions`).first<{ total_stars: number; transaction_count: number }>();
   const learned = await env.DB.prepare("SELECT COUNT(*) AS count FROM learned_answers").first<{ count: number }>();
   const weekly = await env.DB.prepare(`SELECT COALESCE(SUM(amount_cents), 0) AS total_cents,
     COUNT(*) AS transaction_count FROM earnings_events
@@ -720,6 +890,9 @@ async function handleAdminPending(request: Request, env: Env) {
     bookings: bookings.results,
     customs: customs.results,
     custom_history: customHistory.results,
+    sexting_sessions: sextingSessions.results,
+    sexting_history: sextingHistory.results,
+    stars: { total: starsSummary?.total_stars || 0, count: starsSummary?.transaction_count || 0 },
     learned_count: learned?.count || 0,
     earnings: {
       weekly_cents: weekly?.total_cents || 0,
@@ -918,6 +1091,43 @@ async function handleAdminCustom(request: Request, env: Env) {
   return json({ ok: true });
 }
 
+async function handleAdminSexting(request: Request, env: Env) {
+  if (!isAdminRequest(request)) return json({ error: "Sign in required" }, 401);
+  await prepareDatabase(env.DB);
+  const body = await request.json() as { id?: number; action?: "start" | "complete" };
+  if (!body.id || !body.action) return json({ error: "A session action is required" }, 400);
+  const session = await env.DB.prepare(`SELECT id, chat_id, business_connection_id,
+    duration_minutes, status FROM sexting_sessions WHERE id = ?`).bind(body.id).first<{
+      id: number;
+      chat_id: string;
+      business_connection_id: string | null;
+      duration_minutes: number;
+      status: string;
+    }>();
+  if (!session) return json({ error: "Session not found" }, 404);
+  const telegramMessage: TelegramMessage = {
+    message_id: 0,
+    chat: { id: Number(session.chat_id) },
+    business_connection_id: session.business_connection_id || undefined,
+  };
+  if (body.action === "start") {
+    if (session.status !== "paid") return json({ error: "Session cannot be started" }, 409);
+    const reply = `I'm ready, babe. Our ${session.duration_minutes} minute session starts now.`;
+    await sendTelegramMessage(env, telegramMessage, reply);
+    await saveMessage(env.DB, session.chat_id, "assistant", reply);
+    await env.DB.prepare(`UPDATE sexting_sessions SET status = 'active', started_at = CURRENT_TIMESTAMP,
+      ends_at = datetime('now', '+' || ? || ' minutes') WHERE id = ?`).bind(session.duration_minutes, session.id).run();
+  } else {
+    if (session.status !== "active") return json({ error: "Session is not active" }, 409);
+    const reply = "That was fun, babe. Let me know when you want another session.";
+    await sendTelegramMessage(env, telegramMessage, reply);
+    await saveMessage(env.DB, session.chat_id, "assistant", reply);
+    await env.DB.prepare(`UPDATE sexting_sessions SET status = 'completed', completed_at = CURRENT_TIMESTAMP
+      WHERE id = ?`).bind(session.id).run();
+  }
+  return json({ ok: true });
+}
+
 async function handleAdminSettings(request: Request, env: Env) {
   if (!isAdminRequest(request)) return json({ error: "Sign in required" }, 401);
   await prepareDatabase(env.DB);
@@ -927,13 +1137,17 @@ async function handleAdminSettings(request: Request, env: Env) {
     human_takeover: ["on", "off"],
     learning: ["approval", "off"],
     custom_approval: ["required", "off"],
+    sexting_enabled: ["on", "off"],
   };
   const rateKeys = ["video_chat_rate", "custom_content_rate", "in_person_rate"];
+  const starKeys = ["sexting_15_stars", "sexting_30_stars", "sexting_media_stars"];
   const textKeys = ["preferred_topics", "avoid_topics", "tone_guidance", "creator_feedback"];
   const validRate = body.key && rateKeys.includes(body.key) && body.value &&
     Number.isFinite(Number(body.value)) && Number(body.value) > 0 && Number(body.value) <= 100000;
+  const validStars = body.key && starKeys.includes(body.key) && body.value &&
+    Number.isInteger(Number(body.value)) && Number(body.value) > 0 && Number(body.value) <= 10000;
   const validText = body.key && textKeys.includes(body.key) && typeof body.value === "string" && body.value.length <= 4000;
-  if (!body.key || typeof body.value !== "string" || (!allowed[body.key]?.includes(body.value) && !validRate && !validText)) {
+  if (!body.key || typeof body.value !== "string" || (!allowed[body.key]?.includes(body.value) && !validRate && !validStars && !validText)) {
     return json({ error: "Invalid setting" }, 400);
   }
   await env.DB.prepare(`INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
@@ -968,6 +1182,10 @@ const worker = {
 
     if (url.pathname === "/api/admin/custom" && request.method === "POST") {
       return handleAdminCustom(request, env);
+    }
+
+    if (url.pathname === "/api/admin/sexting" && request.method === "POST") {
+      return handleAdminSexting(request, env);
     }
 
     if (url.pathname === "/api/admin/settings" && request.method === "POST") {

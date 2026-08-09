@@ -164,6 +164,13 @@ button { cursor: pointer; }
 .earningsOverview span, .earningsOverview small { display: block; color: var(--muted); font-size: 9px; }
 .earningsOverview strong { display: block; margin: 5px 0 2px; color: var(--deep-pink); font-size: 20px; }
 .earningsHistory { margin: 0 0 16px; padding: 14px; border: 1px solid #f1c9dc; border-radius: 16px; background: #fff; }
+.starsOverview { display: grid; gap: 4px; margin-bottom: 16px; padding: 14px; border: 1px solid #ead7a7; border-radius: 14px; background: #fffbed; }
+.starsOverview span, .starsOverview small { color: var(--muted); font-size: 9px; }
+.starsOverview strong { color: #9b6d00; font-size: 20px; }
+.sextingQueue { margin-bottom: 16px; padding: 14px; border: 1px solid #e8c9da; border-radius: 16px; background: #fff; }
+.sessionCard { margin-top: 10px; padding: 12px; border: 1px solid #f1d3e2; border-radius: 14px; background: #fff8fb; }
+.sessionCard p { margin: 9px 0 4px; font-size: 11px; font-weight: 750; }
+.sessionCard > small { color: var(--muted); font-size: 9px; }
 .earningsHistory .sectionHeading button { border: 0; background: transparent; color: var(--muted); font-size: 20px; line-height: 1; }
 .historyRow { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid #f1e7ec; font-size: 10px; }
 .historyRow span { display: grid; gap: 3px; }
