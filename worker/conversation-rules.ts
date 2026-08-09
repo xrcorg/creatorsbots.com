@@ -33,3 +33,15 @@ export function isAffirmativeReply(text: string) {
 export function isCancelReply(text: string) {
   return /\b(cancel|never mind|nevermind|not now|maybe later|no thanks|no thank you|forget it)\b/i.test(text);
 }
+
+export function parseNameIntroduction(text: string) {
+  const cleaned = text.trim().replace(/^(?:my name is|i am|i'm|im)\s+/i, "");
+  const intent = /\s+(?=(?:and\s+)?(?:i\s+(?:want|wanna|would like|need)|i'd\s+like|can\s+i|could\s+i|do\s+you|what\b|how\b|let's\b|lets\b))/i.exec(cleaned);
+  const boundary = intent?.index ?? cleaned.length;
+  const rawName = cleaned.slice(0, boundary).replace(/[,!.?]+$/g, "").trim();
+  const remainder = cleaned.slice(boundary).trim().replace(/^and\s+/i, "");
+  const name = rawName.split(/\s+/).slice(0, 3)
+    .map((part) => part ? part[0].toUpperCase() + part.slice(1).toLowerCase() : part)
+    .join(" ");
+  return { name, remainder };
+}

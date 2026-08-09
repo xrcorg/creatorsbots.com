@@ -7,6 +7,7 @@ import {
   isAffirmativeReply,
   isBotQuestion,
   isCancelReply,
+  parseNameIntroduction,
 } from "../worker/conversation-rules.ts";
 
 test("natural confirmations are accepted", () => {
@@ -40,4 +41,16 @@ test("customs require both creative details and a duration", () => {
     duration: false,
     description: false,
   });
+});
+
+test("name introductions preserve the rest of the fan message", () => {
+  assert.deepEqual(parseNameIntroduction("johnny I want to sext"), {
+    name: "Johnny",
+    remainder: "I want to sext",
+  });
+  assert.deepEqual(parseNameIntroduction("My name is Johnny Smith, and I want a video chat"), {
+    name: "Johnny Smith",
+    remainder: "I want a video chat",
+  });
+  assert.deepEqual(parseNameIntroduction("johnny"), { name: "Johnny", remainder: "" });
 });

@@ -1,6 +1,6 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
-import { bookingDetailsMissing, customDetailsMissing, isAffirmativeReply, isBotQuestion, isCancelReply } from "./conversation-rules";
+import { bookingDetailsMissing, customDetailsMissing, isAffirmativeReply, isBotQuestion, isCancelReply, parseNameIntroduction } from "./conversation-rules";
 
 interface Env {
   ASSETS: Fetcher;
@@ -932,18 +932,20 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     return json({ ok: true, name_needed: true });
   }
   if (profile.name_status === "awaiting_name") {
-    const name = message.text.trim().replace(/^(my name is|i am|i'm|im)\s+/i, "").slice(0, 50).trim();
+    const originalText = message.text;
+    const { name, remainder } = parseNameIntroduction(originalText);
     if (!name) {
       await sendTelegramMessage(env, message, NAME_PROMPT);
       return json({ ok: true, name_needed: true });
     }
     await env.DB.prepare(`UPDATE fan_profiles SET name = ?, name_status = 'complete',
       updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?`).bind(name, chatId).run();
-    const greeting = `Nice to meet you, ${name}. What are you up to?`;
-    await saveMessage(env.DB, chatId, "user", message.text);
+    const greeting = remainder ? `Nice to meet you, ${name}.` : `Nice to meet you, ${name}. What are you up to?`;
+    await saveMessage(env.DB, chatId, "user", originalText);
     await saveMessage(env.DB, chatId, "assistant", greeting);
     await sendTelegramMessage(env, message, greeting);
-    return json({ ok: true });
+    if (!remainder) return json({ ok: true });
+    message.text = remainder;
   }
 
   const settings = await getSettings(env.DB);
