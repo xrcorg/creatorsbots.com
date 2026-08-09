@@ -961,7 +961,7 @@ export default function Home() {
                 {bookingType === "in_person" && <small>Excluded from earnings</small>}
               </div>
               <button className="primaryAction" disabled={liveLoading} onClick={() => void resolveBooking("approve")}>
-                Approve booking and send
+                {bookingType === "custom_content" ? "Approve custom and send" : "Approve booking and send"}
               </button>
               <button className="secondaryAction" disabled={liveLoading} onClick={() => void resolveBooking("decline")}>
                 Decline and send reply
