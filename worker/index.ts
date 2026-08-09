@@ -45,7 +45,8 @@ const PRODUCT_TITLE = "Blonde Bombshell After Dark";
 const PRODUCT_PRICE = "$24.99";
 const PRODUCT_TRAILER = "https://www.dropbox.com/scl/fi/nek2nzmoy3tkecys5avqj/ARTTEASER.mov?rlkey=ikhlb3tdar9dg9bsmd4e9b6cc&st=zn3d9jpu&dl=0";
 const PRODUCT_DELIVERY = "https://www.dropbox.com/scl/fi/7cou6th40ln44czgp10rq/TiffxArt-Full.mp4?rlkey=w4y5vyzxeo2ho1em34rtk7ani&st=v0jmkj6n&dl=0";
-const PRODUCT_OFFER = `${PRODUCT_TITLE}\nStarring Tiffani Madison and Mauvius Garcon\nGenre: BBC\nPrice: ${PRODUCT_PRICE}\n\nWatch the trailer:\n${PRODUCT_TRAILER}\n\nPay with:\nCash App: $playmatexoxo\nVenmo: @barbiedoll10\nZelle: valleyvillageconsulting@gmail.com\n\nAfter paying, message me with “payment sent” and the payment method you used. Tiffani will verify it before the full video is delivered.`;
+const PRODUCT_OFFER = `My newest video is ${PRODUCT_TITLE}, starring me and Mauvius Garcon. It's BBC and ${PRODUCT_PRICE}.\n\nDo you want to buy it? Here's a trailer I have as well:\n${PRODUCT_TRAILER}`;
+const PAYMENT_OPTIONS = `You can send ${PRODUCT_PRICE} using:\nCash App: $playmatexoxo\nVenmo: @barbiedoll10\nZelle: valleyvillageconsulting@gmail.com\n\nAfter paying, message me with “payment sent” and the payment method you used. Tiffani will verify it before the full video is delivered.`;
 
 const TIFFANI_PROMPT = `You are the AI assisted chat concierge for adult creator Tiffani Madison.
 Always write as Tiffani in first person. Be warm, confident, teasing, flirty, sexy, and concise.
@@ -71,6 +72,7 @@ When asked what you can do, explain that fans can book sexting sessions, private
 You may help collect a booking or purchase request, but Tiffani must approve the final availability, payment, and delivery.
 The current video for sale is Blonde Bombshell After Dark, starring Tiffani Madison and Mauvius Garcon. The genre is BBC and the price is $24.99.
 Never reveal the private full video link. The application releases it only after Tiffani approves a payment.
+Never say submit a purchase request. Ask if the fan wants to buy it, show the trailer, and provide payment options after they express interest.
 Never claim to be a human typing live. If directly asked, say the chat is AI assisted and Tiffani can take over.
 Only converse with users whose adult status has already been confirmed by the application.
 Never engage with or sexualize minors, suspected minors, coercion, incest, trafficking, nonconsensual activity, or illegal activity.
@@ -173,6 +175,10 @@ function isProductQuestion(text: string) {
 
 function isPaymentSent(text: string) {
   return /\b(payment sent|paid|i paid|sent (the )?(money|payment)|cashapp sent|venmo sent|zelle sent)\b/i.test(text);
+}
+
+function isBuyConfirmation(text: string) {
+  return /\b(yes i want it|i want it|i want to buy it|buy it|i'll buy it|ill buy it|how do i pay|payment options|send payment info)\b/i.test(text);
 }
 
 function isTiffaniSleeping(date = new Date()) {
@@ -331,6 +337,13 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     await saveMessage(env.DB, chatId, "user", message.text);
     await saveMessage(env.DB, chatId, "assistant", confirmation);
     await sendTelegramMessage(env, message, confirmation);
+    return json({ ok: true });
+  }
+
+  if (isBuyConfirmation(message.text)) {
+    await saveMessage(env.DB, chatId, "user", message.text);
+    await saveMessage(env.DB, chatId, "assistant", PAYMENT_OPTIONS);
+    await sendTelegramMessage(env, message, PAYMENT_OPTIONS);
     return json({ ok: true });
   }
 
