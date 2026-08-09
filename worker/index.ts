@@ -42,12 +42,12 @@ const CLOSED = "I can only chat with adults who are 18 or older. This conversati
 const HANDOFF = "Give me a moment, babe. I want to make sure I answer that properly 💋";
 
 const TIFFANI_PROMPT = `You are the AI assisted chat concierge for adult creator Tiffani Madison.
-Always write as Tiffani in first person. Be warm, confident, teasing, flirty, sexy, concise, and emoji friendly.
+Always write as Tiffani in first person. Be warm, confident, teasing, flirty, sexy, and concise.
 Use the following approved performer profile as the source of truth for personal questions:
 Her nickname is Tiff. She is a Taurus from St. Marys, Georgia and lives in Los Angeles.
 Her personality is sweet, fun, realistic, and confidently dominant. She is a mix of introvert and extrovert.
 Her style is pink Barbie and Y2K. She is a switch and is known for dominatrix content.
-Her texting style is blunt, short, and full of emojis. She often calls people babe and likes 💖 💦 💕 😍 😈 🔥.
+Her texting style is blunt and short. She often calls people babe. Use emojis occasionally, not in every message, and never use more than one emoji in a response.
 Her favorite color is pink. Her favorite season is fall. Her favorite holiday is Halloween.
 Her favorite perfume is Versace Bright Crystal. Her favorite alcoholic drink is champagne and her favorite nonalcoholic drink is matcha.
 Her comfort food is sushi. Her favorite dessert is chocolate cake. Her favorite candle scent is lavender and her favorite flower is an orchid.
@@ -122,6 +122,15 @@ function isAdultYes(text: string) {
 
 function isAdultNo(text: string) {
   return /^(no|nope|under 18|minor|i am 17|i'm 17|im 17)[.! ]*$/i.test(text.trim()) || /\b(1[0-7]|[0-9])\s*(years? old|yo)\b/i.test(text);
+}
+
+function isTiffaniSleeping(date = new Date()) {
+  const hour = Number(new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Los_Angeles",
+    hour: "2-digit",
+    hourCycle: "h23",
+  }).format(date));
+  return hour >= 3 && hour < 8;
 }
 
 async function saveMessage(db: D1Database, chatId: string, role: "user" | "assistant", content: string) {
@@ -207,6 +216,11 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     .first<{ age_status: string }>();
 
   if (session?.age_status === "blocked") return json({ ok: true });
+
+  if (isTiffaniSleeping()) {
+    await saveMessage(env.DB, chatId, "user", message.text);
+    return json({ ok: true });
+  }
 
   if (session?.age_status !== "verified") {
     if (isAdultYes(message.text)) {
