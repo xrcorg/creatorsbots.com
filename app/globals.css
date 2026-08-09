@@ -215,6 +215,11 @@ button { cursor: pointer; }
 .settingsPanel button.selected, .settingsPanel .settingToggle { border-color: #f0a9cc; background: #fff0f7; color: var(--deep-pink); font-weight: 800; }
 .rateSetting label { display: flex; align-items: center; gap: 3px; color: var(--deep-pink); font-weight: 850; }
 .rateSetting input { width: 72px; border: 1px solid #f0a9cc; border-radius: 9px; padding: 7px 8px; background: #fff8fb; color: var(--deep-pink); font-weight: 850; text-align: right; }
+.creatorProfileLinks { margin-top: 16px; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: white; }
+.creatorProfileLinks > strong { display: block; margin-bottom: 9px; font-size: 11px; }
+.creatorProfileLinks a { display: flex; justify-content: space-between; gap: 10px; padding-top: 9px; border-top: 1px solid #f1e7ec; color: inherit; font-size: 10px; text-decoration: none; }
+.creatorProfileLinks a span { color: var(--muted); }
+.creatorProfileLinks a b { color: var(--deep-pink); }
 .recentSales { margin-top: 16px; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: white; }
 .recentSales > strong { display: block; margin-bottom: 9px; font-size: 11px; }
 .recentSales > div { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-top: 1px solid #f1e7ec; font-size: 10px; }

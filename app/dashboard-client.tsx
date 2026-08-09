@@ -709,6 +709,14 @@ export default function Home() {
             <div><span>Age gate</span><strong>Required</strong></div>
           </div>
 
+          <div className="creatorProfileLinks">
+            <strong>Approved social links</strong>
+            <a href="https://www.instagram.com/tiffanimadisonvip/?hl=en" rel="noreferrer" target="_blank">
+              <span>Instagram</span>
+              <b>@tiffanimadisonvip</b>
+            </a>
+          </div>
+
           <div className="recentSales">
             <strong>Recent earnings</strong>
             {earnings.recent.length ? earnings.recent.slice(0, 6).map((item) => (
