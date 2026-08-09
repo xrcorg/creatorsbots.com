@@ -1060,6 +1060,10 @@ export default function Home() {
               <textarea onChange={(event) => setSettings((current) => ({ ...current, avoid_topics: event.target.value }))} placeholder="Private family details, home address..." value={settings.avoid_topics} />
               <button onClick={() => void updateSetting("avoid_topics", settings.avoid_topics)}>Save boundaries</button>
             </label>
+            <div className="fixedBoundaries">
+              <strong>Permanent boundaries</strong>
+              <p>Death, politics, crimes, illegal activity, underage people, minors, children, and kids. These cannot be removed by creator feedback or scripts.</p>
+            </div>
             <label>
               <span>Change tone</span>
               <textarea onChange={(event) => setSettings((current) => ({ ...current, tone_guidance: event.target.value }))} placeholder="Describe how the bot should sound..." value={settings.tone_guidance} />
