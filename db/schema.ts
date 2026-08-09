@@ -23,3 +23,16 @@ export const productInterest = sqliteTable("product_interest", {
   businessConnectionId: text("business_connection_id"),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
+
+export const sextingScripts = sqliteTable("sexting_scripts", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  stage: text("stage").notNull(),
+  title: text("title").notNull(),
+  scriptText: text("script_text").notNull(),
+  mediaLabel: text("media_label").notNull().default(""),
+  active: integer("active").notNull().default(1),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  index("idx_sexting_scripts_active_stage").on(table.active, table.stage),
+]);

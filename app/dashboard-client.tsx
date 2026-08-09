@@ -80,6 +80,16 @@ type ContentProduct = {
   created_at: string;
 };
 
+type SextingScript = {
+  id: number;
+  stage: "warmup" | "transition" | "fantasy" | "climax" | "closing";
+  title: string;
+  script_text: string;
+  media_label: string;
+  active: number;
+  created_at: string;
+};
+
 type EarningsSummary = {
   weekly_cents: number;
   weekly_count: number;
@@ -188,6 +198,8 @@ export default function Home() {
   const [starsSummary, setStarsSummary] = useState({ total: 0, count: 0 });
   const [sextingMedia, setSextingMedia] = useState<SextingMedia[]>([]);
   const [contentProducts, setContentProducts] = useState<ContentProduct[]>([]);
+  const [sextingScripts, setSextingScripts] = useState<SextingScript[]>([]);
+  const [scriptForm, setScriptForm] = useState({ stage: "warmup" as SextingScript["stage"], title: "", script_text: "", media_label: "" });
   const [productForm, setProductForm] = useState({ content_type: "video" as ContentProduct["content_type"], title: "", price: "", genre: "", actors: "", trailer_url: "", delivery_url: "" });
   const [mediaLabel, setMediaLabel] = useState("");
   const [mediaFile, setMediaFile] = useState<File | null>(null);
@@ -207,7 +219,7 @@ export default function Home() {
       setLiveLoading(true);
       const response = await fetch("/api/admin/pending", { cache: "no-store" });
       if (!response.ok) throw new Error("Unable to load the creator inbox");
-      const data = await response.json() as { pending: LivePendingReply[]; purchases: LivePurchase[]; purchase_history: LivePurchase[]; bookings: LiveBooking[]; customs: LiveCustom[]; custom_history: LiveCustom[]; sexting_sessions: LiveSextingSession[]; sexting_history: LiveSextingSession[]; sexting_media: SextingMedia[]; products: ContentProduct[]; stars: { total: number; count: number }; learned_count: number; earnings: EarningsSummary; settings: CreatorSettings };
+      const data = await response.json() as { pending: LivePendingReply[]; purchases: LivePurchase[]; purchase_history: LivePurchase[]; bookings: LiveBooking[]; customs: LiveCustom[]; custom_history: LiveCustom[]; sexting_sessions: LiveSextingSession[]; sexting_history: LiveSextingSession[]; sexting_media: SextingMedia[]; sexting_scripts: SextingScript[]; products: ContentProduct[]; stars: { total: number; count: number }; learned_count: number; earnings: EarningsSummary; settings: CreatorSettings };
       setLivePending(data.pending);
       setLivePurchases(data.purchases);
       setPurchaseHistory(data.purchase_history || []);
@@ -219,6 +231,7 @@ export default function Home() {
       setStarsSummary(data.stars || { total: 0, count: 0 });
       setSextingMedia(data.sexting_media || []);
       setContentProducts(data.products || []);
+      setSextingScripts(data.sexting_scripts || []);
       if (data.bookings[0]?.suggested_type) setBookingType(data.bookings[0].suggested_type);
       setEarnings(data.earnings);
       setSettings(data.settings);
@@ -473,6 +486,44 @@ export default function Home() {
       await loadLivePending();
     } catch {
       setLiveError("The media could not be removed. Please try again.");
+    } finally {
+      setLiveLoading(false);
+    }
+  }
+
+  async function addSextingScript(event: FormEvent) {
+    event.preventDefault();
+    try {
+      setLiveLoading(true);
+      const response = await fetch("/api/admin/sexting-scripts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(scriptForm),
+      });
+      if (!response.ok) throw new Error("Script could not be added");
+      setScriptForm({ stage: "warmup", title: "", script_text: "", media_label: "" });
+      await loadLivePending();
+    } catch {
+      setLiveError("The sexting script could not be added. Please try again.");
+    } finally {
+      setLiveLoading(false);
+    }
+  }
+
+  async function updateSextingScript(id: number, action: "toggle" | "remove", active = true) {
+    try {
+      setLiveLoading(true);
+      const response = await fetch(`/api/admin/sexting-scripts/${id}`, action === "remove" ? {
+        method: "DELETE",
+      } : {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ active: !active }),
+      });
+      if (!response.ok) throw new Error("Script update failed");
+      await loadLivePending();
+    } catch {
+      setLiveError("The sexting script could not be changed. Please try again.");
     } finally {
       setLiveLoading(false);
     }
@@ -785,6 +836,29 @@ export default function Home() {
                   <strong>{media.label}</strong>
                   <small>{media.file_name}</small>
                   <button disabled={liveLoading} onClick={() => void deleteSextingMedia(media.id)} type="button">Remove</button>
+                </article>
+              ))}
+            </div>
+          </section>
+
+          <section className="scriptLibrary">
+            <div className="sectionHeading"><strong>Sexting scripts</strong><span>{sextingScripts.length}</span></div>
+            <p className="queueNote">Active scripts guide the bot only during an approved session. It adapts them to the conversation instead of repeating them word for word.</p>
+            <form onSubmit={addSextingScript}>
+              <label><span>Conversation stage</span><select value={scriptForm.stage} onChange={(event) => setScriptForm((current) => ({ ...current, stage: event.target.value as SextingScript["stage"] }))}><option value="warmup">Warm up</option><option value="transition">Transition</option><option value="fantasy">Fantasy</option><option value="climax">Final minutes</option><option value="closing">Closing</option></select></label>
+              <label><span>Script title</span><input required value={scriptForm.title} onChange={(event) => setScriptForm((current) => ({ ...current, title: event.target.value }))} placeholder="Playful transition" /></label>
+              <label><span>Instructions or approved lines</span><textarea required value={scriptForm.script_text} onChange={(event) => setScriptForm((current) => ({ ...current, script_text: event.target.value }))} placeholder="Paste approved wording or describe how this stage should sound..." /></label>
+              <label><span>Matching media label</span><input value={scriptForm.media_label} onChange={(event) => setScriptForm((current) => ({ ...current, media_label: event.target.value }))} placeholder="Teaser video" /></label>
+              <button className="primaryAction" disabled={liveLoading}>Add script</button>
+            </form>
+            <div className="scriptList">
+              {sextingScripts.map((script) => (
+                <article className={script.active ? "" : "inactive"} key={script.id}>
+                  <div><span>{script.stage}</span><strong>{script.title}</strong></div>
+                  <p>{script.script_text}</p>
+                  {script.media_label && <small>Media: {script.media_label}</small>}
+                  <button type="button" onClick={() => void updateSextingScript(script.id, "toggle", Boolean(script.active))}>{script.active ? "Deactivate" : "Activate"}</button>
+                  <button type="button" onClick={() => void updateSextingScript(script.id, "remove")}>Remove</button>
                 </article>
               ))}
             </div>

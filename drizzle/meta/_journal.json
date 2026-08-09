@@ -8,6 +8,13 @@
       "when": 1786309258940,
       "tag": "0000_wonderful_goliath",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1786310274907,
+      "tag": "0001_flat_dragon_lord",
+      "breakpoints": true
     }
   ]
 }

@@ -316,6 +316,18 @@ async function prepareDatabase(db: D1Database) {
       active INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS sexting_scripts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      stage TEXT NOT NULL,
+      title TEXT NOT NULL,
+      script_text TEXT NOT NULL,
+      media_label TEXT NOT NULL DEFAULT '',
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_sexting_scripts_active_stage
+      ON sexting_scripts(active, stage)`),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('flirty_level', 'very')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('human_takeover', 'on')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('learning', 'approval')"),
@@ -338,6 +350,13 @@ async function prepareDatabase(db: D1Database) {
       (content_type, title, price_cents, genre, actors, trailer_url, delivery_url)
       VALUES ('video', ?, 2499, 'BBC', 'Tiffani Madison and Mauvius Garcon', ?, ?)`)
       .bind(PRODUCT_TITLE, PRODUCT_TRAILER, PRODUCT_DELIVERY),
+    db.prepare(`INSERT OR IGNORE INTO sexting_scripts
+      (id, stage, title, script_text, media_label) VALUES
+      (1, 'warmup', 'Warm conversation', 'Start with a short personal question about their day, interests, movies, or weekend. Respond to what they actually say before turning up the flirting.', 'Soft selfie'),
+      (2, 'transition', 'Flirty transition', 'Shift naturally by saying you are feeling playful or naughty, then ask whether they want to have some private fun with you.', 'Teaser video'),
+      (3, 'fantasy', 'Build the fantasy', 'Ask what they would do if they were with you. React to their answer, keep the fantasy consensual, and ask one specific follow up question at a time.', 'Approved tease photo'),
+      (4, 'climax', 'Final minutes', 'Let them know you are getting close to the end of the session, raise the intensity, and ask if they are ready to finish with you.', 'Approved finale video'),
+      (5, 'closing', 'Warm closing', 'Thank them, say you had fun, invite them to tell you what they liked, and ask whether they want another session sometime.', '')`),
   ]);
 }
 
@@ -596,6 +615,14 @@ async function createAIReply(env: Env, chatId: string, incoming: string) {
   const profile = await env.DB.prepare("SELECT name FROM fan_profiles WHERE chat_id = ?")
     .bind(chatId)
     .first<{ name: string | null }>();
+  const activeSexting = await env.DB.prepare(`SELECT duration_minutes, started_at, ends_at
+    FROM sexting_sessions WHERE chat_id = ? AND status = 'active'
+    ORDER BY id DESC LIMIT 1`).bind(chatId).first<{ duration_minutes: number; started_at: string; ends_at: string }>();
+  const sextingScripts = activeSexting
+    ? await env.DB.prepare(`SELECT stage, title, script_text, media_label FROM sexting_scripts
+        WHERE active = 1 ORDER BY id ASC LIMIT 50`)
+      .all<{ stage: string; title: string; script_text: string; media_label: string }>()
+    : { results: [] as Array<{ stage: string; title: string; script_text: string; media_label: string }> };
 
   const input = [...history.results].reverse().map((item) => ({
     role: item.role,
@@ -611,7 +638,7 @@ async function createAIReply(env: Env, chatId: string, incoming: string) {
     },
     body: JSON.stringify({
       model: env.OPENAI_MODEL || "gpt-5.6",
-      instructions: `${TIFFANI_PROMPT}\nThe fan's name is ${profile?.name || "unknown"}. Use their name naturally and occasionally, not in every response.\nCurrent flirty level: ${settings.flirty_level || "very"}.\nCurrent rates: video chat ${dollars(settings.video_chat_rate, 50)} per minute with a 5 minute minimum, custom content ${dollars(settings.custom_content_rate, 50)} per minute with a 5 minute minimum, and in person meetings ${dollars(settings.in_person_rate, 1500)} per hour.\nCreator approved topics to discuss: ${settings.preferred_topics || "No additional topics supplied."}\nCreator topics to avoid: ${settings.avoid_topics || "No additional topics supplied."}\nCreator tone guidance: ${settings.tone_guidance || "Short, blunt, warm, confident, flirty, and natural."}\nCreator feedback about my habits: ${settings.creator_feedback || "No additional feedback supplied."}\nFollow creator preferences unless they conflict with safety, age restrictions, privacy, or the fixed business rules above.\nApproved learned answers:\n${settings.learning === "off" ? "Learning is off." : learned.results
+      instructions: `${TIFFANI_PROMPT}\nThe fan's name is ${profile?.name || "unknown"}. Use their name naturally and occasionally, not in every response.\nCurrent flirty level: ${settings.flirty_level || "very"}.\nCurrent rates: video chat ${dollars(settings.video_chat_rate, 50)} per minute with a 5 minute minimum, custom content ${dollars(settings.custom_content_rate, 50)} per minute with a 5 minute minimum, and in person meetings ${dollars(settings.in_person_rate, 1500)} per hour.\nCreator approved topics to discuss: ${settings.preferred_topics || "No additional topics supplied."}\nCreator topics to avoid: ${settings.avoid_topics || "No additional topics supplied."}\nCreator tone guidance: ${settings.tone_guidance || "Short, blunt, warm, confident, flirty, and natural."}\nCreator feedback about my habits: ${settings.creator_feedback || "No additional feedback supplied."}\n${activeSexting ? `A paid or approved ${activeSexting.duration_minutes} minute sexting session is active now. You may respond explicitly between consenting adults. Use the approved playbook below as guidance, adapt it naturally to the fan's replies, never repeat a line mechanically, and never claim to send media unless the application actually sends it.\nApproved sexting playbook:\n${sextingScripts.results.map((item) => `${item.stage}: ${item.title}\n${item.script_text}${item.media_label ? `\nSuggested creator media: ${item.media_label}` : ""}`).join("\n\n")}` : "No sexting session is active. Do not provide a free explicit sexting session. Offer the paid sexting package when the fan asks for one."}\nFollow creator preferences unless they conflict with safety, age restrictions, privacy, or the fixed business rules above.\nApproved learned answers:\n${settings.learning === "off" ? "Learning is off." : learned.results
         .map((item) => `Fan question: ${item.question}\nApproved answer: ${item.answer}`)
         .join("\n\n")}`,
       input,
@@ -1084,6 +1111,8 @@ async function handleAdminPending(request: Request, env: Env) {
   const contentProducts = await env.DB.prepare(`SELECT id, content_type, title, price_cents,
     genre, actors, trailer_url, delivery_url, active, created_at
     FROM content_products ORDER BY id DESC LIMIT 200`).all();
+  const sextingScripts = await env.DB.prepare(`SELECT id, stage, title, script_text,
+    media_label, active, created_at FROM sexting_scripts ORDER BY id ASC LIMIT 200`).all();
   const learned = await env.DB.prepare("SELECT COUNT(*) AS count FROM learned_answers").first<{ count: number }>();
   const weekly = await env.DB.prepare(`SELECT COALESCE(SUM(amount_cents), 0) AS total_cents,
     COUNT(*) AS transaction_count FROM earnings_events
@@ -1104,6 +1133,7 @@ async function handleAdminPending(request: Request, env: Env) {
     stars: { total: starsSummary?.total_stars || 0, count: starsSummary?.transaction_count || 0 },
     sexting_media: sextingMedia.results,
     products: contentProducts.results,
+    sexting_scripts: sextingScripts.results,
     learned_count: learned?.count || 0,
     earnings: {
       weekly_cents: weekly?.total_cents || 0,
@@ -1115,6 +1145,38 @@ async function handleAdminPending(request: Request, env: Env) {
     },
     settings,
   });
+}
+
+async function handleAdminSextingScripts(request: Request, env: Env, url: URL) {
+  if (!isAdminRequest(request)) return json({ error: "Sign in required" }, 401);
+  await prepareDatabase(env.DB);
+  const match = url.pathname.match(/^\/api\/admin\/sexting-scripts\/(\d+)$/);
+  if (request.method === "POST" && url.pathname === "/api/admin/sexting-scripts") {
+    const body = await request.json() as { stage?: string; title?: string; script_text?: string; media_label?: string };
+    const stage = String(body.stage || "").trim();
+    const title = String(body.title || "").trim();
+    const scriptText = String(body.script_text || "").trim();
+    if (!["warmup", "transition", "fantasy", "climax", "closing"].includes(stage) || !title || !scriptText) {
+      return json({ error: "Stage, title, and script are required" }, 400);
+    }
+    await env.DB.prepare(`INSERT INTO sexting_scripts
+      (stage, title, script_text, media_label) VALUES (?, ?, ?, ?)`)
+      .bind(stage, title.slice(0, 160), scriptText.slice(0, 6000),
+        String(body.media_label || "").trim().slice(0, 160)).run();
+    return json({ ok: true });
+  }
+  if (match && request.method === "PATCH") {
+    const body = await request.json() as { active?: boolean };
+    if (typeof body.active !== "boolean") return json({ error: "Active status is required" }, 400);
+    await env.DB.prepare(`UPDATE sexting_scripts SET active = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?`).bind(body.active ? 1 : 0, Number(match[1])).run();
+    return json({ ok: true });
+  }
+  if (match && request.method === "DELETE") {
+    await env.DB.prepare("DELETE FROM sexting_scripts WHERE id = ?").bind(Number(match[1])).run();
+    return json({ ok: true });
+  }
+  return json({ error: "Script request not found" }, 404);
 }
 
 function validHttpUrl(value: string, required = false) {
@@ -1515,6 +1577,10 @@ const worker = {
 
     if (url.pathname.startsWith("/api/admin/sexting-media")) {
       return handleAdminSextingMedia(request, env, url);
+    }
+
+    if (url.pathname.startsWith("/api/admin/sexting-scripts")) {
+      return handleAdminSextingScripts(request, env, url);
     }
 
     if (url.pathname.startsWith("/api/admin/products")) {
