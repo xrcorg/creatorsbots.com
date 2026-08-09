@@ -189,6 +189,10 @@ button { cursor: pointer; }
 .personaSummary div { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #f2ecef; font-size: 10px; }
 .personaSummary span { color: var(--muted); }
 .personaSummary strong { color: var(--deep-pink); }
+.settingsPanel > div { align-items: center; gap: 10px; }
+.settingsPanel section { display: flex; gap: 4px; }
+.settingsPanel button { border: 1px solid var(--line); border-radius: 999px; padding: 6px 8px; background: white; color: var(--muted); font-size: 8px; text-transform: capitalize; }
+.settingsPanel button.selected, .settingsPanel .settingToggle { border-color: #f0a9cc; background: #fff0f7; color: var(--deep-pink); font-weight: 800; }
 .recentSales { margin-top: 16px; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: white; }
 .recentSales > strong { display: block; margin-bottom: 9px; font-size: 11px; }
 .recentSales > div { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-top: 1px solid #f1e7ec; font-size: 10px; }

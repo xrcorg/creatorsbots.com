@@ -37,6 +37,13 @@ type EarningsSummary = {
   recent: Array<{ id: number; source_type: string; description: string; amount_cents: number; occurred_at: string }>;
 };
 
+type CreatorSettings = {
+  flirty_level: "soft" | "flirty" | "very";
+  human_takeover: "on" | "off";
+  learning: "approval" | "off";
+  custom_approval: "required" | "off";
+};
+
 function money(cents: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 }
@@ -118,6 +125,7 @@ export default function Home() {
   const [liveBookings, setLiveBookings] = useState<LiveBooking[]>([]);
   const [earnings, setEarnings] = useState<EarningsSummary>({ weekly_cents: 0, weekly_count: 0, all_time_cents: 0, all_time_count: 0, recent: [] });
   const [bookingAmount, setBookingAmount] = useState("");
+  const [settings, setSettings] = useState<CreatorSettings>({ flirty_level: "very", human_takeover: "on", learning: "approval", custom_approval: "required" });
   const [liveLoading, setLiveLoading] = useState(false);
   const [liveError, setLiveError] = useState("");
 
@@ -126,11 +134,12 @@ export default function Home() {
       setLiveLoading(true);
       const response = await fetch("/api/admin/pending", { cache: "no-store" });
       if (!response.ok) throw new Error("Unable to load the creator inbox");
-      const data = await response.json() as { pending: LivePendingReply[]; purchases: LivePurchase[]; bookings: LiveBooking[]; learned_count: number; earnings: EarningsSummary };
+      const data = await response.json() as { pending: LivePendingReply[]; purchases: LivePurchase[]; bookings: LiveBooking[]; learned_count: number; earnings: EarningsSummary; settings: CreatorSettings };
       setLivePending(data.pending);
       setLivePurchases(data.purchases);
       setLiveBookings(data.bookings);
       setEarnings(data.earnings);
+      setSettings(data.settings);
       setSavedAnswers(data.learned_count);
       setLiveError("");
     } catch {
@@ -291,6 +300,21 @@ export default function Home() {
       setLiveError("The booking update was not sent. Please try again.");
     } finally {
       setLiveLoading(false);
+    }
+  }
+
+  async function updateSetting<K extends keyof CreatorSettings>(key: K, value: CreatorSettings[K]) {
+    try {
+      const response = await fetch("/api/admin/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ key, value }),
+      });
+      if (!response.ok) throw new Error("Setting update failed");
+      setSettings((current) => ({ ...current, [key]: value }));
+      setLiveError("");
+    } catch {
+      setLiveError("The setting could not be changed. Please try again.");
     }
   }
 
@@ -536,9 +560,11 @@ export default function Home() {
                 placeholder="Type as Tiffani..."
                 value={creatorReply}
               />
-              <button className="primaryAction" disabled={liveLoading} onClick={() => void sendLiveCreatorReply(true)}>
-                Send and save for later
-              </button>
+              {settings.learning === "approval" && (
+                <button className="primaryAction" disabled={liveLoading} onClick={() => void sendLiveCreatorReply(true)}>
+                  Send and save for later
+                </button>
+              )}
               <button className="secondaryAction" disabled={liveLoading} onClick={() => void sendLiveCreatorReply(false)}>
                 Send once
               </button>
@@ -561,10 +587,15 @@ export default function Home() {
             <button onClick={() => { setInput("I want to book a call"); setCreatorMode(false); }}>Booking request</button>
           </div>
 
-          <div className="personaSummary">
-            <div><span>Flirty level</span><strong>Very</strong></div>
-            <div><span>Human takeover</span><strong>On</strong></div>
-            <div><span>Learning</span><strong>Approval only</strong></div>
+          <div className="personaSummary settingsPanel">
+            <div>
+              <span>Flirty level</span>
+              <section>{(["soft", "flirty", "very"] as const).map((value) => <button className={settings.flirty_level === value ? "selected" : ""} key={value} onClick={() => void updateSetting("flirty_level", value)}>{value}</button>)}</section>
+            </div>
+            <div><span>Human takeover</span><button className="settingToggle" onClick={() => void updateSetting("human_takeover", settings.human_takeover === "on" ? "off" : "on")}>{settings.human_takeover}</button></div>
+            <div><span>Learning</span><button className="settingToggle" onClick={() => void updateSetting("learning", settings.learning === "approval" ? "off" : "approval")}>{settings.learning === "approval" ? "Approval only" : "Off"}</button></div>
+            <div><span>Custom approval</span><button className="settingToggle" onClick={() => void updateSetting("custom_approval", settings.custom_approval === "required" ? "off" : "required")}>{settings.custom_approval === "required" ? "Required" : "Off"}</button></div>
+            <div><span>Custom video rate</span><strong>$50 per minute · 5 minute minimum</strong></div>
             <div><span>Age gate</span><strong>Required</strong></div>
           </div>
 

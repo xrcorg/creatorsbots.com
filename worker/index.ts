@@ -50,6 +50,7 @@ const PRODUCT_DELIVERY = "https://www.dropbox.com/scl/fi/7cou6th40ln44czgp10rq/T
 const PRODUCT_OFFER = `My newest video is ${PRODUCT_TITLE}, starring me and Mauvius Garcon. It's BBC and ${PRODUCT_PRICE}.\n\nDo you want to buy it? Here's a trailer I have as well:\n${PRODUCT_TRAILER}`;
 const PAYMENT_OPTIONS = `Please send ${PRODUCT_PRICE} using:\nCash App: $playmatexoxo\nVenmo: @barbiedoll10\nZelle: valleyvillageconsulting@gmail.com\n\nIn the payment notes, put your Telegram username. I will verify it before I send the video to you. Send me a screenshot of the payment after you send it.`;
 const BOOKING_PROMPT = "Do you wanna set something up? Send me your preferred date, time, and whether you're looking for a video chat or an in person meet. If it's in person, I need the city too, then I'll check my calendar.";
+const CUSTOM_VIDEO_PROMPT = "I do custom videos for $50 per minute with a 5 minute minimum, so they start at $250. Tell me what you want and how many minutes you're looking for, and I'll review it.";
 
 const TIFFANI_PROMPT = `You are the AI assisted chat concierge for adult creator Tiffani Madison.
 Always write as Tiffani in first person. Be warm, confident, teasing, flirty, sexy, and concise.
@@ -78,6 +79,7 @@ The current video for sale is Blonde Bombshell After Dark, starring Tiffani Madi
 Never reveal the private full video link. The application releases it only after Tiffani approves a payment.
 Never say submit a purchase request. Ask if the fan wants to buy it, show the trailer, and provide payment options after they express interest.
 For video chats and professional fan meet and greets, ask for the preferred date, time, service type, and city for an in person meeting. Never promise availability before Tiffani checks her calendar.
+Custom videos are $50 per minute with a 5 minute minimum, so the minimum price is $250. Never approve a custom request automatically.
 Never claim to be a human typing live. If directly asked, say the chat is AI assisted and I can personally take over when needed.
 Only converse with users whose adult status has already been confirmed by the application.
 Never engage with or sexualize minors, suspected minors, coercion, incest, trafficking, nonconsensual activity, or illegal activity.
@@ -161,6 +163,21 @@ async function prepareDatabase(db: D1Database) {
       occurred_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(source_type, source_id)
     )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS custom_drafts (
+      chat_id TEXT PRIMARY KEY,
+      business_connection_id TEXT,
+      status TEXT NOT NULL DEFAULT 'awaiting_details',
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`),
+    db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('flirty_level', 'very')"),
+    db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('human_takeover', 'on')"),
+    db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('learning', 'approval')"),
+    db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('custom_approval', 'required')"),
   ]);
 }
 
@@ -214,6 +231,15 @@ function isBookingQuestion(text: string) {
   return /\b(book|booking|video chat|video call|fan meet|meet and greet|meet in person|in person meet|set something up)\b/i.test(text);
 }
 
+function isCustomVideoQuestion(text: string) {
+  return /\b(custom video|custom content|make me a video|personalized video)\b/i.test(text);
+}
+
+async function getSettings(db: D1Database) {
+  const rows = await db.prepare("SELECT key, value FROM app_settings").all<{ key: string; value: string }>();
+  return Object.fromEntries(rows.results.map((row) => [row.key, row.value]));
+}
+
 function isTiffaniSleeping(date = new Date()) {
   const hour = Number(new Intl.DateTimeFormat("en-US", {
     timeZone: "America/Los_Angeles",
@@ -245,6 +271,7 @@ async function createAIReply(env: Env, chatId: string, incoming: string) {
   const learned = await env.DB.prepare(
     "SELECT question, answer FROM learned_answers ORDER BY id DESC LIMIT 50",
   ).all<{ question: string; answer: string }>();
+  const settings = await getSettings(env.DB);
 
   const input = [...history.results].reverse().map((item) => ({
     role: item.role,
@@ -260,7 +287,7 @@ async function createAIReply(env: Env, chatId: string, incoming: string) {
     },
     body: JSON.stringify({
       model: env.OPENAI_MODEL || "gpt-5.6",
-      instructions: `${TIFFANI_PROMPT}\nApproved learned answers:\n${learned.results
+      instructions: `${TIFFANI_PROMPT}\nCurrent flirty level: ${settings.flirty_level || "very"}.\nApproved learned answers:\n${settings.learning === "off" ? "Learning is off." : learned.results
         .map((item) => `Fan question: ${item.question}\nApproved answer: ${item.answer}`)
         .join("\n\n")}`,
       input,
@@ -343,6 +370,46 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     } else {
       await sendTelegramMessage(env, message, AGE_PROMPT);
     }
+    return json({ ok: true });
+  }
+
+  const settings = await getSettings(env.DB);
+  const customDraft = await env.DB.prepare(`SELECT status FROM custom_drafts
+    WHERE chat_id = ?`).bind(chatId).first<{ status: string }>();
+  if (customDraft?.status === "awaiting_details") {
+    if (/\b(cancel|never mind|nevermind)\b/i.test(message.text)) {
+      await env.DB.prepare(`UPDATE custom_drafts SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+        WHERE chat_id = ?`).bind(chatId).run();
+      const cancelled = "No problem. I cancelled the custom request.";
+      await saveMessage(env.DB, chatId, "user", message.text);
+      await saveMessage(env.DB, chatId, "assistant", cancelled);
+      await sendTelegramMessage(env, message, cancelled);
+      return json({ ok: true });
+    }
+    await env.DB.prepare(`UPDATE custom_drafts SET status = 'submitted', updated_at = CURRENT_TIMESTAMP
+      WHERE chat_id = ?`).bind(chatId).run();
+    await env.DB.prepare(`INSERT INTO pending_replies (chat_id, business_connection_id, question)
+      VALUES (?, ?, ?)`).bind(chatId, message.business_connection_id || null, `Custom video request: ${message.text}`).run();
+    const received = "Got it. I'll review your custom request and get back to you.";
+    await saveMessage(env.DB, chatId, "user", message.text);
+    await saveMessage(env.DB, chatId, "assistant", received);
+    await sendTelegramMessage(env, message, received);
+    return json({ ok: true });
+  }
+
+  if (isCustomVideoQuestion(message.text)) {
+    if (settings.custom_approval === "off") {
+      const unavailable = "I'm not taking custom video requests right now.";
+      await sendTelegramMessage(env, message, unavailable);
+      return json({ ok: true });
+    }
+    await env.DB.prepare(`INSERT INTO custom_drafts (chat_id, business_connection_id, status)
+      VALUES (?, ?, 'awaiting_details') ON CONFLICT(chat_id) DO UPDATE SET
+      business_connection_id = excluded.business_connection_id, status = 'awaiting_details', updated_at = CURRENT_TIMESTAMP`)
+      .bind(chatId, message.business_connection_id || null).run();
+    await saveMessage(env.DB, chatId, "user", message.text);
+    await saveMessage(env.DB, chatId, "assistant", CUSTOM_VIDEO_PROMPT);
+    await sendTelegramMessage(env, message, CUSTOM_VIDEO_PROMPT);
     return json({ ok: true });
   }
 
@@ -431,7 +498,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
 
   await saveMessage(env.DB, chatId, "user", message.text);
   if (reply === CREATOR_TAKEOVER) {
-    await queueCreatorReply(env.DB, message);
+    if (settings.human_takeover !== "off") await queueCreatorReply(env.DB, message);
     return json({ ok: true, creator_reply_needed: true });
   }
   await saveMessage(env.DB, chatId, "assistant", reply);
@@ -460,6 +527,7 @@ async function handleAdminPending(request: Request, env: Env) {
     COUNT(*) AS transaction_count FROM earnings_events`).first<{ total_cents: number; transaction_count: number }>();
   const recentEarnings = await env.DB.prepare(`SELECT id, source_type, description, amount_cents, occurred_at
     FROM earnings_events ORDER BY id DESC LIMIT 20`).all();
+  const settings = await getSettings(env.DB);
   return json({
     pending: pending.results,
     purchases: purchases.results,
@@ -472,6 +540,7 @@ async function handleAdminPending(request: Request, env: Env) {
       all_time_count: allTime?.transaction_count || 0,
       recent: recentEarnings.results,
     },
+    settings,
   });
 }
 
@@ -589,6 +658,25 @@ async function handleAdminBooking(request: Request, env: Env) {
   return json({ ok: true });
 }
 
+async function handleAdminSettings(request: Request, env: Env) {
+  if (!isAdminRequest(request)) return json({ error: "Sign in required" }, 401);
+  await prepareDatabase(env.DB);
+  const body = await request.json() as { key?: string; value?: string };
+  const allowed: Record<string, string[]> = {
+    flirty_level: ["soft", "flirty", "very"],
+    human_takeover: ["on", "off"],
+    learning: ["approval", "off"],
+    custom_approval: ["required", "off"],
+  };
+  if (!body.key || !body.value || !allowed[body.key]?.includes(body.value)) {
+    return json({ error: "Invalid setting" }, 400);
+  }
+  await env.DB.prepare(`INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`)
+    .bind(body.key, body.value).run();
+  return json({ ok: true, settings: await getSettings(env.DB) });
+}
+
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
@@ -611,6 +699,10 @@ const worker = {
 
     if (url.pathname === "/api/admin/booking" && request.method === "POST") {
       return handleAdminBooking(request, env);
+    }
+
+    if (url.pathname === "/api/admin/settings" && request.method === "POST") {
+      return handleAdminSettings(request, env);
     }
 
     if (url.pathname === "/api/health") {
