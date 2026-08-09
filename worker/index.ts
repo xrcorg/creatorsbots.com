@@ -1,5 +1,6 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
+import { bookingDetailsMissing, customDetailsMissing, isAffirmativeReply, isBotQuestion, isCancelReply } from "./conversation-rules";
 
 interface Env {
   ASSETS: Fetcher;
@@ -426,8 +427,20 @@ function isCapabilitiesQuestion(text: string) {
   return /\b(what can you do|what do you offer|what are you offering|services|menu)\b/i.test(text);
 }
 
-function isBotQuestion(text: string) {
-  return /\b(are you (?:a )?bot|is this (?:a )?bot|am i talking to (?:a )?bot|is this automated|are these automated responses|who am i talking to)\b/i.test(text);
+function isGreeting(text: string) {
+  return /^(hey|hi|hello|hey there|hi there|good morning|good afternoon|good evening)[!,. ]*$/i.test(text.trim());
+}
+
+function isGoodnight(text: string) {
+  return /\b(good ?night|going to bed|headed to bed|sleep well|sweet dreams)\b/i.test(text);
+}
+
+function isThanks(text: string) {
+  return /^(thanks|thank you|ty|appreciate it|thanks babe)[!,. ]*$/i.test(text.trim());
+}
+
+function isPriceQuestion(text: string) {
+  return /\b(how much|what(?:'s| is) (?:the )?(?:price|cost|rate)|prices?|rates?|cost)\b/i.test(text);
 }
 
 function isSocialQuestion(text: string) {
@@ -470,19 +483,6 @@ function isBookingQuestion(text: string) {
   return /\b(book|booking|video chat|video call|fan meet|meet and greet|meet in person|in person meet|set something up)\b/i.test(text);
 }
 
-function bookingDetailsMissing(text: string) {
-  const hasService = /\b(video chat|video call|in person|meet(?:ing)?|meet and greet)\b/i.test(text);
-  const hasDate = /\b(today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|january|february|march|april|may|june|july|august|september|october|november|december)\b/i.test(text) ||
-    /\b\d{1,2}[\/.\-]\d{1,2}(?:[\/.\-]\d{2,4})?\b/.test(text);
-  const hasTime = /\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i.test(text) ||
-    /\b(noon|midnight|morning|afternoon|evening)\b/i.test(text);
-  const missing = [];
-  if (!hasService) missing.push("video chat or in person meet");
-  if (!hasDate) missing.push("preferred date");
-  if (!hasTime) missing.push("preferred time");
-  return missing;
-}
-
 function isCustomVideoQuestion(text: string) {
   return /\b(custom|customs|custom video|custom content|custom photo|custom photos|make me a video|make me content|personalized video|personalized content)\b/i.test(text);
 }
@@ -514,10 +514,6 @@ function sextingPackage(text: string, settings: Record<string, string>) {
 
 function isSextingPaymentQuestion(text: string) {
   return /\b(how (?:do|can) i pay|how to pay|pay for it|send (?:me )?(?:the )?invoice|stars invoice|ready to pay)\b/i.test(text);
-}
-
-function isAffirmativeReply(text: string) {
-  return /^(yes|yes i do|yes i want to|yes please|yes babe|yeah|yeah i do|yep|sure|okay|ok|let's do it|lets do it|i do|i want to|i'd love to|id love to)[.! ]*$/i.test(text.trim());
 }
 
 function sextingMenu(settings: Record<string, string>) {
@@ -713,6 +709,12 @@ async function saveMessage(db: D1Database, chatId: string, role: "user" | "assis
     .run();
 }
 
+async function sendSavedReply(env: Env, message: TelegramMessage, chatId: string, reply: string) {
+  await saveMessage(env.DB, chatId, "user", message.text || "");
+  await saveMessage(env.DB, chatId, "assistant", reply);
+  await sendTelegramMessage(env, message, reply);
+}
+
 async function queueCreatorReply(db: D1Database, message: TelegramMessage) {
   await db.prepare(`INSERT INTO pending_replies
     (chat_id, business_connection_id, question) VALUES (?, ?, ?)`)
@@ -902,7 +904,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     }
     await env.DB.prepare(`UPDATE fan_profiles SET name = ?, name_status = 'complete',
       updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?`).bind(name, chatId).run();
-    const greeting = `Nice to meet you, ${name}.`;
+    const greeting = `Nice to meet you, ${name}. What are you up to?`;
     await saveMessage(env.DB, chatId, "user", message.text);
     await saveMessage(env.DB, chatId, "assistant", greeting);
     await sendTelegramMessage(env, message, greeting);
@@ -925,16 +927,59 @@ async function handleTelegramWebhook(request: Request, env: Env) {
 
   if (isBotQuestion(message.text)) {
     const automationReply = "It's me, babe, but sometimes my chat automatically responds to basic questions. I personally handle anything that needs me.";
-    await saveMessage(env.DB, chatId, "user", message.text);
-    await saveMessage(env.DB, chatId, "assistant", automationReply);
-    await sendTelegramMessage(env, message, automationReply);
+    await sendSavedReply(env, message, chatId, automationReply);
+    return json({ ok: true });
+  }
+
+  if (isCapabilitiesQuestion(message.text)) {
+    await sendSavedReply(env, message, chatId, CAPABILITIES);
+    return json({ ok: true });
+  }
+
+  if (isSocialQuestion(message.text)) {
+    const socialReply = isPornhubQuestion(message.text)
+      ? PORNHUB_REPLY
+      : isXQuestion(message.text)
+        ? X_REPLY
+        : isAllSocialsQuestion(message.text)
+          ? SOCIALS_REPLY
+          : INSTAGRAM_REPLY;
+    await sendSavedReply(env, message, chatId, socialReply);
+    return json({ ok: true });
+  }
+
+  if (isTodayActivityQuestion(message.text)) {
+    await sendSavedReply(env, message, chatId, randomTodayActivity(chatId));
+    return json({ ok: true });
+  }
+
+  if (isHowAreYouQuestion(message.text)) {
+    await sendSavedReply(env, message, chatId, randomHowAreYouReply(chatId));
+    return json({ ok: true });
+  }
+
+  if (isGoodnight(message.text)) {
+    await sendSavedReply(env, message, chatId, "Sweet dreams, babe. Talk to you tomorrow.");
+    return json({ ok: true });
+  }
+
+  if (isGreeting(message.text)) {
+    const greeting = Number(new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Los_Angeles", hour: "2-digit", hourCycle: "h23",
+    }).format(new Date())) < 12 ? "Good morning, babe. How are you?" : "Hey babe. How are you?";
+    await sendSavedReply(env, message, chatId, greeting);
+    return json({ ok: true });
+  }
+
+  if (isThanks(message.text)) {
+    await sendSavedReply(env, message, chatId, "Of course, babe.");
     return json({ ok: true });
   }
 
   const sextingDraft = await env.DB.prepare(`SELECT status FROM sexting_drafts WHERE chat_id = ?`)
     .bind(chatId).first<{ status: string }>();
   if (sextingDraft?.status === "awaiting_package") {
-    if (/\b(cancel|never mind|nevermind)\b/i.test(message.text)) {
+    if (isCancelReply(message.text)) {
       await env.DB.prepare(`UPDATE sexting_drafts SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
         WHERE chat_id = ?`).bind(chatId).run();
       await sendTelegramMessage(env, message, "No problem, babe. I cancelled it.");
@@ -980,7 +1025,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   const customDraft = await env.DB.prepare(`SELECT status FROM custom_drafts
     WHERE chat_id = ?`).bind(chatId).first<{ status: string }>();
   if (customDraft?.status === "awaiting_details") {
-    if (/\b(cancel|never mind|nevermind)\b/i.test(message.text)) {
+    if (isCancelReply(message.text)) {
       await env.DB.prepare(`UPDATE custom_drafts SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
         WHERE chat_id = ?`).bind(chatId).run();
       const cancelled = "No problem. I cancelled the custom request.";
@@ -996,10 +1041,30 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       await sendTelegramMessage(env, message, paymentReply);
       return json({ ok: true });
     }
+    if (isPriceQuestion(message.text)) {
+      const customPriceReply = `Customs are ${dollars(settings.custom_content_rate, 50)} per minute with a 5 minute minimum. What did you have in mind?`;
+      await sendSavedReply(env, message, chatId, customPriceReply);
+      return json({ ok: true });
+    }
+    const recentCustomMessages = await env.DB.prepare(`SELECT content FROM chat_messages
+      WHERE chat_id = ? AND role = 'user' ORDER BY id DESC LIMIT 4`)
+      .bind(chatId).all<{ content: string }>();
+    const combinedCustomDetails = [...recentCustomMessages.results]
+      .reverse().map((item) => item.content).concat(message.text).join(" ");
+    const missingCustomDetails = customDetailsMissing(combinedCustomDetails);
+    if (missingCustomDetails.description || missingCustomDetails.duration) {
+      const customFollowUp = missingCustomDetails.description && missingCustomDetails.duration
+        ? "Tell me what you want in the custom and how many minutes you want, babe."
+        : missingCustomDetails.description
+          ? "What do you want me to do in the custom?"
+          : "How many minutes do you want it to be?";
+      await sendSavedReply(env, message, chatId, customFollowUp);
+      return json({ ok: true });
+    }
     await env.DB.prepare(`UPDATE custom_drafts SET status = 'submitted', updated_at = CURRENT_TIMESTAMP
       WHERE chat_id = ?`).bind(chatId).run();
     await env.DB.prepare(`INSERT INTO booking_requests (chat_id, business_connection_id, details)
-      VALUES (?, ?, ?)`).bind(chatId, message.business_connection_id || null, `Custom content request: ${message.text}`).run();
+      VALUES (?, ?, ?)`).bind(chatId, message.business_connection_id || null, `Custom content request: ${combinedCustomDetails}`).run();
     const received = "That sounds fun. I'll look it over and see if I can make it for you.";
     await saveMessage(env.DB, chatId, "user", message.text);
     await saveMessage(env.DB, chatId, "assistant", received);
@@ -1035,7 +1100,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   const bookingDraft = await env.DB.prepare(`SELECT status FROM booking_drafts
     WHERE chat_id = ?`).bind(chatId).first<{ status: string }>();
   if (bookingDraft?.status === "awaiting_details") {
-    if (/\b(cancel|never mind|nevermind)\b/i.test(message.text)) {
+    if (isCancelReply(message.text)) {
       await env.DB.prepare(`UPDATE booking_drafts SET status = 'cancelled',
         updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?`).bind(chatId).run();
       const cancelled = "No problem. I cancelled the booking request.";
