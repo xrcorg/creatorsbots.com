@@ -1013,6 +1013,26 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     return json({ ok: true });
   }
 
+  const activeSextingSession = await env.DB.prepare(`SELECT id FROM sexting_sessions
+    WHERE chat_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1`)
+    .bind(chatId).first<{ id: number }>();
+  if (activeSextingSession) {
+    let sextingReply = CREATOR_TAKEOVER;
+    try {
+      sextingReply = await createAIReply(env, chatId, message.text);
+    } catch (error) {
+      console.error("Active sexting reply failed", error);
+    }
+    await saveMessage(env.DB, chatId, "user", message.text);
+    if (sextingReply === CREATOR_TAKEOVER) {
+      if (settings.human_takeover !== "off") await queueCreatorReply(env.DB, message);
+      return json({ ok: true, creator_reply_needed: true });
+    }
+    await saveMessage(env.DB, chatId, "assistant", sextingReply);
+    await sendTelegramMessage(env, message, sextingReply);
+    return json({ ok: true, active_sexting: true });
+  }
+
   const sextingDraft = await env.DB.prepare(`SELECT status FROM sexting_drafts WHERE chat_id = ?`)
     .bind(chatId).first<{ status: string }>();
   if (sextingDraft?.status === "awaiting_package") {
