@@ -1,12 +1,18 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
 type Message = {
   id: number;
   role: "bot" | "fan" | "system";
   text: string;
   time: string;
+};
+
+type LivePendingReply = {
+  id: number;
+  question: string;
+  created_at: string;
 };
 
 const initialMessages: Message[] = [
@@ -81,13 +87,39 @@ export default function Home() {
   const [creatorMode, setCreatorMode] = useState(false);
   const [creatorReply, setCreatorReply] = useState("");
   const [savedAnswers, setSavedAnswers] = useState(12);
+  const [livePending, setLivePending] = useState<LivePendingReply[]>([]);
+  const [liveLoading, setLiveLoading] = useState(false);
+  const [liveError, setLiveError] = useState("");
+
+  const loadLivePending = useCallback(async () => {
+    try {
+      setLiveLoading(true);
+      const response = await fetch("/api/admin/pending", { cache: "no-store" });
+      if (!response.ok) throw new Error("Unable to load the creator inbox");
+      const data = await response.json() as { pending: LivePendingReply[]; learned_count: number };
+      setLivePending(data.pending);
+      setSavedAnswers(data.learned_count);
+      setLiveError("");
+    } catch {
+      setLiveError("The live creator inbox could not be loaded.");
+    } finally {
+      setLiveLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!creatorMode) return;
+    void loadLivePending();
+    const timer = window.setInterval(() => void loadLivePending(), 15000);
+    return () => window.clearInterval(timer);
+  }, [creatorMode, loadLivePending]);
 
   const statusText = useMemo(() => {
     if (blocked) return "Conversation closed";
     if (!verified) return "Waiting for age confirmation";
-    if (pending.length) return "Tiffani reply needed";
+    if (livePending.length) return "Tiffani reply needed";
     return "AI assistant active";
-  }, [blocked, pending.length, verified]);
+  }, [blocked, livePending.length, verified]);
 
   function addMessage(role: Message["role"], text: string) {
     setMessages((current) => [
@@ -143,6 +175,27 @@ export default function Home() {
     if (save) setSavedAnswers((current) => current + 1);
   }
 
+  async function sendLiveCreatorReply(save: boolean) {
+    const current = livePending[0];
+    const answer = creatorReply.trim();
+    if (!current || !answer) return;
+    try {
+      setLiveLoading(true);
+      const response = await fetch("/api/admin/reply", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: current.id, answer, learn: save }),
+      });
+      if (!response.ok) throw new Error("Reply failed");
+      setCreatorReply("");
+      await loadLivePending();
+    } catch {
+      setLiveError("The reply was not sent. Please try again.");
+    } finally {
+      setLiveLoading(false);
+    }
+  }
+
   function resetDemo() {
     setMessages(initialMessages);
     setInput("");
@@ -164,7 +217,7 @@ export default function Home() {
           </div>
         </div>
         <div className="topActions">
-          <span className={`statusPill ${pending.length ? "needsReply" : ""}`}>
+          <span className={`statusPill ${livePending.length ? "needsReply" : ""}`}>
             <i /> {statusText}
           </span>
           <button className="ghostButton" onClick={resetDemo}>Reset test</button>
@@ -194,7 +247,7 @@ export default function Home() {
           <div className="metricGrid">
             <div><strong>18+</strong><span>Age gate</span></div>
             <div><strong>{savedAnswers}</strong><span>Learned replies</span></div>
-            <div><strong>{pending.length}</strong><span>Needs Tiffani</span></div>
+            <div><strong>{livePending.length}</strong><span>Needs Tiffani</span></div>
             <div><strong>Very</strong><span>Flirty level</span></div>
           </div>
 
@@ -202,7 +255,7 @@ export default function Home() {
             <div className="ruleIcon">♡</div>
             <div>
               <strong>Voice active</strong>
-              <p>Short, blunt, emoji rich, soft and sweet with confident energy.</p>
+              <p>Short, blunt, lightly flirty, and confident with occasional emojis.</p>
             </div>
           </div>
           <div className="ruleCard safe">
@@ -331,29 +384,29 @@ export default function Home() {
             <span className="liveBadge">Live</span>
           </div>
 
-          {pending.length ? (
+          {livePending.length ? (
             <div className="takeoverCard">
               <div className="alertTitle"><span>!</span> Reply requested</div>
-              <p className="fanQuestion">“{pending[0]}”</p>
-              <div className="botPaused">The bot sent the pause phrase and is waiting for you.</div>
+              <p className="fanQuestion">“{livePending[0].question}”</p>
+              <div className="botPaused">The bot stayed silent so you can answer personally.</div>
               <textarea
                 aria-label="Creator reply"
                 onChange={(event) => setCreatorReply(event.target.value)}
                 placeholder="Type as Tiffani..."
                 value={creatorReply}
               />
-              <button className="primaryAction" onClick={() => sendCreatorReply(true)}>
+              <button className="primaryAction" disabled={liveLoading} onClick={() => void sendLiveCreatorReply(true)}>
                 Send and save for later
               </button>
-              <button className="secondaryAction" onClick={() => sendCreatorReply(false)}>
+              <button className="secondaryAction" disabled={liveLoading} onClick={() => void sendLiveCreatorReply(false)}>
                 Send once
               </button>
             </div>
           ) : (
             <div className="emptyQueue">
               <span>✓</span>
-              <h3>You're all caught up</h3>
-              <p>Try asking for a custom request, discount, meeting, or address in the fan chat.</p>
+              <h3>{liveLoading ? "Checking live messages" : "You're all caught up"}</h3>
+              <p>{liveError || "Unanswered Telegram questions will appear here automatically."}</p>
             </div>
           )}
 
@@ -372,7 +425,7 @@ export default function Home() {
           </div>
         </aside>
       </section>
-      <footer className="footerNote">Private prototype · Test data stays on this device · No live payments</footer>
+      <footer className="footerNote">Live creator controls · Telegram replies are sent immediately · No live payments</footer>
     </main>
   );
 }

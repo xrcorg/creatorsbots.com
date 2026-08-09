@@ -94,6 +94,22 @@ async function prepareDatabase(db: D1Database) {
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS chat_messages_chat_id_idx
       ON chat_messages(chat_id, id)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS pending_replies (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      chat_id TEXT NOT NULL,
+      business_connection_id TEXT,
+      question TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      answer TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      answered_at TEXT
+    )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS learned_answers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      question TEXT NOT NULL,
+      answer TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`),
   ]);
 }
 
@@ -146,12 +162,22 @@ async function saveMessage(db: D1Database, chatId: string, role: "user" | "assis
     .run();
 }
 
+async function queueCreatorReply(db: D1Database, message: TelegramMessage) {
+  await db.prepare(`INSERT INTO pending_replies
+    (chat_id, business_connection_id, question) VALUES (?, ?, ?)`)
+    .bind(String(message.chat.id), message.business_connection_id || null, message.text || "")
+    .run();
+}
+
 async function createAIReply(env: Env, chatId: string, incoming: string) {
   if (!env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is not configured");
 
   const history = await env.DB.prepare(
     "SELECT role, content FROM chat_messages WHERE chat_id = ? ORDER BY id DESC LIMIT 20",
   ).bind(chatId).all<{ role: "user" | "assistant"; content: string }>();
+  const learned = await env.DB.prepare(
+    "SELECT question, answer FROM learned_answers ORDER BY id DESC LIMIT 50",
+  ).all<{ question: string; answer: string }>();
 
   const input = [...history.results].reverse().map((item) => ({
     role: item.role,
@@ -167,7 +193,9 @@ async function createAIReply(env: Env, chatId: string, incoming: string) {
     },
     body: JSON.stringify({
       model: env.OPENAI_MODEL || "gpt-5.6",
-      instructions: TIFFANI_PROMPT,
+      instructions: `${TIFFANI_PROMPT}\nApproved learned answers:\n${learned.results
+        .map((item) => `Fan question: ${item.question}\nTiffani answer: ${item.answer}`)
+        .join("\n\n")}`,
       input,
       max_output_tokens: 220,
     }),
@@ -226,6 +254,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
 
   if (isTiffaniSleeping()) {
     await saveMessage(env.DB, chatId, "user", message.text);
+    await queueCreatorReply(env.DB, message);
     return json({ ok: true });
   }
 
@@ -262,10 +291,56 @@ async function handleTelegramWebhook(request: Request, env: Env) {
 
   await saveMessage(env.DB, chatId, "user", message.text);
   if (reply === CREATOR_TAKEOVER) {
+    await queueCreatorReply(env.DB, message);
     return json({ ok: true, creator_reply_needed: true });
   }
   await saveMessage(env.DB, chatId, "assistant", reply);
   await sendTelegramMessage(env, message, reply);
+  return json({ ok: true });
+}
+
+function isAdminRequest(request: Request) {
+  return Boolean(request.headers.get("oai-authenticated-user-id"));
+}
+
+async function handleAdminPending(request: Request, env: Env) {
+  if (!isAdminRequest(request)) return json({ error: "Sign in required" }, 401);
+  await prepareDatabase(env.DB);
+  const pending = await env.DB.prepare(`SELECT id, question, created_at
+    FROM pending_replies WHERE status = 'pending' ORDER BY id ASC LIMIT 100`).all();
+  const learned = await env.DB.prepare("SELECT COUNT(*) AS count FROM learned_answers").first<{ count: number }>();
+  return json({ pending: pending.results, learned_count: learned?.count || 0 });
+}
+
+async function handleAdminReply(request: Request, env: Env) {
+  if (!isAdminRequest(request)) return json({ error: "Sign in required" }, 401);
+  await prepareDatabase(env.DB);
+  const body = await request.json() as { id?: number; answer?: string; learn?: boolean };
+  const answer = body.answer?.trim();
+  if (!body.id || !answer) return json({ error: "Reply is required" }, 400);
+
+  const pending = await env.DB.prepare(`SELECT id, chat_id, business_connection_id, question
+    FROM pending_replies WHERE id = ? AND status = 'pending'`).bind(body.id).first<{
+      id: number;
+      chat_id: string;
+      business_connection_id: string | null;
+      question: string;
+    }>();
+  if (!pending) return json({ error: "Question is no longer pending" }, 404);
+
+  await sendTelegramMessage(env, {
+    message_id: 0,
+    chat: { id: Number(pending.chat_id) },
+    business_connection_id: pending.business_connection_id || undefined,
+  }, answer);
+  await saveMessage(env.DB, pending.chat_id, "assistant", answer);
+  await env.DB.prepare(`UPDATE pending_replies SET status = 'answered', answer = ?,
+    answered_at = CURRENT_TIMESTAMP WHERE id = ?`).bind(answer, pending.id).run();
+  if (body.learn) {
+    await env.DB.prepare("INSERT INTO learned_answers (question, answer) VALUES (?, ?)")
+      .bind(pending.question, answer)
+      .run();
+  }
   return json({ ok: true });
 }
 
@@ -275,6 +350,14 @@ const worker = {
 
     if (url.pathname === "/api/telegram/webhook" && request.method === "POST") {
       return handleTelegramWebhook(request, env);
+    }
+
+    if (url.pathname === "/api/admin/pending" && request.method === "GET") {
+      return handleAdminPending(request, env);
+    }
+
+    if (url.pathname === "/api/admin/reply" && request.method === "POST") {
+      return handleAdminReply(request, env);
     }
 
     if (url.pathname === "/api/health") {
