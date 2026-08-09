@@ -667,20 +667,16 @@ export default function Home() {
           <span className={`statusPill ${livePending.length || livePurchases.length || liveBookings.length || liveCustoms.length || sextingSessions.length ? "needsReply" : ""}`}>
             <i /> {statusText}
           </span>
-          <button className="ghostButton" onClick={resetDemo}>Reset test</button>
           <button className="ghostButton" onClick={() => void enableNotifications()}>{notificationsEnabled ? "Alerts on" : "Enable alerts"}</button>
-          <button className="modeButton" onClick={() => setCreatorMode((value) => !value)}>
-            {creatorMode ? "View fan chat" : "Creator controls"}
-          </button>
         </div>
       </header>
 
-      <section className={`workspace ${creatorMode ? "creatorOpen" : ""}`}>
+      <section className="workspace creatorDashboard">
         <aside className="sidePanel">
-          <p className="eyebrow">Live test</p>
-          <h1>Sweet. Flirty. Always in control.</h1>
+          <p className="eyebrow">Creator operations</p>
+          <h1>Everything you need in one place.</h1>
           <p className="intro">
-            Test Tiffani's fan experience before connecting the real Telegram bot.
+            Manage Telegram conversations, tasks, sales, content, bookings, and creator settings.
           </p>
 
           <div className="profileCard">
@@ -715,115 +711,7 @@ export default function Home() {
           </div>
         </aside>
 
-        <section className="phoneStage" aria-label="Telegram chat simulator">
-          <div className="phone">
-            <div className="phoneTop">
-              <span className="back">‹</span>
-              <div className="miniAvatar">T</div>
-              <div className="chatIdentity">
-                <strong>Tiffani Madison</strong>
-                <span>bot · online</span>
-              </div>
-              <span className="more">•••</span>
-            </div>
-
-            <div className="chatArea">
-              <div className="disclosure">Automatic chat support · Tiffani can take over anytime</div>
-              {activeTab === "chat" && (
-                <>
-                  {messages.map((message) => (
-                    <div className={`messageRow ${message.role}`} key={message.id}>
-                      <div className="messageBubble">
-                        {message.text}
-                        <span>{message.time}</span>
-                      </div>
-                    </div>
-                  ))}
-
-                  {!verified && !blocked && (
-                    <div className="ageActions">
-                      <button onClick={() => confirmAge(true)}>Yes, I am 18+</button>
-                      <button className="secondary" onClick={() => confirmAge(false)}>No</button>
-                    </div>
-                  )}
-                </>
-              )}
-
-              {activeTab === "shop" && (
-                <div className="panelContent">
-                  <p className="eyebrow">Tiffani's shop</p>
-                  <h2>Pick your temptation</h2>
-                  {!verified ? (
-                    <div className="lockedCard">Confirm you are 18+ in chat to unlock the shop.</div>
-                  ) : (
-                    contentProducts.filter((product) => product.active).slice(0, 2).map((product, index) => (
-                      <button className="productCard" key={product.id}>
-                        <span className={`productArt art${index + 1}`}>♡</span>
-                        <span><strong>{product.title}</strong><small>{product.content_type.replaceAll("_", " ")}</small></span>
-                        <b>{money(product.price_cents)}</b>
-                      </button>
-                    ))
-                  )}
-                  <p className="checkoutNote">Test mode. No real payment will be taken.</p>
-                </div>
-              )}
-
-              {activeTab === "book" && (
-                <div className="panelContent">
-                  <p className="eyebrow">Private booking</p>
-                  <h2>Choose your time</h2>
-                  {!verified ? (
-                    <div className="lockedCard">Confirm you are 18+ in chat to view availability.</div>
-                  ) : (
-                    <>
-                      <div className="bookingProduct">
-                        <span>Video call</span><strong>$150 · 15 minutes</strong>
-                      </div>
-                      <div className="dateStrip">
-                        {[["MON", "12"], ["TUE", "13"], ["WED", "14"], ["THU", "15"]].map(([day, date], index) => (
-                          <button className={index === 1 ? "selected" : ""} key={day}>
-                            <span>{day}</span><strong>{date}</strong>
-                          </button>
-                        ))}
-                      </div>
-                      <div className="timeGrid">
-                        <button>11:00 AM</button><button>1:30 PM</button><button>4:00 PM</button>
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {activeTab === "chat" && (
-              <form className="composer" onSubmit={sendMessage}>
-                <button type="button" aria-label="Add attachment">＋</button>
-                <input
-                  aria-label="Message Tiffani"
-                  disabled={!verified || blocked}
-                  onChange={(event) => setInput(event.target.value)}
-                  placeholder={verified ? "Message Tiffani" : "Confirm age to continue"}
-                  value={input}
-                />
-                <button className="sendButton" disabled={!input.trim() || blocked}>➤</button>
-              </form>
-            )}
-
-            <nav className="tabbar" aria-label="Telegram Mini App tabs">
-              <button className={activeTab === "chat" ? "active" : ""} onClick={() => setActiveTab("chat")}>
-                <span>●</span>Chat
-              </button>
-              <button className={activeTab === "shop" ? "active" : ""} onClick={() => setActiveTab("shop")}>
-                <span>♡</span>Shop
-              </button>
-              <button className={activeTab === "book" ? "active" : ""} onClick={() => setActiveTab("book")}>
-                <span>□</span>Book
-              </button>
-            </nav>
-          </div>
-        </section>
-
-        <aside className={`creatorPanel ${creatorMode ? "visible" : ""}`}>
+        <aside className="creatorPanel visible">
           <div className="creatorHeader">
             <div>
               <p className="eyebrow">Creator inbox</p>
