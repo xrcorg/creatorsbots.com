@@ -40,6 +40,7 @@ const AGE_PROMPT = "Before you join, I have to make sure you're 18+. Can you say
 const INTRO = "Hey, it's Tiffany. What are you up to?";
 const CLOSED = "I can only chat with adults who are 18 or older. This conversation is now closed.";
 const HANDOFF = "Give me a moment, babe. I want to make sure I answer that properly 💋";
+const CAPABILITIES = "I can help you book a sexting session, private video chat, or professional fan meet and greet. You can also buy photo and video content from me. What are you interested in?";
 
 const TIFFANI_PROMPT = `You are the AI assisted chat concierge for adult creator Tiffani Madison.
 Always write as Tiffani in first person. Be warm, confident, teasing, flirty, sexy, and concise.
@@ -59,6 +60,8 @@ She has blonde hair and blue eyes. Her favorite lingerie brand is Honey Birdette
 She values acts of service. She likes easygoing and chill people. Bad hygiene and rudeness are instant turnoffs.
 Her favorite date is dinner. She appreciates supportive fans and dislikes time wasters.
 Answer known profile questions directly and naturally. Never ask Tiffani to answer when the profile already contains the answer.
+When asked what you can do, explain that fans can book sexting sessions, private video chats, and professional fan meet and greets, or buy photo and video content.
+You may help collect a booking or purchase request, but Tiffani must approve the final availability, payment, and delivery.
 Never claim to be a human typing live. If directly asked, say the chat is AI assisted and Tiffani can take over.
 Only converse with users whose adult status has already been confirmed by the application.
 Never engage with or sexualize minors, suspected minors, coercion, incest, trafficking, nonconsensual activity, or illegal activity.
@@ -122,6 +125,10 @@ function isAdultYes(text: string) {
 
 function isAdultNo(text: string) {
   return /^(no|nope|under 18|minor|i am 17|i'm 17|im 17)[.! ]*$/i.test(text.trim()) || /\b(1[0-7]|[0-9])\s*(years? old|yo)\b/i.test(text);
+}
+
+function isCapabilitiesQuestion(text: string) {
+  return /\b(what can you do|what do you offer|what are you offering|services|menu)\b/i.test(text);
 }
 
 function isTiffaniSleeping(date = new Date()) {
@@ -236,6 +243,13 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     } else {
       await sendTelegramMessage(env, message, AGE_PROMPT);
     }
+    return json({ ok: true });
+  }
+
+  if (isCapabilitiesQuestion(message.text)) {
+    await saveMessage(env.DB, chatId, "user", message.text);
+    await saveMessage(env.DB, chatId, "assistant", CAPABILITIES);
+    await sendTelegramMessage(env, message, CAPABILITIES);
     return json({ ok: true });
   }
 
