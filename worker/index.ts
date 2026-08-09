@@ -490,7 +490,7 @@ function isSextingPaymentQuestion(text: string) {
 }
 
 function isAffirmativeReply(text: string) {
-  return /^(yes|yes please|yes babe|yeah|yep|sure|okay|ok|let's do it|lets do it|i do|i want to|i'd love to|id love to)[.! ]*$/i.test(text.trim());
+  return /^(yes|yes i do|yes i want to|yes please|yes babe|yeah|yeah i do|yep|sure|okay|ok|let's do it|lets do it|i do|i want to|i'd love to|id love to)[.! ]*$/i.test(text.trim());
 }
 
 function sextingMenu(settings: Record<string, string>) {
