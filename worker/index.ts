@@ -168,7 +168,7 @@ function isCapabilitiesQuestion(text: string) {
 }
 
 function isProductQuestion(text: string) {
-  return /\b(blonde bombshell|trailer|buy (the )?(video|content)|purchase (the )?(video|content)|video for sale|content for sale|what.*sell)\b/i.test(text);
+  return /\b(blonde bombshell|trailer|buy (the )?(video|content)|purchase (the )?(video|content)|video for sale|content for sale|what.*sell|(newest|latest|new) (video|content)|most recent (video|content))\b/i.test(text);
 }
 
 function isPaymentSent(text: string) {
