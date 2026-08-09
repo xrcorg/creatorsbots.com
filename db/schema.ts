@@ -51,3 +51,18 @@ export const dailyTasks = sqliteTable("daily_tasks", {
 }, (table) => [
   index("idx_daily_tasks_scheduled_status").on(table.scheduledAt, table.status),
 ]);
+
+export const announcements = sqliteTable("announcements", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  platform: text("platform").notNull(),
+  message: text("message").notNull().default(""),
+  streamUrl: text("stream_url").notNull(),
+  status: text("status").notNull().default("sending"),
+  recipientCount: integer("recipient_count").notNull().default(0),
+  deliveredCount: integer("delivered_count").notNull().default(0),
+  failedCount: integer("failed_count").notNull().default(0),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  sentAt: text("sent_at"),
+}, (table) => [
+  index("idx_announcements_created").on(table.createdAt),
+]);

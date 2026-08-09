@@ -103,6 +103,19 @@ type DailyTask = {
   completed_at?: string;
 };
 
+type Announcement = {
+  id: number;
+  platform: string;
+  message: string;
+  stream_url: string;
+  status: "sending" | "sent";
+  recipient_count: number;
+  delivered_count: number;
+  failed_count: number;
+  created_at: string;
+  sent_at?: string;
+};
+
 type EarningsSummary = {
   weekly_cents: number;
   weekly_count: number;
@@ -214,6 +227,9 @@ export default function Home() {
   const [contentProducts, setContentProducts] = useState<ContentProduct[]>([]);
   const [sextingScripts, setSextingScripts] = useState<SextingScript[]>([]);
   const [dailyTasks, setDailyTasks] = useState<DailyTask[]>([]);
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [announcementForm, setAnnouncementForm] = useState({ platform: "Instagram", message: "", stream_url: "" });
+  const [announcementPreview, setAnnouncementPreview] = useState(false);
   const [agendaDate, setAgendaDate] = useState(() => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles" }).format(new Date()));
   const [taskForm, setTaskForm] = useState({ title: "", task_type: "video_chat" as DailyTask["task_type"], scheduled_at: "", fan_name: "", details: "", amount: "" });
   const [scriptForm, setScriptForm] = useState({ stage: "warmup" as SextingScript["stage"], title: "", script_text: "", media_label: "" });
@@ -236,7 +252,7 @@ export default function Home() {
       setLiveLoading(true);
       const response = await fetch("/api/admin/pending", { cache: "no-store" });
       if (!response.ok) throw new Error("Unable to load the creator inbox");
-      const data = await response.json() as { pending: LivePendingReply[]; purchases: LivePurchase[]; purchase_history: LivePurchase[]; bookings: LiveBooking[]; customs: LiveCustom[]; custom_history: LiveCustom[]; sexting_sessions: LiveSextingSession[]; sexting_history: LiveSextingSession[]; sexting_media: SextingMedia[]; sexting_scripts: SextingScript[]; daily_tasks: DailyTask[]; products: ContentProduct[]; stars: { total: number; count: number }; learned_count: number; earnings: EarningsSummary; settings: CreatorSettings };
+      const data = await response.json() as { pending: LivePendingReply[]; purchases: LivePurchase[]; purchase_history: LivePurchase[]; bookings: LiveBooking[]; customs: LiveCustom[]; custom_history: LiveCustom[]; sexting_sessions: LiveSextingSession[]; sexting_history: LiveSextingSession[]; sexting_media: SextingMedia[]; sexting_scripts: SextingScript[]; daily_tasks: DailyTask[]; announcements: Announcement[]; products: ContentProduct[]; stars: { total: number; count: number }; learned_count: number; earnings: EarningsSummary; settings: CreatorSettings };
       setLivePending(data.pending);
       setLivePurchases(data.purchases);
       setPurchaseHistory(data.purchase_history || []);
@@ -250,6 +266,7 @@ export default function Home() {
       setContentProducts(data.products || []);
       setSextingScripts(data.sexting_scripts || []);
       setDailyTasks(data.daily_tasks || []);
+      setAnnouncements(data.announcements || []);
       if (data.bookings[0]?.suggested_type) setBookingType(data.bookings[0].suggested_type);
       setEarnings(data.earnings);
       setSettings(data.settings);
@@ -639,6 +656,28 @@ export default function Home() {
     }
   }
 
+  async function sendAnnouncement() {
+    try {
+      setLiveLoading(true);
+      const response = await fetch("/api/admin/announcements", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(announcementForm),
+      });
+      if (!response.ok) {
+        const data = await response.json() as { error?: string };
+        throw new Error(data.error || "Announcement could not be sent");
+      }
+      setAnnouncementForm({ platform: "Instagram", message: "", stream_url: "" });
+      setAnnouncementPreview(false);
+      await loadLivePending();
+    } catch (error) {
+      setLiveError(error instanceof Error ? error.message : "The announcement could not be sent.");
+    } finally {
+      setLiveLoading(false);
+    }
+  }
+
   const selectedAgendaTasks = dailyTasks.filter((task) => task.scheduled_at.slice(0, 10) === agendaDate);
   const openAgendaCount = selectedAgendaTasks.filter((task) => task.status === "open").length;
   const unscheduledCount = liveBookings.length + liveCustoms.length + livePurchases.length + sextingSessions.length;
@@ -750,6 +789,20 @@ export default function Home() {
             <span>Telegram Stars earned</span>
             <strong>⭐ {starsSummary.total.toLocaleString()}</strong>
             <small>{starsSummary.count} paid sexting sessions</small>
+          </section>
+
+          <section className="announcementCenter">
+            <div className="sectionHeading"><strong>Live announcements</strong><span>{announcements.length}</span></div>
+            <p className="queueNote">Send a live stream link to every verified fan chat.</p>
+            <div className="announcementForm">
+              <label><span>Platform</span><select value={announcementForm.platform} onChange={(event) => setAnnouncementForm((current) => ({ ...current, platform: event.target.value }))}><option>Instagram</option><option>TikTok</option><option>YouTube</option><option>Twitch</option><option>X</option><option>Pornhub</option><option>OnlyFans</option><option>Other</option></select></label>
+              <label><span>Live stream link</span><input type="url" required placeholder="https://..." value={announcementForm.stream_url} onChange={(event) => setAnnouncementForm((current) => ({ ...current, stream_url: event.target.value }))} /></label>
+              <label className="announcementMessage"><span>Optional message</span><textarea maxLength={500} placeholder="Come hang out with me live!" value={announcementForm.message} onChange={(event) => setAnnouncementForm((current) => ({ ...current, message: event.target.value }))} /></label>
+              {!announcementPreview ? <button className="primaryAction" type="button" disabled={!announcementForm.stream_url.trim()} onClick={() => setAnnouncementPreview(true)}>Review announcement</button> : <div className="announcementPreview"><strong>Preview</strong><p>I'm live on {announcementForm.platform} right now, babe!</p>{announcementForm.message && <p>{announcementForm.message}</p>}<a href={announcementForm.stream_url} rel="noreferrer" target="_blank">{announcementForm.stream_url}</a><button className="primaryAction" type="button" disabled={liveLoading} onClick={() => void sendAnnouncement()}>Send to verified fans</button><button className="secondaryAction" type="button" disabled={liveLoading} onClick={() => setAnnouncementPreview(false)}>Edit</button></div>}
+            </div>
+            <div className="announcementHistory">
+              {announcements.slice(0, 8).map((announcement) => <article key={announcement.id}><div><strong>{announcement.platform}</strong><a href={announcement.stream_url} rel="noreferrer" target="_blank">Open link</a></div><small>{announcement.status === "sending" ? "Sending now" : `${announcement.delivered_count} delivered${announcement.failed_count ? ` · ${announcement.failed_count} failed` : ""}`} · {new Date(`${announcement.created_at}Z`).toLocaleString()}</small></article>)}
+            </div>
           </section>
 
           <section className="dailyAgenda">

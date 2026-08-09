@@ -361,6 +361,20 @@ async function prepareDatabase(db: D1Database) {
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_daily_tasks_scheduled_status
       ON daily_tasks(scheduled_at, status)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS announcements (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      platform TEXT NOT NULL,
+      message TEXT NOT NULL DEFAULT '',
+      stream_url TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'sending',
+      recipient_count INTEGER NOT NULL DEFAULT 0,
+      delivered_count INTEGER NOT NULL DEFAULT 0,
+      failed_count INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      sent_at TEXT
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_announcements_created
+      ON announcements(created_at)`),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('flirty_level', 'very')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('human_takeover', 'on')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('learning', 'approval')"),
@@ -1446,6 +1460,9 @@ async function handleAdminPending(request: Request, env: Env) {
   const dailyTasks = await env.DB.prepare(`SELECT id, title, task_type, scheduled_at,
     fan_name, details, amount_cents, status, created_at, completed_at
     FROM daily_tasks ORDER BY datetime(scheduled_at) ASC, id ASC LIMIT 500`).all();
+  const announcements = await env.DB.prepare(`SELECT id, platform, message, stream_url, status,
+    recipient_count, delivered_count, failed_count, created_at, sent_at
+    FROM announcements ORDER BY id DESC LIMIT 100`).all();
   const learned = await env.DB.prepare("SELECT COUNT(*) AS count FROM learned_answers").first<{ count: number }>();
   const weekly = await env.DB.prepare(`SELECT COALESCE(SUM(amount_cents), 0) AS total_cents,
     COUNT(*) AS transaction_count FROM earnings_events
@@ -1468,6 +1485,7 @@ async function handleAdminPending(request: Request, env: Env) {
     products: contentProducts.results,
     sexting_scripts: sextingScripts.results,
     daily_tasks: dailyTasks.results,
+    announcements: announcements.results,
     learned_count: learned?.count || 0,
     earnings: {
       weekly_cents: weekly?.total_cents || 0,
@@ -1809,6 +1827,50 @@ async function handleAdminTasks(request: Request, env: Env) {
   return json({ ok: true });
 }
 
+async function broadcastAnnouncement(env: Env, announcementId: number, platform: string,
+  message: string, streamUrl: string) {
+  const recipients = await env.DB.prepare(`SELECT chat_id, business_connection_id
+    FROM fan_sessions WHERE age_status = 'verified' ORDER BY updated_at DESC LIMIT 2000`)
+    .all<{ chat_id: string; business_connection_id: string | null }>();
+  await env.DB.prepare(`UPDATE announcements SET recipient_count = ? WHERE id = ?`)
+    .bind(recipients.results.length, announcementId).run();
+  let delivered = 0;
+  let failed = 0;
+  const announcementText = `I'm live on ${platform} right now, babe!${message ? `\n\n${message}` : ""}\n\n${streamUrl}`;
+  for (let index = 0; index < recipients.results.length; index += 20) {
+    const batch = recipients.results.slice(index, index + 20);
+    const results = await Promise.allSettled(batch.map((recipient) => sendTelegramMessage(env, {
+      message_id: 0,
+      chat: { id: Number(recipient.chat_id) },
+      business_connection_id: recipient.business_connection_id || undefined,
+    }, announcementText)));
+    delivered += results.filter((result) => result.status === "fulfilled").length;
+    failed += results.filter((result) => result.status === "rejected").length;
+    await env.DB.prepare(`UPDATE announcements SET delivered_count = ?, failed_count = ? WHERE id = ?`)
+      .bind(delivered, failed, announcementId).run();
+  }
+  await env.DB.prepare(`UPDATE announcements SET status = 'sent', delivered_count = ?,
+    failed_count = ?, sent_at = CURRENT_TIMESTAMP WHERE id = ?`)
+    .bind(delivered, failed, announcementId).run();
+}
+
+async function handleAdminAnnouncements(request: Request, env: Env, ctx: ExecutionContext) {
+  if (!isAdminRequest(request)) return json({ error: "Sign in required" }, 401);
+  await prepareDatabase(env.DB);
+  const body = await request.json() as { platform?: string; message?: string; stream_url?: string };
+  const platform = body.platform?.trim().slice(0, 40) || "Live stream";
+  const message = body.message?.trim().slice(0, 500) || "";
+  const streamUrl = body.stream_url?.trim() || "";
+  if (!validHttpUrl(streamUrl) || !streamUrl.startsWith("https://")) {
+    return json({ error: "A secure live stream link is required" }, 400);
+  }
+  const inserted = await env.DB.prepare(`INSERT INTO announcements
+    (platform, message, stream_url) VALUES (?, ?, ?)`).bind(platform, message, streamUrl).run();
+  const announcementId = Number(inserted.meta.last_row_id);
+  ctx.waitUntil(broadcastAnnouncement(env, announcementId, platform, message, streamUrl));
+  return json({ ok: true, id: announcementId });
+}
+
 async function handleAdminSexting(request: Request, env: Env) {
   if (!isAdminRequest(request)) return json({ error: "Sign in required" }, 401);
   await prepareDatabase(env.DB);
@@ -1949,6 +2011,10 @@ const worker = {
 
     if (url.pathname === "/api/admin/tasks" && request.method === "POST") {
       return handleAdminTasks(request, env);
+    }
+
+    if (url.pathname === "/api/admin/announcements" && request.method === "POST") {
+      return handleAdminAnnouncements(request, env, ctx);
     }
 
     if (url.pathname === "/api/admin/sexting" && request.method === "POST") {
