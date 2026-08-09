@@ -398,6 +398,10 @@ function sextingPackage(text: string, settings: Record<string, string>) {
   return null;
 }
 
+function isSextingPaymentQuestion(text: string) {
+  return /\b(how (?:do|can) i pay|how to pay|pay for it|send (?:me )?(?:the )?invoice|stars invoice|ready to pay)\b/i.test(text);
+}
+
 function sextingMenu(settings: Record<string, string>) {
   return `Sexting is ${dollars(settings.sexting_rate, 10)} per minute with a 5 minute minimum, babe. A 5 minute session is ${settings.sexting_5_stars || "3850"} Stars. You can add another 5 minutes whenever you want. Tell me if you want 5 minutes.`;
 }
@@ -646,10 +650,16 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       await sendTelegramMessage(env, message, "No problem, babe. I cancelled it.");
       return json({ ok: true });
     }
-    const selected = sextingPackage(message.text, settings);
+    const selected = sextingPackage(message.text, settings) ||
+      (isSextingPaymentQuestion(message.text)
+        ? { key: "text5", title: "5 minute sexting session", minutes: 5, stars: Number(settings.sexting_5_stars || 3850) }
+        : null);
     if (!selected) {
       await sendTelegramMessage(env, message, sextingMenu(settings));
       return json({ ok: true });
+    }
+    if (isSextingPaymentQuestion(message.text)) {
+      await sendTelegramMessage(env, message, "You can pay with Telegram Stars, babe. Tap the Pay button on the invoice below.");
     }
     await sendStarsInvoice(env, message, selected.title,
       `${selected.minutes} minute private sexting session.`,
