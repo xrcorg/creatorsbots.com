@@ -107,8 +107,21 @@ function dollars(value: string | undefined, fallback: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(amount);
 }
 
-function bookingPrompt(settings: Record<string, string>) {
-  void settings;
+function isVideoChatRequest(text: string) {
+  return /\b(video chat|video call)\b/i.test(text);
+}
+
+function isInPersonRequest(text: string) {
+  return /\b(in person|meet in person|meet and greet)\b/i.test(text);
+}
+
+function bookingPrompt(settings: Record<string, string>, requestText = "") {
+  if (isVideoChatRequest(requestText)) {
+    return `Yeah babe. Video chats happen here on Telegram and are ${dollars(settings.video_chat_rate, 50)} per minute with a 5 minute minimum. What date and time works for you?`;
+  }
+  if (isInPersonRequest(requestText)) {
+    return `Yeah babe. In person meets are ${dollars(settings.in_person_rate, 1500)} per hour. Send me your preferred date, time, and city, then I'll check my calendar.`;
+  }
   return "Yeah babe. Did you want a video chat with me here on Telegram or an in person meet?";
 }
 
@@ -1154,6 +1167,8 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     if (missingBookingDetails.length) {
       const detailsPrompt = missingBookingDetails.includes("video chat or in person meet")
         ? "Did you want a video chat here on Telegram or an in person meet, babe?"
+        : missingBookingDetails.includes("city")
+          ? "What city did you want to meet in, babe?"
         : missingBookingDetails.includes("preferred date") && missingBookingDetails.includes("preferred time")
           ? "What date and time works best for you?"
           : missingBookingDetails.includes("preferred date")
@@ -1185,7 +1200,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       .bind(chatId, message.business_connection_id || null)
       .run();
     await saveMessage(env.DB, chatId, "user", message.text);
-    const prompt = bookingPrompt(settings);
+    const prompt = bookingPrompt(settings, message.text);
     await saveMessage(env.DB, chatId, "assistant", prompt);
     await sendTelegramMessage(env, message, prompt);
     return json({ ok: true });

@@ -3,7 +3,9 @@ export function isBotQuestion(text: string) {
 }
 
 export function bookingDetailsMissing(text: string) {
-  const hasService = /\b(video chat|video call|in person|meet(?:ing)?|meet and greet)\b/i.test(text);
+  const isVideoChat = /\b(video chat|video call)\b/i.test(text);
+  const isInPerson = /\b(in person|meet in person|meet and greet)\b/i.test(text);
+  const hasService = isVideoChat || isInPerson;
   const hasDate = /\b(today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|january|february|march|april|may|june|july|august|september|october|november|december)\b/i.test(text) ||
     /\b\d{1,2}[\/.\-]\d{1,2}(?:[\/.\-]\d{2,4})?\b/.test(text);
   const hasTime = /\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i.test(text) ||
@@ -12,6 +14,7 @@ export function bookingDetailsMissing(text: string) {
   if (!hasService) missing.push("video chat or in person meet");
   if (!hasDate) missing.push("preferred date");
   if (!hasTime) missing.push("preferred time");
+  if (isInPerson && !/\b(?:city(?:\s+is)?|location(?:\s+is)?|in\s+(?!person\b))[ :]?[a-z][a-z .']{2,}\b/i.test(text)) missing.push("city");
   return missing;
 }
 

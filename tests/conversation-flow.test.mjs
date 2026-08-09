@@ -30,6 +30,8 @@ test("bookings require a service, date, and time", () => {
   assert.deepEqual(bookingDetailsMissing("video chat tomorrow at 3 pm"), []);
   assert.deepEqual(bookingDetailsMissing("video chat"), ["preferred date", "preferred time"]);
   assert.deepEqual(bookingDetailsMissing("tomorrow at 3 pm"), ["video chat or in person meet"]);
+  assert.deepEqual(bookingDetailsMissing("in person tomorrow at 3 pm"), ["city"]);
+  assert.deepEqual(bookingDetailsMissing("in person tomorrow at 3 pm in Los Angeles"), []);
 });
 
 test("customs require both creative details and a duration", () => {
