@@ -51,7 +51,7 @@ const PRODUCT_DELIVERY = "https://www.dropbox.com/scl/fi/7cou6th40ln44czgp10rq/T
 const PRODUCT_OFFER = `My newest video is ${PRODUCT_TITLE}, starring me and Mauvius Garcon. It's BBC and ${PRODUCT_PRICE}.\n\nDo you want to buy it? Here's a trailer I have as well:\n${PRODUCT_TRAILER}`;
 const PAYMENT_OPTIONS = `Please send ${PRODUCT_PRICE} using:\nCash App: $playmatexoxo\nVenmo: @barbiedoll10\nZelle: valleyvillageconsulting@gmail.com\n\nIn the payment notes, put your Telegram username. I will verify it before I send the video to you. Send me a screenshot of the payment after you send it.`;
 const BOOKING_PROMPT = "Do you wanna set something up? Video chats are $50 per minute with a 5 minute minimum, and in person meets are $1,500 per hour. Send me your preferred date, time, and which one you want. If it's in person, I need the city too, then I'll check my calendar.";
-const CUSTOM_VIDEO_PROMPT = "I do custom videos for $50 per minute with a 5 minute minimum, so they start at $250. Tell me what you want and how many minutes you're looking for, and I'll review it.";
+const CUSTOM_VIDEO_PROMPT = "I do custom videos for $50 per minute with a 5 minute minimum, so they start at $250. Tell me what you want and how many minutes you're looking for, and I'll try to make it for you!";
 
 const TIFFANI_PROMPT = `You are the AI assisted chat concierge for adult creator Tiffani Madison.
 Always write as Tiffani in first person. Be warm, confident, teasing, flirty, sexy, and concise.
