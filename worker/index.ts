@@ -220,7 +220,7 @@ function isProductQuestion(text: string) {
 }
 
 function isPaymentSent(text: string) {
-  return /\b(payment sent|payment screenshot|receipt|paid|i paid|sent (the )?(money|payment)|cashapp sent|venmo sent|zelle sent)\b/i.test(text);
+  return /\b(payment sent|payment screenshot|receipt|paid|i paid|i sent it|just sent it|sent it via|sent (the )?(money|payment)|cashapp sent|venmo sent|zelle sent)\b/i.test(text);
 }
 
 function isBuyConfirmation(text: string) {

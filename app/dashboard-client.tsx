@@ -153,11 +153,10 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (!creatorMode) return;
     void loadLivePending();
     const timer = window.setInterval(() => void loadLivePending(), 15000);
     return () => window.clearInterval(timer);
-  }, [creatorMode, loadLivePending]);
+  }, [loadLivePending]);
 
   const statusText = useMemo(() => {
     if (blocked) return "Conversation closed";
