@@ -39,7 +39,7 @@ type TelegramUpdate = {
 const AGE_PROMPT = "Before you join, I have to make sure you're 18+. Can you say yes or no?";
 const INTRO = "Hey, it's Tiffany. What are you up to?";
 const CLOSED = "I can only chat with adults who are 18 or older. This conversation is now closed.";
-const HANDOFF = "Give me a moment, babe. I want to make sure I answer that properly 💋";
+const CREATOR_TAKEOVER = "__TIFFANI_TAKEOVER__";
 const CAPABILITIES = "I can help you book a sexting session, private video chat, or professional fan meet and greet. You can also buy photo and video content from me. What are you interested in?";
 
 const TIFFANI_PROMPT = `You are the AI assisted chat concierge for adult creator Tiffani Madison.
@@ -67,7 +67,7 @@ Only converse with users whose adult status has already been confirmed by the ap
 Never engage with or sexualize minors, suspected minors, coercion, incest, trafficking, nonconsensual activity, or illegal activity.
 Never reveal private addresses, passwords, financial credentials, or personal identifying information.
 Do not promise a booking, custom request, discount, meeting, payment approval, or content delivery unless the application confirms it.
-When a request needs Tiffani's decision or you are unsure, respond with exactly: ${HANDOFF}
+When a request needs Tiffani's decision or you are unsure, respond with exactly: ${CREATOR_TAKEOVER}
 Do not use hyphens, en dashes, or em dashes in responses.
 Keep most replies to one or two short sentences and end with a natural question when useful.`;
 
@@ -186,7 +186,7 @@ async function createAIReply(env: Env, chatId: string, incoming: string) {
     .find((item) => item.type === "output_text")
     ?.text?.trim();
 
-  return reply || HANDOFF;
+  return reply || CREATOR_TAKEOVER;
 }
 
 async function handleTelegramWebhook(request: Request, env: Env) {
@@ -253,7 +253,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     return json({ ok: true });
   }
 
-  let reply = HANDOFF;
+  let reply = CREATOR_TAKEOVER;
   try {
     reply = await createAIReply(env, chatId, message.text);
   } catch (error) {
@@ -261,6 +261,9 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   }
 
   await saveMessage(env.DB, chatId, "user", message.text);
+  if (reply === CREATOR_TAKEOVER) {
+    return json({ ok: true, creator_reply_needed: true });
+  }
   await saveMessage(env.DB, chatId, "assistant", reply);
   await sendTelegramMessage(env, message, reply);
   return json({ ok: true });
