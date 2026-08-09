@@ -723,6 +723,10 @@ export default function Home() {
               <span>X</span>
               <b>@TiffaniMadison_</b>
             </a>
+            <a href="https://hubzter.com/profile/electricbarbiestar/" rel="noreferrer" target="_blank">
+              <span>All links</span>
+              <b>Hubzter</b>
+            </a>
           </div>
 
           <div className="recentSales">

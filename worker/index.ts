@@ -47,10 +47,11 @@ const CAPABILITIES = "I can help you book a private video chat or professional f
 const INSTAGRAM_URL = "https://www.instagram.com/tiffanimadisonvip/?hl=en";
 const PORNHUB_URL = "https://www.pornhub.com/pornstar/tiffani-madison";
 const X_URL = "https://x.com/TiffaniMadison_";
+const ALL_LINKS_URL = "https://hubzter.com/profile/electricbarbiestar/";
 const INSTAGRAM_REPLY = `You can follow me on Instagram here, babe: ${INSTAGRAM_URL}`;
 const PORNHUB_REPLY = `You can find my Pornhub here, babe: ${PORNHUB_URL}`;
 const X_REPLY = `You can follow me on X here, babe: ${X_URL}`;
-const SOCIALS_REPLY = `You can find me here, babe:\nInstagram: ${INSTAGRAM_URL}\nX: ${X_URL}\nPornhub: ${PORNHUB_URL}`;
+const SOCIALS_REPLY = `You can find all my links here, babe: ${ALL_LINKS_URL}`;
 const PRODUCT_TITLE = "Blonde Bombshell After Dark";
 const PRODUCT_PRICE = "$24.99";
 const PRODUCT_TRAILER = "https://www.dropbox.com/scl/fi/nek2nzmoy3tkecys5avqj/ARTTEASER.mov?rlkey=ikhlb3tdar9dg9bsmd4e9b6cc&st=zn3d9jpu&dl=0";
@@ -264,7 +265,7 @@ function isCapabilitiesQuestion(text: string) {
 }
 
 function isSocialQuestion(text: string) {
-  return /\b(instagram|insta|ig|pornhub|porn hub|twitter|x account|social|socials|social media|where can i follow you|follow you)\b/i.test(text);
+  return /\b(instagram|insta|ig|pornhub|porn hub|twitter|x account|linktree|link tree|all links|social|socials|social media|where can i follow you|follow you)\b/i.test(text);
 }
 
 function isPornhubQuestion(text: string) {
