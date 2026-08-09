@@ -47,6 +47,7 @@ const PRODUCT_TRAILER = "https://www.dropbox.com/scl/fi/nek2nzmoy3tkecys5avqj/AR
 const PRODUCT_DELIVERY = "https://www.dropbox.com/scl/fi/7cou6th40ln44czgp10rq/TiffxArt-Full.mp4?rlkey=w4y5vyzxeo2ho1em34rtk7ani&st=v0jmkj6n&dl=0";
 const PRODUCT_OFFER = `My newest video is ${PRODUCT_TITLE}, starring me and Mauvius Garcon. It's BBC and ${PRODUCT_PRICE}.\n\nDo you want to buy it? Here's a trailer I have as well:\n${PRODUCT_TRAILER}`;
 const PAYMENT_OPTIONS = `You can send ${PRODUCT_PRICE} using:\nCash App: $playmatexoxo\nVenmo: @barbiedoll10\nZelle: valleyvillageconsulting@gmail.com\n\nAfter paying, message me with “payment sent” and the payment method you used. Tiffani will verify it before the full video is delivered.`;
+const BOOKING_PROMPT = "Do you wanna set something up? Send me your preferred date, time, and whether you're looking for a video chat or an in person meet. If it's in person, I need the city too, then I'll check my calendar.";
 
 const TIFFANI_PROMPT = `You are the AI assisted chat concierge for adult creator Tiffani Madison.
 Always write as Tiffani in first person. Be warm, confident, teasing, flirty, sexy, and concise.
@@ -73,6 +74,7 @@ You may help collect a booking or purchase request, but Tiffani must approve the
 The current video for sale is Blonde Bombshell After Dark, starring Tiffani Madison and Mauvius Garcon. The genre is BBC and the price is $24.99.
 Never reveal the private full video link. The application releases it only after Tiffani approves a payment.
 Never say submit a purchase request. Ask if the fan wants to buy it, show the trailer, and provide payment options after they express interest.
+For video chats and professional fan meet and greets, ask for the preferred date, time, service type, and city for an in person meeting. Never promise availability before Tiffani checks her calendar.
 Never claim to be a human typing live. If directly asked, say the chat is AI assisted and Tiffani can take over.
 Only converse with users whose adult status has already been confirmed by the application.
 Never engage with or sexualize minors, suspected minors, coercion, incest, trafficking, nonconsensual activity, or illegal activity.
@@ -132,6 +134,21 @@ async function prepareDatabase(db: D1Database) {
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       resolved_at TEXT
     )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS booking_drafts (
+      chat_id TEXT PRIMARY KEY,
+      business_connection_id TEXT,
+      status TEXT NOT NULL DEFAULT 'awaiting_details',
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS booking_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      chat_id TEXT NOT NULL,
+      business_connection_id TEXT,
+      details TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      resolved_at TEXT
+    )`),
   ]);
 }
 
@@ -179,6 +196,10 @@ function isPaymentSent(text: string) {
 
 function isBuyConfirmation(text: string) {
   return /\b(yes i want it|i want it|i want to buy it|buy it|i'll buy it|ill buy it|how do i pay|payment options|send payment info)\b/i.test(text);
+}
+
+function isBookingQuestion(text: string) {
+  return /\b(book|booking|video chat|video call|fan meet|meet and greet|meet in person|in person meet|set something up)\b/i.test(text);
 }
 
 function isTiffaniSleeping(date = new Date()) {
@@ -309,6 +330,44 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     return json({ ok: true });
   }
 
+  const bookingDraft = await env.DB.prepare(`SELECT status FROM booking_drafts
+    WHERE chat_id = ?`).bind(chatId).first<{ status: string }>();
+  if (bookingDraft?.status === "awaiting_details") {
+    if (/\b(cancel|never mind|nevermind)\b/i.test(message.text)) {
+      await env.DB.prepare(`UPDATE booking_drafts SET status = 'cancelled',
+        updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?`).bind(chatId).run();
+      const cancelled = "No problem. I cancelled the booking request.";
+      await saveMessage(env.DB, chatId, "user", message.text);
+      await saveMessage(env.DB, chatId, "assistant", cancelled);
+      await sendTelegramMessage(env, message, cancelled);
+      return json({ ok: true });
+    }
+    await env.DB.prepare(`INSERT INTO booking_requests
+      (chat_id, business_connection_id, details) VALUES (?, ?, ?)`)
+      .bind(chatId, message.business_connection_id || null, message.text)
+      .run();
+    await env.DB.prepare(`UPDATE booking_drafts SET status = 'submitted',
+      updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?`).bind(chatId).run();
+    const received = "Got it. I'll check my calendar and get back to you.";
+    await saveMessage(env.DB, chatId, "user", message.text);
+    await saveMessage(env.DB, chatId, "assistant", received);
+    await sendTelegramMessage(env, message, received);
+    return json({ ok: true });
+  }
+
+  if (isBookingQuestion(message.text)) {
+    await env.DB.prepare(`INSERT INTO booking_drafts
+      (chat_id, business_connection_id, status) VALUES (?, ?, 'awaiting_details')
+      ON CONFLICT(chat_id) DO UPDATE SET business_connection_id = excluded.business_connection_id,
+      status = 'awaiting_details', updated_at = CURRENT_TIMESTAMP`)
+      .bind(chatId, message.business_connection_id || null)
+      .run();
+    await saveMessage(env.DB, chatId, "user", message.text);
+    await saveMessage(env.DB, chatId, "assistant", BOOKING_PROMPT);
+    await sendTelegramMessage(env, message, BOOKING_PROMPT);
+    return json({ ok: true });
+  }
+
   if (isCapabilitiesQuestion(message.text)) {
     await saveMessage(env.DB, chatId, "user", message.text);
     await saveMessage(env.DB, chatId, "assistant", CAPABILITIES);
@@ -375,8 +434,10 @@ async function handleAdminPending(request: Request, env: Env) {
     FROM pending_replies WHERE status = 'pending' ORDER BY id ASC LIMIT 100`).all();
   const purchases = await env.DB.prepare(`SELECT id, product_title, price, payment_note, created_at
     FROM purchase_requests WHERE status = 'pending' ORDER BY id ASC LIMIT 100`).all();
+  const bookings = await env.DB.prepare(`SELECT id, details, created_at
+    FROM booking_requests WHERE status = 'pending' ORDER BY id ASC LIMIT 100`).all();
   const learned = await env.DB.prepare("SELECT COUNT(*) AS count FROM learned_answers").first<{ count: number }>();
-  return json({ pending: pending.results, purchases: purchases.results, learned_count: learned?.count || 0 });
+  return json({ pending: pending.results, purchases: purchases.results, bookings: bookings.results, learned_count: learned?.count || 0 });
 }
 
 async function handleAdminReply(request: Request, env: Env) {
@@ -447,6 +508,36 @@ async function handleAdminPurchase(request: Request, env: Env) {
   return json({ ok: true });
 }
 
+async function handleAdminBooking(request: Request, env: Env) {
+  if (!isAdminRequest(request)) return json({ error: "Sign in required" }, 401);
+  await prepareDatabase(env.DB);
+  const body = await request.json() as { id?: number; action?: "send" | "ignore"; answer?: string };
+  if (!body.id || !body.action) return json({ error: "Booking action is required" }, 400);
+  const booking = await env.DB.prepare(`SELECT id, chat_id, business_connection_id
+    FROM booking_requests WHERE id = ? AND status = 'pending'`).bind(body.id).first<{
+      id: number;
+      chat_id: string;
+      business_connection_id: string | null;
+    }>();
+  if (!booking) return json({ error: "Booking is no longer pending" }, 404);
+  if (body.action === "ignore") {
+    await env.DB.prepare(`UPDATE booking_requests SET status = 'ignored', resolved_at = CURRENT_TIMESTAMP
+      WHERE id = ?`).bind(booking.id).run();
+    return json({ ok: true });
+  }
+  const answer = body.answer?.trim();
+  if (!answer) return json({ error: "Booking reply is required" }, 400);
+  await sendTelegramMessage(env, {
+    message_id: 0,
+    chat: { id: Number(booking.chat_id) },
+    business_connection_id: booking.business_connection_id || undefined,
+  }, answer);
+  await saveMessage(env.DB, booking.chat_id, "assistant", answer);
+  await env.DB.prepare(`UPDATE booking_requests SET status = 'answered', resolved_at = CURRENT_TIMESTAMP
+    WHERE id = ?`).bind(booking.id).run();
+  return json({ ok: true });
+}
+
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
@@ -465,6 +556,10 @@ const worker = {
 
     if (url.pathname === "/api/admin/purchase" && request.method === "POST") {
       return handleAdminPurchase(request, env);
+    }
+
+    if (url.pathname === "/api/admin/booking" && request.method === "POST") {
+      return handleAdminBooking(request, env);
     }
 
     if (url.pathname === "/api/health") {

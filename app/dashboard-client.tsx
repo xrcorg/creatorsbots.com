@@ -23,6 +23,12 @@ type LivePurchase = {
   created_at: string;
 };
 
+type LiveBooking = {
+  id: number;
+  details: string;
+  created_at: string;
+};
+
 const initialMessages: Message[] = [
   {
     id: 1,
@@ -97,6 +103,7 @@ export default function Home() {
   const [savedAnswers, setSavedAnswers] = useState(12);
   const [livePending, setLivePending] = useState<LivePendingReply[]>([]);
   const [livePurchases, setLivePurchases] = useState<LivePurchase[]>([]);
+  const [liveBookings, setLiveBookings] = useState<LiveBooking[]>([]);
   const [liveLoading, setLiveLoading] = useState(false);
   const [liveError, setLiveError] = useState("");
 
@@ -105,9 +112,10 @@ export default function Home() {
       setLiveLoading(true);
       const response = await fetch("/api/admin/pending", { cache: "no-store" });
       if (!response.ok) throw new Error("Unable to load the creator inbox");
-      const data = await response.json() as { pending: LivePendingReply[]; purchases: LivePurchase[]; learned_count: number };
+      const data = await response.json() as { pending: LivePendingReply[]; purchases: LivePurchase[]; bookings: LiveBooking[]; learned_count: number };
       setLivePending(data.pending);
       setLivePurchases(data.purchases);
+      setLiveBookings(data.bookings);
       setSavedAnswers(data.learned_count);
       setLiveError("");
     } catch {
@@ -128,9 +136,10 @@ export default function Home() {
     if (blocked) return "Conversation closed";
     if (!verified) return "Waiting for age confirmation";
     if (livePurchases.length) return "Payment approval needed";
+    if (liveBookings.length) return "Booking approval needed";
     if (livePending.length) return "Tiffani reply needed";
     return "AI assistant active";
-  }, [blocked, livePending.length, livePurchases.length, verified]);
+  }, [blocked, liveBookings.length, livePending.length, livePurchases.length, verified]);
 
   function addMessage(role: Message["role"], text: string) {
     setMessages((current) => [
@@ -246,6 +255,28 @@ export default function Home() {
     }
   }
 
+  async function resolveBooking(action: "send" | "ignore") {
+    const current = liveBookings[0];
+    if (!current) return;
+    const answer = creatorReply.trim();
+    if (action === "send" && !answer) return;
+    try {
+      setLiveLoading(true);
+      const response = await fetch("/api/admin/booking", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: current.id, action, answer }),
+      });
+      if (!response.ok) throw new Error("Booking update failed");
+      setCreatorReply("");
+      await loadLivePending();
+    } catch {
+      setLiveError("The booking update was not sent. Please try again.");
+    } finally {
+      setLiveLoading(false);
+    }
+  }
+
   function resetDemo() {
     setMessages(initialMessages);
     setInput("");
@@ -267,7 +298,7 @@ export default function Home() {
           </div>
         </div>
         <div className="topActions">
-          <span className={`statusPill ${livePending.length || livePurchases.length ? "needsReply" : ""}`}>
+          <span className={`statusPill ${livePending.length || livePurchases.length || liveBookings.length ? "needsReply" : ""}`}>
             <i /> {statusText}
           </span>
           <button className="ghostButton" onClick={resetDemo}>Reset test</button>
@@ -297,7 +328,7 @@ export default function Home() {
           <div className="metricGrid">
             <div><strong>18+</strong><span>Age gate</span></div>
             <div><strong>{savedAnswers}</strong><span>Learned replies</span></div>
-            <div><strong>{livePending.length + livePurchases.length}</strong><span>Needs Tiffani</span></div>
+            <div><strong>{livePending.length + livePurchases.length + liveBookings.length}</strong><span>Needs Tiffani</span></div>
             <div><strong>Very</strong><span>Flirty level</span></div>
           </div>
 
@@ -445,6 +476,24 @@ export default function Home() {
               </button>
               <button className="secondaryAction" disabled={liveLoading} onClick={() => void resolvePurchase("decline")}>
                 Payment not verified
+              </button>
+            </div>
+          ) : liveBookings.length ? (
+            <div className="takeoverCard bookingApproval">
+              <div className="alertTitle"><span>□</span> Booking request</div>
+              <p className="fanQuestion">“{liveBookings[0].details}”</p>
+              <div className="botPaused">Check the date, time, service, city, and calendar before replying.</div>
+              <textarea
+                aria-label="Booking reply"
+                onChange={(event) => setCreatorReply(event.target.value)}
+                placeholder="Confirm, suggest another time, or ask a question..."
+                value={creatorReply}
+              />
+              <button className="primaryAction" disabled={liveLoading} onClick={() => void resolveBooking("send")}>
+                Send booking reply
+              </button>
+              <button className="ignoreAction" disabled={liveLoading} onClick={() => void resolveBooking("ignore")}>
+                Ignore
               </button>
             </div>
           ) : livePending.length ? (
