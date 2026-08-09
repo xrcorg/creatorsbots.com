@@ -45,7 +45,10 @@ const CLOSED = "I can only chat with adults who are 18 or older. This conversati
 const CREATOR_TAKEOVER = "__TIFFANI_TAKEOVER__";
 const CAPABILITIES = "I can help you book a private video chat or professional fan meet and greet. You can also buy photo and video content or request custom content from me. What are you interested in?";
 const INSTAGRAM_URL = "https://www.instagram.com/tiffanimadisonvip/?hl=en";
+const PORNHUB_URL = "https://www.pornhub.com/pornstar/tiffani-madison";
 const INSTAGRAM_REPLY = `You can follow me on Instagram here, babe: ${INSTAGRAM_URL}`;
+const PORNHUB_REPLY = `You can find my Pornhub here, babe: ${PORNHUB_URL}`;
+const SOCIALS_REPLY = `You can find me here, babe:\nInstagram: ${INSTAGRAM_URL}\nPornhub: ${PORNHUB_URL}`;
 const PRODUCT_TITLE = "Blonde Bombshell After Dark";
 const PRODUCT_PRICE = "$24.99";
 const PRODUCT_TRAILER = "https://www.dropbox.com/scl/fi/nek2nzmoy3tkecys5avqj/ARTTEASER.mov?rlkey=ikhlb3tdar9dg9bsmd4e9b6cc&st=zn3d9jpu&dl=0";
@@ -259,7 +262,15 @@ function isCapabilitiesQuestion(text: string) {
 }
 
 function isSocialQuestion(text: string) {
-  return /\b(instagram|insta|ig|social|socials|social media|where can i follow you|follow you)\b/i.test(text);
+  return /\b(instagram|insta|ig|pornhub|porn hub|social|socials|social media|where can i follow you|follow you)\b/i.test(text);
+}
+
+function isPornhubQuestion(text: string) {
+  return /\b(pornhub|porn hub)\b/i.test(text);
+}
+
+function isAllSocialsQuestion(text: string) {
+  return /\b(socials|social media|where can i follow you)\b/i.test(text);
 }
 
 function isProductQuestion(text: string) {
@@ -566,9 +577,14 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   }
 
   if (isSocialQuestion(message.text)) {
+    const socialReply = isPornhubQuestion(message.text)
+      ? PORNHUB_REPLY
+      : isAllSocialsQuestion(message.text)
+        ? SOCIALS_REPLY
+        : INSTAGRAM_REPLY;
     await saveMessage(env.DB, chatId, "user", message.text);
-    await saveMessage(env.DB, chatId, "assistant", INSTAGRAM_REPLY);
-    await sendTelegramMessage(env, message, INSTAGRAM_REPLY);
+    await saveMessage(env.DB, chatId, "assistant", socialReply);
+    await sendTelegramMessage(env, message, socialReply);
     return json({ ok: true });
   }
 
