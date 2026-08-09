@@ -73,6 +73,11 @@ const PRODUCT_TRAILER = "https://www.dropbox.com/scl/fi/nek2nzmoy3tkecys5avqj/AR
 const PRODUCT_DELIVERY = "https://www.dropbox.com/scl/fi/7cou6th40ln44czgp10rq/TiffxArt-Full.mp4?rlkey=w4y5vyzxeo2ho1em34rtk7ani&st=v0jmkj6n&dl=0";
 const PRODUCT_OFFER = `My newest video is ${PRODUCT_TITLE}, starring me and Mauvius Garcon. It's BBC and ${PRODUCT_PRICE}.\n\nDo you want to buy it? Here's a trailer I have as well:\n${PRODUCT_TRAILER}`;
 const PAYMENT_OPTIONS = `Please send ${PRODUCT_PRICE} using:\nCash App: $playmatexoxo\nVenmo: @barbiedoll10\nZelle: valleyvillageconsulting@gmail.com\n\nIn the payment notes, put your Telegram username. I will verify it before I send the video to you. Send me a screenshot of the payment after you send it.`;
+
+function manualPaymentMethods(intro: string) {
+  return `${intro}\nCash App: $playmatexoxo\nVenmo: @barbiedoll10\nZelle: valleyvillageconsulting@gmail.com\n\nPut your Telegram username in the payment notes and send me a screenshot after you pay.`;
+}
+
 function dollars(value: string | undefined, fallback: number) {
   const amount = Number(value || fallback);
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(amount);
@@ -375,6 +380,10 @@ function isPaymentSent(text: string) {
 
 function isBuyConfirmation(text: string) {
   return /\b(yes i want it|i want it|i want to buy it|buy it|i'll buy it|ill buy it|how do i pay|payment options|send payment info)\b/i.test(text);
+}
+
+function isManualPaymentQuestion(text: string) {
+  return /\b(how (?:do|can) i pay|how to pay|payment options|send (?:me )?(?:the )?payment info|where (?:do|can) i pay|what payment methods)\b/i.test(text);
 }
 
 function isBookingQuestion(text: string) {
@@ -701,6 +710,13 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       await sendTelegramMessage(env, message, cancelled);
       return json({ ok: true });
     }
+    if (isManualPaymentQuestion(message.text)) {
+      const paymentReply = manualPaymentMethods(`Once I approve your custom and confirm the total, you can pay using one of these, babe. Customs are ${dollars(settings.custom_content_rate, 50)} per minute with a 5 minute minimum.`);
+      await saveMessage(env.DB, chatId, "user", message.text);
+      await saveMessage(env.DB, chatId, "assistant", paymentReply);
+      await sendTelegramMessage(env, message, paymentReply);
+      return json({ ok: true });
+    }
     await env.DB.prepare(`UPDATE custom_drafts SET status = 'submitted', updated_at = CURRENT_TIMESTAMP
       WHERE chat_id = ?`).bind(chatId).run();
     await env.DB.prepare(`INSERT INTO booking_requests (chat_id, business_connection_id, details)
@@ -739,6 +755,13 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       await saveMessage(env.DB, chatId, "user", message.text);
       await saveMessage(env.DB, chatId, "assistant", cancelled);
       await sendTelegramMessage(env, message, cancelled);
+      return json({ ok: true });
+    }
+    if (isManualPaymentQuestion(message.text)) {
+      const paymentReply = manualPaymentMethods("Once I confirm the date, time, service, and total, you can pay using one of these, babe.");
+      await saveMessage(env.DB, chatId, "user", message.text);
+      await saveMessage(env.DB, chatId, "assistant", paymentReply);
+      await sendTelegramMessage(env, message, paymentReply);
       return json({ ok: true });
     }
     await env.DB.prepare(`INSERT INTO booking_requests
