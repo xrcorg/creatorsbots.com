@@ -41,6 +41,11 @@ const INTRO = "Hey, it's Tiffany. What are you up to?";
 const CLOSED = "I can only chat with adults who are 18 or older. This conversation is now closed.";
 const CREATOR_TAKEOVER = "__TIFFANI_TAKEOVER__";
 const CAPABILITIES = "I can help you book a sexting session, private video chat, or professional fan meet and greet. You can also buy photo and video content from me. What are you interested in?";
+const PRODUCT_TITLE = "Blonde Bombshell After Dark";
+const PRODUCT_PRICE = "$24.99";
+const PRODUCT_TRAILER = "https://www.dropbox.com/scl/fi/nek2nzmoy3tkecys5avqj/ARTTEASER.mov?rlkey=ikhlb3tdar9dg9bsmd4e9b6cc&st=zn3d9jpu&dl=0";
+const PRODUCT_DELIVERY = "https://www.dropbox.com/scl/fi/7cou6th40ln44czgp10rq/TiffxArt-Full.mp4?rlkey=w4y5vyzxeo2ho1em34rtk7ani&st=v0jmkj6n&dl=0";
+const PRODUCT_OFFER = `${PRODUCT_TITLE}\nStarring Tiffani Madison and Mauvius Garcon\nGenre: BBC\nPrice: ${PRODUCT_PRICE}\n\nWatch the trailer:\n${PRODUCT_TRAILER}\n\nPay with:\nCash App: $playmatexoxo\nVenmo: @barbiedoll10\nZelle: valleyvillageconsulting@gmail.com\n\nAfter paying, message me with “payment sent” and the payment method you used. Tiffani will verify it before the full video is delivered.`;
 
 const TIFFANI_PROMPT = `You are the AI assisted chat concierge for adult creator Tiffani Madison.
 Always write as Tiffani in first person. Be warm, confident, teasing, flirty, sexy, and concise.
@@ -64,6 +69,8 @@ Her favorite date is dinner. She appreciates supportive fans and dislikes time w
 Answer known profile questions directly and naturally. Never ask Tiffani to answer when the profile already contains the answer.
 When asked what you can do, explain that fans can book sexting sessions, private video chats, and professional fan meet and greets, or buy photo and video content.
 You may help collect a booking or purchase request, but Tiffani must approve the final availability, payment, and delivery.
+The current video for sale is Blonde Bombshell After Dark, starring Tiffani Madison and Mauvius Garcon. The genre is BBC and the price is $24.99.
+Never reveal the private full video link. The application releases it only after Tiffani approves a payment.
 Never claim to be a human typing live. If directly asked, say the chat is AI assisted and Tiffani can take over.
 Only converse with users whose adult status has already been confirmed by the application.
 Never engage with or sexualize minors, suspected minors, coercion, incest, trafficking, nonconsensual activity, or illegal activity.
@@ -112,6 +119,17 @@ async function prepareDatabase(db: D1Database) {
       answer TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS purchase_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      chat_id TEXT NOT NULL,
+      business_connection_id TEXT,
+      product_title TEXT NOT NULL,
+      price TEXT NOT NULL,
+      payment_note TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      resolved_at TEXT
+    )`),
   ]);
 }
 
@@ -147,6 +165,14 @@ function isAdultNo(text: string) {
 
 function isCapabilitiesQuestion(text: string) {
   return /\b(what can you do|what do you offer|what are you offering|services|menu)\b/i.test(text);
+}
+
+function isProductQuestion(text: string) {
+  return /\b(blonde bombshell|trailer|buy (the )?(video|content)|purchase (the )?(video|content)|video for sale|content for sale|what.*sell)\b/i.test(text);
+}
+
+function isPaymentSent(text: string) {
+  return /\b(payment sent|paid|i paid|sent (the )?(money|payment)|cashapp sent|venmo sent|zelle sent)\b/i.test(text);
 }
 
 function isTiffaniSleeping(date = new Date()) {
@@ -284,6 +310,30 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     return json({ ok: true });
   }
 
+  if (isProductQuestion(message.text)) {
+    await saveMessage(env.DB, chatId, "user", message.text);
+    await saveMessage(env.DB, chatId, "assistant", PRODUCT_OFFER);
+    await sendTelegramMessage(env, message, PRODUCT_OFFER);
+    return json({ ok: true });
+  }
+
+  if (isPaymentSent(message.text)) {
+    const existing = await env.DB.prepare(`SELECT id FROM purchase_requests
+      WHERE chat_id = ? AND status = 'pending' LIMIT 1`).bind(chatId).first();
+    if (!existing) {
+      await env.DB.prepare(`INSERT INTO purchase_requests
+        (chat_id, business_connection_id, product_title, price, payment_note)
+        VALUES (?, ?, ?, ?, ?)`)
+        .bind(chatId, message.business_connection_id || null, PRODUCT_TITLE, PRODUCT_PRICE, message.text)
+        .run();
+    }
+    const confirmation = "I got your payment message. Tiffani will verify it before your video is delivered.";
+    await saveMessage(env.DB, chatId, "user", message.text);
+    await saveMessage(env.DB, chatId, "assistant", confirmation);
+    await sendTelegramMessage(env, message, confirmation);
+    return json({ ok: true });
+  }
+
   let reply = CREATOR_TAKEOVER;
   try {
     reply = await createAIReply(env, chatId, message.text);
@@ -310,8 +360,10 @@ async function handleAdminPending(request: Request, env: Env) {
   await prepareDatabase(env.DB);
   const pending = await env.DB.prepare(`SELECT id, question, created_at
     FROM pending_replies WHERE status = 'pending' ORDER BY id ASC LIMIT 100`).all();
+  const purchases = await env.DB.prepare(`SELECT id, product_title, price, payment_note, created_at
+    FROM purchase_requests WHERE status = 'pending' ORDER BY id ASC LIMIT 100`).all();
   const learned = await env.DB.prepare("SELECT COUNT(*) AS count FROM learned_answers").first<{ count: number }>();
-  return json({ pending: pending.results, learned_count: learned?.count || 0 });
+  return json({ pending: pending.results, purchases: purchases.results, learned_count: learned?.count || 0 });
 }
 
 async function handleAdminReply(request: Request, env: Env) {
@@ -346,6 +398,34 @@ async function handleAdminReply(request: Request, env: Env) {
   return json({ ok: true });
 }
 
+async function handleAdminPurchase(request: Request, env: Env) {
+  if (!isAdminRequest(request)) return json({ error: "Sign in required" }, 401);
+  await prepareDatabase(env.DB);
+  const body = await request.json() as { id?: number; action?: "approve" | "decline" };
+  if (!body.id || !body.action) return json({ error: "Purchase action is required" }, 400);
+  const purchase = await env.DB.prepare(`SELECT id, chat_id, business_connection_id
+    FROM purchase_requests WHERE id = ? AND status = 'pending'`).bind(body.id).first<{
+      id: number;
+      chat_id: string;
+      business_connection_id: string | null;
+    }>();
+  if (!purchase) return json({ error: "Purchase is no longer pending" }, 404);
+
+  const approved = body.action === "approve";
+  const responseText = approved
+    ? `Payment approved. Here is ${PRODUCT_TITLE}:\n${PRODUCT_DELIVERY}`
+    : "I could not verify that payment yet. Please check the payment details and send me the method and sender name you used.";
+  await sendTelegramMessage(env, {
+    message_id: 0,
+    chat: { id: Number(purchase.chat_id) },
+    business_connection_id: purchase.business_connection_id || undefined,
+  }, responseText);
+  await saveMessage(env.DB, purchase.chat_id, "assistant", responseText);
+  await env.DB.prepare(`UPDATE purchase_requests SET status = ?, resolved_at = CURRENT_TIMESTAMP
+    WHERE id = ?`).bind(approved ? "approved" : "declined", purchase.id).run();
+  return json({ ok: true });
+}
+
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
@@ -360,6 +440,10 @@ const worker = {
 
     if (url.pathname === "/api/admin/reply" && request.method === "POST") {
       return handleAdminReply(request, env);
+    }
+
+    if (url.pathname === "/api/admin/purchase" && request.method === "POST") {
+      return handleAdminPurchase(request, env);
     }
 
     if (url.pathname === "/api/health") {

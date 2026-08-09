@@ -15,6 +15,14 @@ type LivePendingReply = {
   created_at: string;
 };
 
+type LivePurchase = {
+  id: number;
+  product_title: string;
+  price: string;
+  payment_note: string;
+  created_at: string;
+};
+
 const initialMessages: Message[] = [
   {
     id: 1,
@@ -88,6 +96,7 @@ export default function Home() {
   const [creatorReply, setCreatorReply] = useState("");
   const [savedAnswers, setSavedAnswers] = useState(12);
   const [livePending, setLivePending] = useState<LivePendingReply[]>([]);
+  const [livePurchases, setLivePurchases] = useState<LivePurchase[]>([]);
   const [liveLoading, setLiveLoading] = useState(false);
   const [liveError, setLiveError] = useState("");
 
@@ -96,8 +105,9 @@ export default function Home() {
       setLiveLoading(true);
       const response = await fetch("/api/admin/pending", { cache: "no-store" });
       if (!response.ok) throw new Error("Unable to load the creator inbox");
-      const data = await response.json() as { pending: LivePendingReply[]; learned_count: number };
+      const data = await response.json() as { pending: LivePendingReply[]; purchases: LivePurchase[]; learned_count: number };
       setLivePending(data.pending);
+      setLivePurchases(data.purchases);
       setSavedAnswers(data.learned_count);
       setLiveError("");
     } catch {
@@ -117,9 +127,10 @@ export default function Home() {
   const statusText = useMemo(() => {
     if (blocked) return "Conversation closed";
     if (!verified) return "Waiting for age confirmation";
+    if (livePurchases.length) return "Payment approval needed";
     if (livePending.length) return "Tiffani reply needed";
     return "AI assistant active";
-  }, [blocked, livePending.length, verified]);
+  }, [blocked, livePending.length, livePurchases.length, verified]);
 
   function addMessage(role: Message["role"], text: string) {
     setMessages((current) => [
@@ -196,6 +207,25 @@ export default function Home() {
     }
   }
 
+  async function resolvePurchase(action: "approve" | "decline") {
+    const current = livePurchases[0];
+    if (!current) return;
+    try {
+      setLiveLoading(true);
+      const response = await fetch("/api/admin/purchase", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: current.id, action }),
+      });
+      if (!response.ok) throw new Error("Purchase update failed");
+      await loadLivePending();
+    } catch {
+      setLiveError("The purchase update was not sent. Please try again.");
+    } finally {
+      setLiveLoading(false);
+    }
+  }
+
   function resetDemo() {
     setMessages(initialMessages);
     setInput("");
@@ -217,7 +247,7 @@ export default function Home() {
           </div>
         </div>
         <div className="topActions">
-          <span className={`statusPill ${livePending.length ? "needsReply" : ""}`}>
+          <span className={`statusPill ${livePending.length || livePurchases.length ? "needsReply" : ""}`}>
             <i /> {statusText}
           </span>
           <button className="ghostButton" onClick={resetDemo}>Reset test</button>
@@ -247,7 +277,7 @@ export default function Home() {
           <div className="metricGrid">
             <div><strong>18+</strong><span>Age gate</span></div>
             <div><strong>{savedAnswers}</strong><span>Learned replies</span></div>
-            <div><strong>{livePending.length}</strong><span>Needs Tiffani</span></div>
+            <div><strong>{livePending.length + livePurchases.length}</strong><span>Needs Tiffani</span></div>
             <div><strong>Very</strong><span>Flirty level</span></div>
           </div>
 
@@ -384,7 +414,20 @@ export default function Home() {
             <span className="liveBadge">Live</span>
           </div>
 
-          {livePending.length ? (
+          {livePurchases.length ? (
+            <div className="takeoverCard purchaseApproval">
+              <div className="alertTitle"><span>$</span> Payment approval</div>
+              <p className="fanQuestion">{livePurchases[0].product_title}</p>
+              <div className="purchasePrice">{livePurchases[0].price}</div>
+              <div className="botPaused">Fan message: “{livePurchases[0].payment_note}”</div>
+              <button className="primaryAction" disabled={liveLoading} onClick={() => void resolvePurchase("approve")}>
+                Approve and send full video
+              </button>
+              <button className="secondaryAction" disabled={liveLoading} onClick={() => void resolvePurchase("decline")}>
+                Payment not verified
+              </button>
+            </div>
+          ) : livePending.length ? (
             <div className="takeoverCard">
               <div className="alertTitle"><span>!</span> Reply requested</div>
               <p className="fanQuestion">“{livePending[0].question}”</p>
@@ -406,7 +449,7 @@ export default function Home() {
             <div className="emptyQueue">
               <span>✓</span>
               <h3>{liveLoading ? "Checking live messages" : "You're all caught up"}</h3>
-              <p>{liveError || "Unanswered Telegram questions will appear here automatically."}</p>
+              <p>{liveError || "Unanswered questions and payment approvals will appear here automatically."}</p>
             </div>
           )}
 
