@@ -369,9 +369,9 @@ async function handleAdminPending(request: Request, env: Env) {
 async function handleAdminReply(request: Request, env: Env) {
   if (!isAdminRequest(request)) return json({ error: "Sign in required" }, 401);
   await prepareDatabase(env.DB);
-  const body = await request.json() as { id?: number; answer?: string; learn?: boolean };
+  const body = await request.json() as { id?: number; answer?: string; learn?: boolean; action?: "reply" | "ignore" };
   const answer = body.answer?.trim();
-  if (!body.id || !answer) return json({ error: "Reply is required" }, 400);
+  if (!body.id) return json({ error: "Question is required" }, 400);
 
   const pending = await env.DB.prepare(`SELECT id, chat_id, business_connection_id, question
     FROM pending_replies WHERE id = ? AND status = 'pending'`).bind(body.id).first<{
@@ -379,8 +379,16 @@ async function handleAdminReply(request: Request, env: Env) {
       chat_id: string;
       business_connection_id: string | null;
       question: string;
-    }>();
+  }>();
   if (!pending) return json({ error: "Question is no longer pending" }, 404);
+
+  if (body.action === "ignore") {
+    await env.DB.prepare(`UPDATE pending_replies SET status = 'ignored',
+      answered_at = CURRENT_TIMESTAMP WHERE id = ?`).bind(pending.id).run();
+    return json({ ok: true });
+  }
+
+  if (!answer) return json({ error: "Reply is required" }, 400);
 
   await sendTelegramMessage(env, {
     message_id: 0,

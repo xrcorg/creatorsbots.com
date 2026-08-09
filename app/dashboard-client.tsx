@@ -207,6 +207,26 @@ export default function Home() {
     }
   }
 
+  async function ignoreLiveQuestion() {
+    const current = livePending[0];
+    if (!current) return;
+    try {
+      setLiveLoading(true);
+      const response = await fetch("/api/admin/reply", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: current.id, action: "ignore" }),
+      });
+      if (!response.ok) throw new Error("Ignore failed");
+      setCreatorReply("");
+      await loadLivePending();
+    } catch {
+      setLiveError("The question could not be ignored. Please try again.");
+    } finally {
+      setLiveLoading(false);
+    }
+  }
+
   async function resolvePurchase(action: "approve" | "decline") {
     const current = livePurchases[0];
     if (!current) return;
@@ -443,6 +463,9 @@ export default function Home() {
               </button>
               <button className="secondaryAction" disabled={liveLoading} onClick={() => void sendLiveCreatorReply(false)}>
                 Send once
+              </button>
+              <button className="ignoreAction" disabled={liveLoading} onClick={() => void ignoreLiveQuestion()}>
+                Ignore
               </button>
             </div>
           ) : (
