@@ -464,6 +464,19 @@ function isBookingQuestion(text: string) {
   return /\b(book|booking|video chat|video call|fan meet|meet and greet|meet in person|in person meet|set something up)\b/i.test(text);
 }
 
+function bookingDetailsMissing(text: string) {
+  const hasService = /\b(video chat|video call|in person|meet(?:ing)?|meet and greet)\b/i.test(text);
+  const hasDate = /\b(today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|january|february|march|april|may|june|july|august|september|october|november|december)\b/i.test(text) ||
+    /\b\d{1,2}[\/.\-]\d{1,2}(?:[\/.\-]\d{2,4})?\b/.test(text);
+  const hasTime = /\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i.test(text) ||
+    /\b(noon|midnight|morning|afternoon|evening)\b/i.test(text);
+  const missing = [];
+  if (!hasService) missing.push("video chat or in person meet");
+  if (!hasDate) missing.push("preferred date");
+  if (!hasTime) missing.push("preferred time");
+  return missing;
+}
+
 function isCustomVideoQuestion(text: string) {
   return /\b(custom|customs|custom video|custom content|custom photo|custom photos|make me a video|make me content|personalized video|personalized content)\b/i.test(text);
 }
@@ -1010,6 +1023,21 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       await saveMessage(env.DB, chatId, "user", message.text);
       await saveMessage(env.DB, chatId, "assistant", paymentReply);
       await sendTelegramMessage(env, message, paymentReply);
+      return json({ ok: true });
+    }
+    if (/^(you|with you|a meeting with you|meet with you)\??[.! ]*$/i.test(message.text.trim())) {
+      const clarification = "Yes, with me, babe. Send me your preferred date and time, and let me know if you want a video chat or an in person meet. If it's in person, tell me the city too.";
+      await saveMessage(env.DB, chatId, "user", message.text);
+      await saveMessage(env.DB, chatId, "assistant", clarification);
+      await sendTelegramMessage(env, message, clarification);
+      return json({ ok: true });
+    }
+    const missingBookingDetails = bookingDetailsMissing(message.text);
+    if (missingBookingDetails.length) {
+      const detailsPrompt = `I still need your ${missingBookingDetails.join(", ")}, babe.${/\bin person\b/i.test(message.text) ? " Tell me the city too." : ""}`;
+      await saveMessage(env.DB, chatId, "user", message.text);
+      await saveMessage(env.DB, chatId, "assistant", detailsPrompt);
+      await sendTelegramMessage(env, message, detailsPrompt);
       return json({ ok: true });
     }
     await env.DB.prepare(`INSERT INTO booking_requests
