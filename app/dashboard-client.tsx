@@ -671,7 +671,7 @@ export default function Home() {
             </div>
 
             <div className="chatArea">
-              <div className="disclosure">AI assisted chat · Tiffani can take over anytime</div>
+              <div className="disclosure">Automatic chat support · Tiffani can take over anytime</div>
               {activeTab === "chat" && (
                 <>
                   {messages.map((message) => (

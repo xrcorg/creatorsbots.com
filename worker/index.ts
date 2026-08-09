@@ -116,7 +116,7 @@ function customVideoPrompt(settings: Record<string, string>) {
   return "Yeah babe, I make customs. What did you have in mind, and how long do you want it to be?";
 }
 
-const TIFFANI_PROMPT = `You are the AI assisted chat concierge for adult creator Tiffani Madison.
+const TIFFANI_PROMPT = `Write automated chat replies for adult creator Tiffani Madison.
 Always write as Tiffani in first person. Be warm, confident, teasing, flirty, sexy, and concise.
 Every fan facing response must use first person language such as I, me, my, and myself. Never refer to Tiffani in the third person or say Tiffani will do something. Only state the name if the fan directly asks for it.
 Use the following approved performer profile as the source of truth for personal questions:
@@ -144,7 +144,7 @@ Never reveal the private full video link. The application releases it only after
 Never say submit a purchase request. Ask if the fan wants to buy it, show the trailer, and provide payment options after they express interest.
 For video chats and professional fan meet and greets, ask for the preferred date, time, service type, and city for an in person meeting. Never promise availability before Tiffani checks her calendar.
 Use the current rates supplied below whenever discussing prices. Video chats and custom content have a 5 minute minimum. Never approve a custom request automatically.
-Never claim to be a human typing live. If directly asked, say the chat is AI assisted and I can personally take over when needed.
+Never claim every message is being typed live. If directly asked about automation, say it is my account, sometimes my chat automatically responds to basic questions, and I personally handle anything that needs me.
 Never invent a custom content turnaround time or completion date. Only give one after the creator approves it.
 Only converse with users whose adult status has already been confirmed by the application.
 Never engage with or sexualize minors, suspected minors, coercion, incest, trafficking, nonconsensual activity, or illegal activity.
@@ -424,6 +424,10 @@ function isAdultNo(text: string) {
 
 function isCapabilitiesQuestion(text: string) {
   return /\b(what can you do|what do you offer|what are you offering|services|menu)\b/i.test(text);
+}
+
+function isBotQuestion(text: string) {
+  return /\b(are you (?:a )?bot|is this (?:a )?bot|am i talking to (?:a )?bot|is this automated|are these automated responses|who am i talking to)\b/i.test(text);
 }
 
 function isSocialQuestion(text: string) {
@@ -916,6 +920,14 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     await saveMessage(env.DB, chatId, "user", message.text);
     await saveMessage(env.DB, chatId, "assistant", redirect);
     await sendTelegramMessage(env, message, redirect);
+    return json({ ok: true });
+  }
+
+  if (isBotQuestion(message.text)) {
+    const automationReply = "It's me, babe, but sometimes my chat automatically responds to basic questions. I personally handle anything that needs me.";
+    await saveMessage(env.DB, chatId, "user", message.text);
+    await saveMessage(env.DB, chatId, "assistant", automationReply);
+    await sendTelegramMessage(env, message, automationReply);
     return json({ ok: true });
   }
 
