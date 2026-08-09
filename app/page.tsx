@@ -113,7 +113,7 @@ export default function Home() {
       () =>
         addMessage(
           "bot",
-          "Perfect, babe 💖 I am Tiffani's AI assistant. Tiffani can join the chat anytime. What are you craving today? 😈",
+          "Hey, it's Tiffany. What are you up to?",
         ),
       250,
     );
