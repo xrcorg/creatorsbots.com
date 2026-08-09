@@ -48,6 +48,7 @@ type EarningsSummary = {
   all_time_cents: number;
   all_time_count: number;
   recent: Array<{ id: number; source_type: string; description: string; amount_cents: number; occurred_at: string }>;
+  history: Array<{ id: number; source_type: string; description: string; amount_cents: number; occurred_at: string }>;
 };
 
 type CreatorSettings = {
@@ -139,7 +140,8 @@ export default function Home() {
   const [liveCustoms, setLiveCustoms] = useState<LiveCustom[]>([]);
   const [customHistory, setCustomHistory] = useState<LiveCustom[]>([]);
   const [customLinks, setCustomLinks] = useState<Record<number, string>>({});
-  const [earnings, setEarnings] = useState<EarningsSummary>({ weekly_cents: 0, weekly_count: 0, all_time_cents: 0, all_time_count: 0, recent: [] });
+  const [earnings, setEarnings] = useState<EarningsSummary>({ weekly_cents: 0, weekly_count: 0, all_time_cents: 0, all_time_count: 0, recent: [], history: [] });
+  const [earningsView, setEarningsView] = useState<"weekly" | "all" | null>(null);
   const [bookingType, setBookingType] = useState<"video_chat" | "custom_content" | "in_person">("video_chat");
   const [bookingDuration, setBookingDuration] = useState("");
   const [settings, setSettings] = useState<CreatorSettings>({ flirty_level: "very", human_takeover: "on", learning: "approval", custom_approval: "required" });
@@ -547,9 +549,30 @@ export default function Home() {
           </div>
 
           <div className="earningsOverview">
-            <div><span>Past 7 days</span><strong>{money(earnings.weekly_cents)}</strong><small>{earnings.weekly_count} approved sales</small></div>
-            <div><span>All time</span><strong>{money(earnings.all_time_cents)}</strong><small>{earnings.all_time_count} approved sales</small></div>
+            <button onClick={() => setEarningsView((current) => current === "weekly" ? null : "weekly")}><span>Past 7 days</span><strong>{money(earnings.weekly_cents)}</strong><small>{earnings.weekly_count} approved sales · View history</small></button>
+            <button onClick={() => setEarningsView((current) => current === "all" ? null : "all")}><span>All time</span><strong>{money(earnings.all_time_cents)}</strong><small>{earnings.all_time_count} approved sales · View history</small></button>
           </div>
+          {earningsView && (
+            <section className="earningsHistory">
+              <div className="sectionHeading">
+                <strong>{earningsView === "weekly" ? "Past 7 days sales" : "All sales"}</strong>
+                <button aria-label="Close earnings history" onClick={() => setEarningsView(null)}>×</button>
+              </div>
+              {(earningsView === "weekly"
+                ? earnings.history.filter((item) => new Date(`${item.occurred_at}Z`).getTime() >= Date.now() - 7 * 24 * 60 * 60 * 1000)
+                : earnings.history
+              ).length ? (earningsView === "weekly"
+                ? earnings.history.filter((item) => new Date(`${item.occurred_at}Z`).getTime() >= Date.now() - 7 * 24 * 60 * 60 * 1000)
+                : earnings.history
+              ).map((item) => (
+                <div className="historyRow" key={item.id}>
+                  <span><b>{item.description}</b><small>{item.source_type.replaceAll("_", " ")} · {new Date(`${item.occurred_at}Z`).toLocaleString()}</small></span>
+                  <strong>{money(item.amount_cents)}</strong>
+                </div>
+              )) : <p>No sales in this period.</p>}
+              <div className="historyTotal"><span>Total</span><strong>{money(earningsView === "weekly" ? earnings.weekly_cents : earnings.all_time_cents)}</strong></div>
+            </section>
+          )}
 
           <section className="customQueue">
             <div className="sectionHeading">

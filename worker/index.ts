@@ -653,8 +653,8 @@ async function handleAdminPending(request: Request, env: Env) {
     WHERE occurred_at >= datetime('now', '-7 days')`).first<{ total_cents: number; transaction_count: number }>();
   const allTime = await env.DB.prepare(`SELECT COALESCE(SUM(amount_cents), 0) AS total_cents,
     COUNT(*) AS transaction_count FROM earnings_events`).first<{ total_cents: number; transaction_count: number }>();
-  const recentEarnings = await env.DB.prepare(`SELECT id, source_type, description, amount_cents, occurred_at
-    FROM earnings_events ORDER BY id DESC LIMIT 20`).all();
+  const earningsHistory = await env.DB.prepare(`SELECT id, source_type, description, amount_cents, occurred_at
+    FROM earnings_events ORDER BY id DESC LIMIT 1000`).all();
   const settings = await getSettings(env.DB);
   return json({
     pending: pending.results,
@@ -668,7 +668,8 @@ async function handleAdminPending(request: Request, env: Env) {
       weekly_count: weekly?.transaction_count || 0,
       all_time_cents: allTime?.total_cents || 0,
       all_time_count: allTime?.transaction_count || 0,
-      recent: recentEarnings.results,
+      recent: earningsHistory.results.slice(0, 20),
+      history: earningsHistory.results,
     },
     settings,
   });

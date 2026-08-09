@@ -160,9 +160,17 @@ button { cursor: pointer; }
 .creatorHeader h2 { margin: 0; font-family: Georgia, serif; font-size: 24px; }
 .liveBadge { background: #f1fff6; padding: 7px 10px; }
 .earningsOverview { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
-.earningsOverview > div { padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: #fff8fb; }
+.earningsOverview > button { padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: #fff8fb; text-align: left; }
 .earningsOverview span, .earningsOverview small { display: block; color: var(--muted); font-size: 9px; }
 .earningsOverview strong { display: block; margin: 5px 0 2px; color: var(--deep-pink); font-size: 20px; }
+.earningsHistory { margin: 0 0 16px; padding: 14px; border: 1px solid #f1c9dc; border-radius: 16px; background: #fff; }
+.earningsHistory .sectionHeading button { border: 0; background: transparent; color: var(--muted); font-size: 20px; line-height: 1; }
+.historyRow { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid #f1e7ec; font-size: 10px; }
+.historyRow span { display: grid; gap: 3px; }
+.historyRow small { color: var(--muted); font-size: 8px; text-transform: capitalize; }
+.historyRow > strong { color: var(--deep-pink); }
+.earningsHistory > p { margin: 8px 0; color: var(--muted); font-size: 10px; }
+.historyTotal { display: flex; justify-content: space-between; padding-top: 12px; border-top: 2px solid var(--line); color: var(--deep-pink); font-size: 12px; font-weight: 900; }
 .customQueue, .customHistory { margin-bottom: 16px; padding: 14px; border: 1px solid var(--line); border-radius: 16px; background: #fff; }
 .sectionHeading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; font-size: 12px; }
 .sectionHeading span { min-width: 23px; height: 23px; display: grid; place-items: center; border-radius: 999px; background: var(--soft-pink); color: var(--deep-pink); font-size: 10px; font-weight: 850; }
