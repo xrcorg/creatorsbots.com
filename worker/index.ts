@@ -152,6 +152,15 @@ async function prepareDatabase(db: D1Database) {
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       resolved_at TEXT
     )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS earnings_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source_type TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      description TEXT NOT NULL,
+      amount_cents INTEGER NOT NULL,
+      occurred_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(source_type, source_id)
+    )`),
   ]);
 }
 
@@ -444,7 +453,26 @@ async function handleAdminPending(request: Request, env: Env) {
   const bookings = await env.DB.prepare(`SELECT id, details, created_at
     FROM booking_requests WHERE status = 'pending' ORDER BY id ASC LIMIT 100`).all();
   const learned = await env.DB.prepare("SELECT COUNT(*) AS count FROM learned_answers").first<{ count: number }>();
-  return json({ pending: pending.results, purchases: purchases.results, bookings: bookings.results, learned_count: learned?.count || 0 });
+  const weekly = await env.DB.prepare(`SELECT COALESCE(SUM(amount_cents), 0) AS total_cents,
+    COUNT(*) AS transaction_count FROM earnings_events
+    WHERE occurred_at >= datetime('now', '-7 days')`).first<{ total_cents: number; transaction_count: number }>();
+  const allTime = await env.DB.prepare(`SELECT COALESCE(SUM(amount_cents), 0) AS total_cents,
+    COUNT(*) AS transaction_count FROM earnings_events`).first<{ total_cents: number; transaction_count: number }>();
+  const recentEarnings = await env.DB.prepare(`SELECT id, source_type, description, amount_cents, occurred_at
+    FROM earnings_events ORDER BY id DESC LIMIT 20`).all();
+  return json({
+    pending: pending.results,
+    purchases: purchases.results,
+    bookings: bookings.results,
+    learned_count: learned?.count || 0,
+    earnings: {
+      weekly_cents: weekly?.total_cents || 0,
+      weekly_count: weekly?.transaction_count || 0,
+      all_time_cents: allTime?.total_cents || 0,
+      all_time_count: allTime?.transaction_count || 0,
+      recent: recentEarnings.results,
+    },
+  });
 }
 
 async function handleAdminReply(request: Request, env: Env) {
@@ -512,13 +540,19 @@ async function handleAdminPurchase(request: Request, env: Env) {
   await saveMessage(env.DB, purchase.chat_id, "assistant", responseText);
   await env.DB.prepare(`UPDATE purchase_requests SET status = ?, resolved_at = CURRENT_TIMESTAMP
     WHERE id = ?`).bind(approved ? "approved" : "declined", purchase.id).run();
+  if (approved) {
+    await env.DB.prepare(`INSERT OR IGNORE INTO earnings_events
+      (source_type, source_id, description, amount_cents) VALUES ('content', ?, ?, 2499)`)
+      .bind(String(purchase.id), PRODUCT_TITLE)
+      .run();
+  }
   return json({ ok: true });
 }
 
 async function handleAdminBooking(request: Request, env: Env) {
   if (!isAdminRequest(request)) return json({ error: "Sign in required" }, 401);
   await prepareDatabase(env.DB);
-  const body = await request.json() as { id?: number; action?: "send" | "ignore"; answer?: string };
+  const body = await request.json() as { id?: number; action?: "approve" | "decline" | "ignore"; answer?: string; amount?: string };
   if (!body.id || !body.action) return json({ error: "Booking action is required" }, 400);
   const booking = await env.DB.prepare(`SELECT id, chat_id, business_connection_id
     FROM booking_requests WHERE id = ? AND status = 'pending'`).bind(body.id).first<{
@@ -534,14 +568,24 @@ async function handleAdminBooking(request: Request, env: Env) {
   }
   const answer = body.answer?.trim();
   if (!answer) return json({ error: "Booking reply is required" }, 400);
+  const amountCents = Math.round(Number(body.amount || 0) * 100);
+  if (body.action === "approve" && (!Number.isFinite(amountCents) || amountCents <= 0)) {
+    return json({ error: "A valid booking amount is required" }, 400);
+  }
   await sendTelegramMessage(env, {
     message_id: 0,
     chat: { id: Number(booking.chat_id) },
     business_connection_id: booking.business_connection_id || undefined,
   }, answer);
   await saveMessage(env.DB, booking.chat_id, "assistant", answer);
-  await env.DB.prepare(`UPDATE booking_requests SET status = 'answered', resolved_at = CURRENT_TIMESTAMP
-    WHERE id = ?`).bind(booking.id).run();
+  await env.DB.prepare(`UPDATE booking_requests SET status = ?, resolved_at = CURRENT_TIMESTAMP
+    WHERE id = ?`).bind(body.action === "approve" ? "approved" : "declined", booking.id).run();
+  if (body.action === "approve") {
+    await env.DB.prepare(`INSERT OR IGNORE INTO earnings_events
+      (source_type, source_id, description, amount_cents) VALUES ('booking', ?, 'Approved booking', ?)`)
+      .bind(String(booking.id), amountCents)
+      .run();
+  }
   return json({ ok: true });
 }
 

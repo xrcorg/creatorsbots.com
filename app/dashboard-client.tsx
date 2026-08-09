@@ -29,6 +29,18 @@ type LiveBooking = {
   created_at: string;
 };
 
+type EarningsSummary = {
+  weekly_cents: number;
+  weekly_count: number;
+  all_time_cents: number;
+  all_time_count: number;
+  recent: Array<{ id: number; source_type: string; description: string; amount_cents: number; occurred_at: string }>;
+};
+
+function money(cents: number) {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
+}
+
 const initialMessages: Message[] = [
   {
     id: 1,
@@ -104,6 +116,8 @@ export default function Home() {
   const [livePending, setLivePending] = useState<LivePendingReply[]>([]);
   const [livePurchases, setLivePurchases] = useState<LivePurchase[]>([]);
   const [liveBookings, setLiveBookings] = useState<LiveBooking[]>([]);
+  const [earnings, setEarnings] = useState<EarningsSummary>({ weekly_cents: 0, weekly_count: 0, all_time_cents: 0, all_time_count: 0, recent: [] });
+  const [bookingAmount, setBookingAmount] = useState("");
   const [liveLoading, setLiveLoading] = useState(false);
   const [liveError, setLiveError] = useState("");
 
@@ -112,10 +126,11 @@ export default function Home() {
       setLiveLoading(true);
       const response = await fetch("/api/admin/pending", { cache: "no-store" });
       if (!response.ok) throw new Error("Unable to load the creator inbox");
-      const data = await response.json() as { pending: LivePendingReply[]; purchases: LivePurchase[]; bookings: LiveBooking[]; learned_count: number };
+      const data = await response.json() as { pending: LivePendingReply[]; purchases: LivePurchase[]; bookings: LiveBooking[]; learned_count: number; earnings: EarningsSummary };
       setLivePending(data.pending);
       setLivePurchases(data.purchases);
       setLiveBookings(data.bookings);
+      setEarnings(data.earnings);
       setSavedAnswers(data.learned_count);
       setLiveError("");
     } catch {
@@ -255,20 +270,22 @@ export default function Home() {
     }
   }
 
-  async function resolveBooking(action: "send" | "ignore") {
+  async function resolveBooking(action: "approve" | "decline" | "ignore") {
     const current = liveBookings[0];
     if (!current) return;
     const answer = creatorReply.trim();
-    if (action === "send" && !answer) return;
+    if (action !== "ignore" && !answer) return;
+    if (action === "approve" && !bookingAmount.trim()) return;
     try {
       setLiveLoading(true);
       const response = await fetch("/api/admin/booking", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ id: current.id, action, answer }),
+        body: JSON.stringify({ id: current.id, action, answer, amount: bookingAmount }),
       });
       if (!response.ok) throw new Error("Booking update failed");
       setCreatorReply("");
+      setBookingAmount("");
       await loadLivePending();
     } catch {
       setLiveError("The booking update was not sent. Please try again.");
@@ -465,6 +482,11 @@ export default function Home() {
             <span className="liveBadge">Live</span>
           </div>
 
+          <div className="earningsOverview">
+            <div><span>Past 7 days</span><strong>{money(earnings.weekly_cents)}</strong><small>{earnings.weekly_count} approved sales</small></div>
+            <div><span>All time</span><strong>{money(earnings.all_time_cents)}</strong><small>{earnings.all_time_count} approved sales</small></div>
+          </div>
+
           {livePurchases.length ? (
             <div className="takeoverCard purchaseApproval">
               <div className="alertTitle"><span>$</span> Payment approval</div>
@@ -489,8 +511,15 @@ export default function Home() {
                 placeholder="Confirm, suggest another time, or ask a question..."
                 value={creatorReply}
               />
-              <button className="primaryAction" disabled={liveLoading} onClick={() => void resolveBooking("send")}>
-                Send booking reply
+              <label className="amountField">
+                <span>Approved booking amount</span>
+                <input inputMode="decimal" onChange={(event) => setBookingAmount(event.target.value)} placeholder="0.00" value={bookingAmount} />
+              </label>
+              <button className="primaryAction" disabled={liveLoading} onClick={() => void resolveBooking("approve")}>
+                Approve booking and send
+              </button>
+              <button className="secondaryAction" disabled={liveLoading} onClick={() => void resolveBooking("decline")}>
+                Decline and send reply
               </button>
               <button className="ignoreAction" disabled={liveLoading} onClick={() => void resolveBooking("ignore")}>
                 Ignore
@@ -538,9 +567,19 @@ export default function Home() {
             <div><span>Learning</span><strong>Approval only</strong></div>
             <div><span>Age gate</span><strong>Required</strong></div>
           </div>
+
+          <div className="recentSales">
+            <strong>Recent earnings</strong>
+            {earnings.recent.length ? earnings.recent.slice(0, 6).map((item) => (
+              <div key={item.id}>
+                <span>{item.description}<small>{new Date(`${item.occurred_at}Z`).toLocaleString()}</small></span>
+                <b>{money(item.amount_cents)}</b>
+              </div>
+            )) : <p>No approved sales yet.</p>}
+          </div>
         </aside>
       </section>
-      <footer className="footerNote">Live creator controls · Telegram replies are sent immediately · No live payments</footer>
+      <footer className="footerNote">Live creator controls · Manual payment approvals · Earnings logged after approval</footer>
     </main>
   );
 }
