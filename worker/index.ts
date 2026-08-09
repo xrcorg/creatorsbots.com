@@ -227,6 +227,10 @@ async function prepareDatabase(db: D1Database) {
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('video_chat_rate', '50')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('custom_content_rate', '50')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('in_person_rate', '1500')"),
+    db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('preferred_topics', '')"),
+    db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('avoid_topics', '')"),
+    db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('tone_guidance', 'Short, blunt, warm, confident, flirty, and natural')"),
+    db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('creator_feedback', '')"),
   ]);
 }
 
@@ -373,7 +377,7 @@ async function createAIReply(env: Env, chatId: string, incoming: string) {
     },
     body: JSON.stringify({
       model: env.OPENAI_MODEL || "gpt-5.6",
-      instructions: `${TIFFANI_PROMPT}\nThe fan's name is ${profile?.name || "unknown"}. Use their name naturally and occasionally, not in every response.\nCurrent flirty level: ${settings.flirty_level || "very"}.\nCurrent rates: video chat ${dollars(settings.video_chat_rate, 50)} per minute with a 5 minute minimum, custom content ${dollars(settings.custom_content_rate, 50)} per minute with a 5 minute minimum, and in person meetings ${dollars(settings.in_person_rate, 1500)} per hour.\nApproved learned answers:\n${settings.learning === "off" ? "Learning is off." : learned.results
+      instructions: `${TIFFANI_PROMPT}\nThe fan's name is ${profile?.name || "unknown"}. Use their name naturally and occasionally, not in every response.\nCurrent flirty level: ${settings.flirty_level || "very"}.\nCurrent rates: video chat ${dollars(settings.video_chat_rate, 50)} per minute with a 5 minute minimum, custom content ${dollars(settings.custom_content_rate, 50)} per minute with a 5 minute minimum, and in person meetings ${dollars(settings.in_person_rate, 1500)} per hour.\nCreator approved topics to discuss: ${settings.preferred_topics || "No additional topics supplied."}\nCreator topics to avoid: ${settings.avoid_topics || "No additional topics supplied."}\nCreator tone guidance: ${settings.tone_guidance || "Short, blunt, warm, confident, flirty, and natural."}\nCreator feedback about my habits: ${settings.creator_feedback || "No additional feedback supplied."}\nFollow creator preferences unless they conflict with safety, age restrictions, privacy, or the fixed business rules above.\nApproved learned answers:\n${settings.learning === "off" ? "Learning is off." : learned.results
         .map((item) => `Fan question: ${item.question}\nApproved answer: ${item.answer}`)
         .join("\n\n")}`,
       input,
@@ -925,9 +929,11 @@ async function handleAdminSettings(request: Request, env: Env) {
     custom_approval: ["required", "off"],
   };
   const rateKeys = ["video_chat_rate", "custom_content_rate", "in_person_rate"];
+  const textKeys = ["preferred_topics", "avoid_topics", "tone_guidance", "creator_feedback"];
   const validRate = body.key && rateKeys.includes(body.key) && body.value &&
     Number.isFinite(Number(body.value)) && Number(body.value) > 0 && Number(body.value) <= 100000;
-  if (!body.key || !body.value || (!allowed[body.key]?.includes(body.value) && !validRate)) {
+  const validText = body.key && textKeys.includes(body.key) && typeof body.value === "string" && body.value.length <= 4000;
+  if (!body.key || typeof body.value !== "string" || (!allowed[body.key]?.includes(body.value) && !validRate && !validText)) {
     return json({ error: "Invalid setting" }, 400);
   }
   await env.DB.prepare(`INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)

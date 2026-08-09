@@ -59,6 +59,10 @@ type CreatorSettings = {
   video_chat_rate: string;
   custom_content_rate: string;
   in_person_rate: string;
+  preferred_topics: string;
+  avoid_topics: string;
+  tone_guidance: string;
+  creator_feedback: string;
 };
 
 function money(cents: number) {
@@ -147,7 +151,7 @@ export default function Home() {
   const [earningsView, setEarningsView] = useState<"weekly" | "all" | null>(null);
   const [bookingType, setBookingType] = useState<"video_chat" | "custom_content" | "in_person">("video_chat");
   const [bookingDuration, setBookingDuration] = useState("");
-  const [settings, setSettings] = useState<CreatorSettings>({ flirty_level: "very", human_takeover: "on", learning: "approval", custom_approval: "required", video_chat_rate: "50", custom_content_rate: "50", in_person_rate: "1500" });
+  const [settings, setSettings] = useState<CreatorSettings>({ flirty_level: "very", human_takeover: "on", learning: "approval", custom_approval: "required", video_chat_rate: "50", custom_content_rate: "50", in_person_rate: "1500", preferred_topics: "", avoid_topics: "", tone_guidance: "Short, blunt, warm, confident, flirty, and natural", creator_feedback: "" });
   const [liveLoading, setLiveLoading] = useState(false);
   const [liveError, setLiveError] = useState("");
 
@@ -728,6 +732,30 @@ export default function Home() {
               <b>Hubzter</b>
             </a>
           </div>
+
+          <section className="conversationTraining">
+            <div className="sectionHeading"><strong>Conversation training</strong></div>
+            <label>
+              <span>Topics to talk about</span>
+              <textarea onChange={(event) => setSettings((current) => ({ ...current, preferred_topics: event.target.value }))} placeholder="Anime, shopping, travel, movies..." value={settings.preferred_topics} />
+              <button onClick={() => void updateSetting("preferred_topics", settings.preferred_topics)}>Save topics</button>
+            </label>
+            <label>
+              <span>Avoid discussing</span>
+              <textarea onChange={(event) => setSettings((current) => ({ ...current, avoid_topics: event.target.value }))} placeholder="Private family details, home address..." value={settings.avoid_topics} />
+              <button onClick={() => void updateSetting("avoid_topics", settings.avoid_topics)}>Save boundaries</button>
+            </label>
+            <label>
+              <span>Change tone</span>
+              <textarea onChange={(event) => setSettings((current) => ({ ...current, tone_guidance: event.target.value }))} placeholder="Describe how the bot should sound..." value={settings.tone_guidance} />
+              <button onClick={() => void updateSetting("tone_guidance", settings.tone_guidance)}>Save tone</button>
+            </label>
+            <label>
+              <span>Feedback for the bot</span>
+              <textarea onChange={(event) => setSettings((current) => ({ ...current, creator_feedback: event.target.value }))} placeholder="Use my name less, ask more follow up questions..." value={settings.creator_feedback} />
+              <button onClick={() => void updateSetting("creator_feedback", settings.creator_feedback)}>Save feedback</button>
+            </label>
+          </section>
 
           <div className="recentSales">
             <strong>Recent earnings</strong>
