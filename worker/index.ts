@@ -328,6 +328,7 @@ async function prepareDatabase(db: D1Database) {
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('tone_guidance', 'Short, blunt, warm, confident, flirty, and natural')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('creator_feedback', '')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_enabled', 'on')"),
+    db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_test_mode', 'on')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_rate', '10')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_5_stars', '3850')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_15_stars', '6000')"),
@@ -464,7 +465,33 @@ function isSextingPaymentQuestion(text: string) {
 }
 
 function sextingMenu(settings: Record<string, string>) {
+  if (settings.sexting_test_mode === "on") {
+    return "Sexting is in free test mode right now, babe. Tell me if you want to test a 5 minute session.";
+  }
   return `Sexting is ${dollars(settings.sexting_rate, 10)} per minute with a 5 minute minimum, babe. A 5 minute session is ${settings.sexting_5_stars || "3850"} Stars. You can add another 5 minutes whenever you want. Tell me if you want 5 minutes.`;
+}
+
+async function createSextingCheckout(env: Env, message: TelegramMessage, chatId: string,
+  selected: { key: string; title: string; minutes: number; stars: number }, settings: Record<string, string>) {
+  if (settings.sexting_test_mode !== "on") {
+    await sendStarsInvoice(env, message, selected.title,
+      `${selected.minutes} minute private sexting session.`,
+      `sexting:${selected.key}:${selected.minutes}:${selected.title}`, selected.stars);
+    return "invoice_sent";
+  }
+  const contact = await env.DB.prepare(`SELECT COALESCE(telegram_contacts.username,
+    telegram_contacts.display_name, fan_profiles.name, 'Telegram fan') AS telegram_name
+    FROM fan_sessions
+    LEFT JOIN telegram_contacts ON telegram_contacts.chat_id = fan_sessions.chat_id
+    LEFT JOIN fan_profiles ON fan_profiles.chat_id = fan_sessions.chat_id
+    WHERE fan_sessions.chat_id = ?`).bind(chatId).first<{ telegram_name: string }>();
+  await env.DB.prepare(`INSERT INTO sexting_sessions
+    (chat_id, business_connection_id, telegram_name, package_key, package_title,
+    duration_minutes, stars, telegram_charge_id, status) VALUES (?, ?, ?, ?, ?, ?, 0, ?, 'paid')`)
+    .bind(chatId, message.business_connection_id || null, contact?.telegram_name || "Telegram fan",
+      selected.key, `TEST: ${selected.title}`, selected.minutes, `test:${crypto.randomUUID()}`).run();
+  await sendTelegramMessage(env, message, "Your free 5 minute test session is ready, babe. I'll let you know when I start it from my creator dashboard.");
+  return "test_created";
 }
 
 function randomTodayActivity(chatId: string, date = new Date()) {
@@ -761,13 +788,13 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       return json({ ok: true });
     }
     if (isSextingPaymentQuestion(message.text)) {
-      await sendTelegramMessage(env, message, "You can pay with Telegram Stars, babe. Tap the Pay button on the invoice below.");
+      await sendTelegramMessage(env, message, settings.sexting_test_mode === "on"
+        ? "It's free while I'm testing it, babe. I'll create your test session now."
+        : "You can pay with Telegram Stars, babe. Tap the Pay button on the invoice below.");
     }
-    await sendStarsInvoice(env, message, selected.title,
-      `${selected.minutes} minute private sexting session.`,
-      `sexting:${selected.key}:${selected.minutes}:${selected.title}`, selected.stars);
-    await env.DB.prepare(`UPDATE sexting_drafts SET status = 'invoice_sent', updated_at = CURRENT_TIMESTAMP
-      WHERE chat_id = ?`).bind(chatId).run();
+    const checkoutStatus = await createSextingCheckout(env, message, chatId, selected, settings);
+    await env.DB.prepare(`UPDATE sexting_drafts SET status = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE chat_id = ?`).bind(checkoutStatus, chatId).run();
     return json({ ok: true });
   }
 
@@ -778,9 +805,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     }
     const selected = sextingPackage(message.text, settings);
     if (selected) {
-      await sendStarsInvoice(env, message, selected.title,
-        `${selected.minutes} minute private sexting session.`,
-        `sexting:${selected.key}:${selected.minutes}:${selected.title}`, selected.stars);
+      await createSextingCheckout(env, message, chatId, selected, settings);
       return json({ ok: true });
     }
     await env.DB.prepare(`INSERT INTO sexting_drafts (chat_id, business_connection_id, status)
@@ -1053,7 +1078,7 @@ async function handleAdminPending(request: Request, env: Env) {
     duration_minutes, stars, completed_at FROM sexting_sessions WHERE status = 'completed'
     ORDER BY completed_at DESC LIMIT 100`).all();
   const starsSummary = await env.DB.prepare(`SELECT COALESCE(SUM(stars), 0) AS total_stars,
-    COUNT(*) AS transaction_count FROM sexting_sessions`).first<{ total_stars: number; transaction_count: number }>();
+    COUNT(*) AS transaction_count FROM sexting_sessions WHERE stars > 0`).first<{ total_stars: number; transaction_count: number }>();
   const sextingMedia = await env.DB.prepare(`SELECT id, label, media_type, file_name,
     mime_type, active, created_at FROM sexting_media ORDER BY id DESC LIMIT 100`).all();
   const contentProducts = await env.DB.prepare(`SELECT id, content_type, title, price_cents,
@@ -1437,6 +1462,7 @@ async function handleAdminSettings(request: Request, env: Env) {
     learning: ["approval", "off"],
     custom_approval: ["required", "off"],
     sexting_enabled: ["on", "off"],
+    sexting_test_mode: ["on", "off"],
   };
   const rateKeys = ["video_chat_rate", "custom_content_rate", "in_person_rate", "sexting_rate"];
   const starKeys = ["sexting_5_stars"];
