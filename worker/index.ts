@@ -107,12 +107,13 @@ function dollars(value: string | undefined, fallback: number) {
 }
 
 function bookingPrompt(settings: Record<string, string>) {
-  return `Do you wanna set something up? Video chats are ${dollars(settings.video_chat_rate, 50)} per minute with a 5 minute minimum, and in person meets are ${dollars(settings.in_person_rate, 1500)} per hour. Send me your preferred date, time, and which one you want. If it's in person, I need the city too, then I'll check my calendar.`;
+  void settings;
+  return "Yeah babe. Did you want a video chat or an in person meet?";
 }
 
 function customVideoPrompt(settings: Record<string, string>) {
-  const rate = Number(settings.custom_content_rate || 50);
-  return `I do custom videos for ${dollars(settings.custom_content_rate, 50)} per minute with a 5 minute minimum, so they start at ${dollars(String(rate * 5), 250)}. Tell me what you want and how many minutes you're looking for, and I'll try to make it for you!`;
+  void settings;
+  return "Yeah babe, I make customs. What did you have in mind, and how long do you want it to be?";
 }
 
 const TIFFANI_PROMPT = `You are the AI assisted chat concierge for adult creator Tiffani Madison.
@@ -144,6 +145,7 @@ Never say submit a purchase request. Ask if the fan wants to buy it, show the tr
 For video chats and professional fan meet and greets, ask for the preferred date, time, service type, and city for an in person meeting. Never promise availability before Tiffani checks her calendar.
 Use the current rates supplied below whenever discussing prices. Video chats and custom content have a 5 minute minimum. Never approve a custom request automatically.
 Never claim to be a human typing live. If directly asked, say the chat is AI assisted and I can personally take over when needed.
+Never invent a custom content turnaround time or completion date. Only give one after the creator approves it.
 Only converse with users whose adult status has already been confirmed by the application.
 Never engage with or sexualize minors, suspected minors, coercion, incest, trafficking, nonconsensual activity, or illegal activity.
 Never discuss death, politics, crimes, illegal activity, underage people, minors, children, kids, poop, feces, scat, pee, urine, watersports, or bathroom play. Briefly decline and redirect to a light approved topic without explaining or debating the boundary.
@@ -479,6 +481,10 @@ function bookingDetailsMissing(text: string) {
 
 function isCustomVideoQuestion(text: string) {
   return /\b(custom|customs|custom video|custom content|custom photo|custom photos|make me a video|make me content|personalized video|personalized content)\b/i.test(text);
+}
+
+function isTurnaroundQuestion(text: string) {
+  return /\b(when will (?:you|it)|when.*done|how long.*(?:take|until)|turnaround|when can i get|when.*ready)\b/i.test(text);
 }
 
 function isTodayActivityQuestion(text: string) {
@@ -982,10 +988,18 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       WHERE chat_id = ?`).bind(chatId).run();
     await env.DB.prepare(`INSERT INTO booking_requests (chat_id, business_connection_id, details)
       VALUES (?, ?, ?)`).bind(chatId, message.business_connection_id || null, `Custom content request: ${message.text}`).run();
-    const received = "Got it. I'll review your custom request and get back to you.";
+    const received = "That sounds fun. I'll look it over and see if I can make it for you.";
     await saveMessage(env.DB, chatId, "user", message.text);
     await saveMessage(env.DB, chatId, "assistant", received);
     await sendTelegramMessage(env, message, received);
+    return json({ ok: true });
+  }
+
+  if (customDraft?.status === "submitted" && isTurnaroundQuestion(message.text)) {
+    const timingReply = "I need to look it over first, babe. I'll let you know the timing once I approve it.";
+    await saveMessage(env.DB, chatId, "user", message.text);
+    await saveMessage(env.DB, chatId, "assistant", timingReply);
+    await sendTelegramMessage(env, message, timingReply);
     return json({ ok: true });
   }
 
@@ -1032,9 +1046,20 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       await sendTelegramMessage(env, message, clarification);
       return json({ ok: true });
     }
-    const missingBookingDetails = bookingDetailsMissing(message.text);
+    const recentBookingMessages = await env.DB.prepare(`SELECT content FROM chat_messages
+      WHERE chat_id = ? AND role = 'user' ORDER BY id DESC LIMIT 5`)
+      .bind(chatId).all<{ content: string }>();
+    const combinedBookingDetails = [...recentBookingMessages.results]
+      .reverse().map((item) => item.content).concat(message.text).join(" ");
+    const missingBookingDetails = bookingDetailsMissing(combinedBookingDetails);
     if (missingBookingDetails.length) {
-      const detailsPrompt = `I still need your ${missingBookingDetails.join(", ")}, babe.${/\bin person\b/i.test(message.text) ? " Tell me the city too." : ""}`;
+      const detailsPrompt = missingBookingDetails.includes("video chat or in person meet")
+        ? "Did you want a video chat or an in person meet, babe?"
+        : missingBookingDetails.includes("preferred date") && missingBookingDetails.includes("preferred time")
+          ? "What date and time works best for you?"
+          : missingBookingDetails.includes("preferred date")
+            ? "What date works best for you?"
+            : "What time works best for you?";
       await saveMessage(env.DB, chatId, "user", message.text);
       await saveMessage(env.DB, chatId, "assistant", detailsPrompt);
       await sendTelegramMessage(env, message, detailsPrompt);
@@ -1042,7 +1067,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     }
     await env.DB.prepare(`INSERT INTO booking_requests
       (chat_id, business_connection_id, details) VALUES (?, ?, ?)`)
-      .bind(chatId, message.business_connection_id || null, message.text)
+      .bind(chatId, message.business_connection_id || null, combinedBookingDetails)
       .run();
     await env.DB.prepare(`UPDATE booking_drafts SET status = 'submitted',
       updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?`).bind(chatId).run();
