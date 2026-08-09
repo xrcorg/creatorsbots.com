@@ -489,6 +489,10 @@ function isSextingPaymentQuestion(text: string) {
   return /\b(how (?:do|can) i pay|how to pay|pay for it|send (?:me )?(?:the )?invoice|stars invoice|ready to pay)\b/i.test(text);
 }
 
+function isAffirmativeReply(text: string) {
+  return /^(yes|yes please|yes babe|yeah|yep|sure|okay|ok|let's do it|lets do it|i do|i want to|i'd love to|id love to)[.! ]*$/i.test(text.trim());
+}
+
 function sextingMenu(settings: Record<string, string>) {
   if (settings.sexting_test_mode === "on") {
     return "Sexting is in free test mode right now, babe. Tell me if you want to test a 5 minute session.";
@@ -512,11 +516,12 @@ async function createSextingCheckout(env: Env, message: TelegramMessage, chatId:
     WHERE fan_sessions.chat_id = ?`).bind(chatId).first<{ telegram_name: string }>();
   await env.DB.prepare(`INSERT INTO sexting_sessions
     (chat_id, business_connection_id, telegram_name, package_key, package_title,
-    duration_minutes, stars, telegram_charge_id, status) VALUES (?, ?, ?, ?, ?, ?, 0, ?, 'paid')`)
+    duration_minutes, stars, telegram_charge_id, status, started_at, ends_at)
+    VALUES (?, ?, ?, ?, ?, ?, 0, ?, 'active', CURRENT_TIMESTAMP, datetime(CURRENT_TIMESTAMP, '+5 minutes'))`)
     .bind(chatId, message.business_connection_id || null, contact?.telegram_name || "Telegram fan",
       selected.key, `TEST: ${selected.title}`, selected.minutes, `test:${crypto.randomUUID()}`).run();
-  await sendTelegramMessage(env, message, "Your free 5 minute test session is ready, babe. I'll let you know when I start it from my creator dashboard.");
-  return "test_created";
+  await sendTelegramMessage(env, message, "Yes babe. Your free 5 minute test starts now. Tell me what you're in the mood for.");
+  return "active";
 }
 
 function randomTodayActivity(chatId: string, date = new Date()) {
@@ -821,7 +826,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       return json({ ok: true });
     }
     const selected = sextingPackage(message.text, settings) ||
-      (isSextingPaymentQuestion(message.text)
+      (isSextingPaymentQuestion(message.text) || isAffirmativeReply(message.text)
         ? { key: "text5", title: "5 minute sexting session", minutes: 5, stars: Number(settings.sexting_5_stars || 3850) }
         : null);
     if (!selected) {
