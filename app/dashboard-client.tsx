@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type Message = {
   id: number;
@@ -21,6 +21,8 @@ type LivePurchase = {
   price: string;
   payment_note: string;
   created_at: string;
+  status?: "pending" | "approved" | "declined";
+  resolved_at?: string;
 };
 
 type LiveBooking = {
@@ -65,6 +67,19 @@ type SextingMedia = {
   created_at: string;
 };
 
+type ContentProduct = {
+  id: number;
+  content_type: "photo" | "photo_package" | "video" | "video_bundle";
+  title: string;
+  price_cents: number;
+  genre: string;
+  actors: string;
+  trailer_url: string;
+  delivery_url: string;
+  active: number;
+  created_at: string;
+};
+
 type EarningsSummary = {
   weekly_cents: number;
   weekly_count: number;
@@ -102,12 +117,6 @@ const initialMessages: Message[] = [
     text: "Before you join, I have to make sure you're 18+. Can you say yes or no?",
     time: "Now",
   },
-];
-
-const products = [
-  { name: "Pink tease set", price: "$35", kind: "12 photos" },
-  { name: "Private video", price: "$75", kind: "5 minutes" },
-  { name: "Video call", price: "$150", kind: "15 minutes" },
 ];
 
 const safeBlocks = ["under 18", "minor", "i am 17", "i'm 17", "im 17"];
@@ -169,6 +178,7 @@ export default function Home() {
   const [savedAnswers, setSavedAnswers] = useState(12);
   const [livePending, setLivePending] = useState<LivePendingReply[]>([]);
   const [livePurchases, setLivePurchases] = useState<LivePurchase[]>([]);
+  const [purchaseHistory, setPurchaseHistory] = useState<LivePurchase[]>([]);
   const [liveBookings, setLiveBookings] = useState<LiveBooking[]>([]);
   const [liveCustoms, setLiveCustoms] = useState<LiveCustom[]>([]);
   const [customHistory, setCustomHistory] = useState<LiveCustom[]>([]);
@@ -176,6 +186,8 @@ export default function Home() {
   const [sextingHistory, setSextingHistory] = useState<LiveSextingSession[]>([]);
   const [starsSummary, setStarsSummary] = useState({ total: 0, count: 0 });
   const [sextingMedia, setSextingMedia] = useState<SextingMedia[]>([]);
+  const [contentProducts, setContentProducts] = useState<ContentProduct[]>([]);
+  const [productForm, setProductForm] = useState({ content_type: "video" as ContentProduct["content_type"], title: "", price: "", genre: "", actors: "", trailer_url: "", delivery_url: "" });
   const [mediaLabel, setMediaLabel] = useState("");
   const [mediaFile, setMediaFile] = useState<File | null>(null);
   const [customLinks, setCustomLinks] = useState<Record<number, string>>({});
@@ -186,15 +198,18 @@ export default function Home() {
   const [settings, setSettings] = useState<CreatorSettings>({ flirty_level: "very", human_takeover: "on", learning: "approval", custom_approval: "required", video_chat_rate: "50", custom_content_rate: "50", in_person_rate: "1500", preferred_topics: "", avoid_topics: "", tone_guidance: "Short, blunt, warm, confident, flirty, and natural", creator_feedback: "", sexting_enabled: "on", sexting_rate: "10", sexting_5_stars: "3850" });
   const [liveLoading, setLiveLoading] = useState(false);
   const [liveError, setLiveError] = useState("");
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  const previousAttentionCount = useRef<number | null>(null);
 
   const loadLivePending = useCallback(async () => {
     try {
       setLiveLoading(true);
       const response = await fetch("/api/admin/pending", { cache: "no-store" });
       if (!response.ok) throw new Error("Unable to load the creator inbox");
-      const data = await response.json() as { pending: LivePendingReply[]; purchases: LivePurchase[]; bookings: LiveBooking[]; customs: LiveCustom[]; custom_history: LiveCustom[]; sexting_sessions: LiveSextingSession[]; sexting_history: LiveSextingSession[]; sexting_media: SextingMedia[]; stars: { total: number; count: number }; learned_count: number; earnings: EarningsSummary; settings: CreatorSettings };
+      const data = await response.json() as { pending: LivePendingReply[]; purchases: LivePurchase[]; purchase_history: LivePurchase[]; bookings: LiveBooking[]; customs: LiveCustom[]; custom_history: LiveCustom[]; sexting_sessions: LiveSextingSession[]; sexting_history: LiveSextingSession[]; sexting_media: SextingMedia[]; products: ContentProduct[]; stars: { total: number; count: number }; learned_count: number; earnings: EarningsSummary; settings: CreatorSettings };
       setLivePending(data.pending);
       setLivePurchases(data.purchases);
+      setPurchaseHistory(data.purchase_history || []);
       setLiveBookings(data.bookings);
       setLiveCustoms(data.customs || []);
       setCustomHistory(data.custom_history || []);
@@ -202,6 +217,7 @@ export default function Home() {
       setSextingHistory(data.sexting_history || []);
       setStarsSummary(data.stars || { total: 0, count: 0 });
       setSextingMedia(data.sexting_media || []);
+      setContentProducts(data.products || []);
       if (data.bookings[0]?.suggested_type) setBookingType(data.bookings[0].suggested_type);
       setEarnings(data.earnings);
       setSettings(data.settings);
@@ -230,6 +246,28 @@ export default function Home() {
     if (livePending.length) return "Tiffani reply needed";
     return "AI assistant active";
   }, [blocked, liveBookings.length, liveCustoms.length, livePending.length, livePurchases.length, sextingSessions.length, verified]);
+
+  const attentionCount = livePending.length + livePurchases.length + liveBookings.length + liveCustoms.length + sextingSessions.length;
+
+  useEffect(() => {
+    const previous = previousAttentionCount.current;
+    previousAttentionCount.current = attentionCount;
+    if (!notificationsEnabled || previous === null || attentionCount <= previous || typeof Notification === "undefined") return;
+    new Notification("Tiffani creator inbox", {
+      body: statusText,
+      icon: "/favicon.svg",
+    });
+  }, [attentionCount, notificationsEnabled, statusText]);
+
+  async function enableNotifications() {
+    if (typeof Notification === "undefined") {
+      setLiveError("Notifications are not supported in this browser.");
+      return;
+    }
+    const permission = await Notification.requestPermission();
+    setNotificationsEnabled(permission === "granted");
+    if (permission !== "granted") setLiveError("Notifications were not enabled. You can allow them in your browser settings.");
+  }
 
   function addMessage(role: Message["role"], text: string) {
     setMessages((current) => [
@@ -439,6 +477,47 @@ export default function Home() {
     }
   }
 
+  async function addContentProduct(event: FormEvent) {
+    event.preventDefault();
+    try {
+      setLiveLoading(true);
+      const response = await fetch("/api/admin/products", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(productForm),
+      });
+      if (!response.ok) {
+        const data = await response.json() as { error?: string };
+        throw new Error(data.error || "Product could not be added");
+      }
+      setProductForm({ content_type: "video", title: "", price: "", genre: "", actors: "", trailer_url: "", delivery_url: "" });
+      await loadLivePending();
+    } catch (error) {
+      setLiveError(error instanceof Error ? error.message : "The content could not be added. Please try again.");
+    } finally {
+      setLiveLoading(false);
+    }
+  }
+
+  async function updateContentProduct(id: number, action: "toggle" | "remove", active = true) {
+    try {
+      setLiveLoading(true);
+      const response = await fetch(`/api/admin/products/${id}`, action === "remove" ? {
+        method: "DELETE",
+      } : {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ active: !active }),
+      });
+      if (!response.ok) throw new Error("Product update failed");
+      await loadLivePending();
+    } catch {
+      setLiveError("The content could not be changed. Please try again.");
+    } finally {
+      setLiveLoading(false);
+    }
+  }
+
   async function updateSetting<K extends keyof CreatorSettings>(key: K, value: CreatorSettings[K]) {
     try {
       const response = await fetch("/api/admin/settings", {
@@ -479,6 +558,7 @@ export default function Home() {
             <i /> {statusText}
           </span>
           <button className="ghostButton" onClick={resetDemo}>Reset test</button>
+          <button className="ghostButton" onClick={() => void enableNotifications()}>{notificationsEnabled ? "Alerts on" : "Enable alerts"}</button>
           <button className="modeButton" onClick={() => setCreatorMode((value) => !value)}>
             {creatorMode ? "View fan chat" : "Creator controls"}
           </button>
@@ -566,11 +646,11 @@ export default function Home() {
                   {!verified ? (
                     <div className="lockedCard">Confirm you are 18+ in chat to unlock the shop.</div>
                   ) : (
-                    products.slice(0, 2).map((product, index) => (
-                      <button className="productCard" key={product.name}>
+                    contentProducts.filter((product) => product.active).slice(0, 2).map((product, index) => (
+                      <button className="productCard" key={product.id}>
                         <span className={`productArt art${index + 1}`}>♡</span>
-                        <span><strong>{product.name}</strong><small>{product.kind}</small></span>
-                        <b>{product.price}</b>
+                        <span><strong>{product.title}</strong><small>{product.content_type.replaceAll("_", " ")}</small></span>
+                        <b>{money(product.price_cents)}</b>
                       </button>
                     ))
                   )}
@@ -704,6 +784,31 @@ export default function Home() {
                   <strong>{media.label}</strong>
                   <small>{media.file_name}</small>
                   <button disabled={liveLoading} onClick={() => void deleteSextingMedia(media.id)} type="button">Remove</button>
+                </article>
+              ))}
+            </div>
+          </section>
+
+          <section className="contentCatalog">
+            <div className="sectionHeading"><strong>Content catalog</strong><span>{contentProducts.length}</span></div>
+            <p className="queueNote">The newest active item is what the bot offers first.</p>
+            <form onSubmit={addContentProduct}>
+              <label><span>Content type</span><select value={productForm.content_type} onChange={(event) => setProductForm((current) => ({ ...current, content_type: event.target.value as ContentProduct["content_type"] }))}><option value="photo">Photo</option><option value="photo_package">Photo package</option><option value="video">Video</option><option value="video_bundle">Video bundle</option></select></label>
+              <label><span>Title</span><input required value={productForm.title} onChange={(event) => setProductForm((current) => ({ ...current, title: event.target.value }))} placeholder="Content title" /></label>
+              <label><span>Price</span><input inputMode="decimal" min="1" required type="number" step="0.01" value={productForm.price} onChange={(event) => setProductForm((current) => ({ ...current, price: event.target.value }))} placeholder="24.99" /></label>
+              <label><span>Genre</span><input value={productForm.genre} onChange={(event) => setProductForm((current) => ({ ...current, genre: event.target.value }))} placeholder="Genre" /></label>
+              <label><span>Actors</span><input value={productForm.actors} onChange={(event) => setProductForm((current) => ({ ...current, actors: event.target.value }))} placeholder="Names separated by commas" /></label>
+              <label><span>Trailer or preview link</span><input type="url" value={productForm.trailer_url} onChange={(event) => setProductForm((current) => ({ ...current, trailer_url: event.target.value }))} placeholder="https://..." /></label>
+              <label><span>Full delivery link</span><input required type="url" value={productForm.delivery_url} onChange={(event) => setProductForm((current) => ({ ...current, delivery_url: event.target.value }))} placeholder="https://..." /></label>
+              <button className="primaryAction" disabled={liveLoading}>Add content</button>
+            </form>
+            <div className="catalogList">
+              {contentProducts.map((product) => (
+                <article className={product.active ? "" : "inactive"} key={product.id}>
+                  <div><strong>{product.title}</strong><small>{product.content_type.replaceAll("_", " ")} · {money(product.price_cents)}</small></div>
+                  <span>{product.active ? "Active" : "Hidden"}</span>
+                  <button type="button" onClick={() => void updateContentProduct(product.id, "toggle", Boolean(product.active))}>{product.active ? "Hide" : "Activate"}</button>
+                  <button type="button" onClick={() => void updateContentProduct(product.id, "remove")}>Remove</button>
                 </article>
               ))}
             </div>
@@ -887,6 +992,16 @@ export default function Home() {
               <textarea onChange={(event) => setSettings((current) => ({ ...current, creator_feedback: event.target.value }))} placeholder="Use my name less, ask more follow up questions..." value={settings.creator_feedback} />
               <button onClick={() => void updateSetting("creator_feedback", settings.creator_feedback)}>Save feedback</button>
             </label>
+          </section>
+
+          <section className="customHistory">
+            <strong>Content order history</strong>
+            {purchaseHistory.length ? purchaseHistory.map((purchase) => (
+              <div key={purchase.id}>
+                <span><b>{purchase.product_title}</b><small>{new Date(`${purchase.created_at}Z`).toLocaleString()} · {purchase.status}</small></span>
+                <time>{purchase.price}</time>
+              </div>
+            )) : <p>No content orders yet.</p>}
           </section>
 
           <div className="recentSales">

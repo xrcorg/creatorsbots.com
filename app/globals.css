@@ -181,6 +181,18 @@ button { cursor: pointer; }
 .mediaGrid strong { overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .mediaGrid small { overflow: hidden; color: var(--muted); font-size: 7px; text-overflow: ellipsis; white-space: nowrap; }
 .mediaGrid button { border: 0; background: transparent; color: #9a5776; font-size: 8px; text-decoration: underline; }
+.contentCatalog { margin-bottom: 16px; padding: 14px; border: 1px solid var(--line); border-radius: 16px; background: #fff; }
+.contentCatalog form { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+.contentCatalog form label:nth-child(2), .contentCatalog form label:nth-child(5), .contentCatalog form label:nth-child(6), .contentCatalog form label:nth-child(7), .contentCatalog form button { grid-column: 1 / -1; }
+.contentCatalog label > span { display: block; margin-bottom: 4px; color: var(--muted); font-size: 9px; }
+.contentCatalog input, .contentCatalog select { width: 100%; border: 1px solid var(--line); border-radius: 9px; padding: 8px; background: #fffafd; color: var(--ink); font-size: 10px; }
+.catalogList { display: grid; gap: 8px; margin-top: 12px; }
+.catalogList article { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; padding: 10px; border: 1px solid #f1dbe6; border-radius: 12px; background: #fffafd; }
+.catalogList article.inactive { opacity: .62; }
+.catalogList article div { min-width: 0; display: grid; gap: 3px; }
+.catalogList article strong { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.catalogList article small, .catalogList article > span { color: var(--muted); font-size: 8px; text-transform: capitalize; }
+.catalogList article button { border: 1px solid #f0a9cc; border-radius: 8px; padding: 6px 8px; background: #fff; color: var(--deep-pink); font-size: 8px; }
 .earningsHistory .sectionHeading button { border: 0; background: transparent; color: var(--muted); font-size: 20px; line-height: 1; }
 .historyRow { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid #f1e7ec; font-size: 10px; }
 .historyRow span { display: grid; gap: 3px; }

@@ -68,14 +68,37 @@ const X_REPLY = `You can follow me on X here, babe: ${X_URL}`;
 const SOCIALS_REPLY = `You can find all my links here, babe: ${ALL_LINKS_URL}`;
 const PAYMENT_TERMS = "Sexting sessions are for verified adults only. Sessions begin after successful payment and creator availability. Illegal, nonconsensual, and prohibited requests are refused. Contact me here for payment support.";
 const PRODUCT_TITLE = "Blonde Bombshell After Dark";
-const PRODUCT_PRICE = "$24.99";
 const PRODUCT_TRAILER = "https://www.dropbox.com/scl/fi/nek2nzmoy3tkecys5avqj/ARTTEASER.mov?rlkey=ikhlb3tdar9dg9bsmd4e9b6cc&st=zn3d9jpu&dl=0";
 const PRODUCT_DELIVERY = "https://www.dropbox.com/scl/fi/7cou6th40ln44czgp10rq/TiffxArt-Full.mp4?rlkey=w4y5vyzxeo2ho1em34rtk7ani&st=v0jmkj6n&dl=0";
-const PRODUCT_OFFER = `My newest video is ${PRODUCT_TITLE}, starring me and Mauvius Garcon. It's BBC and ${PRODUCT_PRICE}.\n\nDo you want to buy it? Here's a trailer I have as well:\n${PRODUCT_TRAILER}`;
-const PAYMENT_OPTIONS = `Please send ${PRODUCT_PRICE} using:\nCash App: $playmatexoxo\nVenmo: @barbiedoll10\nZelle: valleyvillageconsulting@gmail.com\n\nIn the payment notes, put your Telegram username. I will verify it before I send the video to you. Send me a screenshot of the payment after you send it.`;
+
+type ContentProduct = {
+  id: number;
+  content_type: string;
+  title: string;
+  price_cents: number;
+  genre: string;
+  actors: string;
+  trailer_url: string;
+  delivery_url: string;
+  active: number;
+  created_at: string;
+};
 
 function manualPaymentMethods(intro: string) {
   return `${intro}\nCash App: $playmatexoxo\nVenmo: @barbiedoll10\nZelle: valleyvillageconsulting@gmail.com\n\nPut your Telegram username in the payment notes and send me a screenshot after you pay.`;
+}
+
+function productPrice(product: ContentProduct) {
+  return dollars(String(product.price_cents / 100), product.price_cents / 100);
+}
+
+function productOffer(product: ContentProduct) {
+  const trailer = product.trailer_url ? `\n\nDo you want to buy it? Here's a trailer I have as well:\n${product.trailer_url}` : "\n\nDo you want to buy it?";
+  return `My newest ${product.content_type.replaceAll("_", " ")} is ${product.title}${product.actors ? `, starring ${product.actors}` : ""}.${product.genre ? ` It's ${product.genre}.` : ""} It's ${productPrice(product)}.${trailer}`;
+}
+
+function productPaymentOptions(product: ContentProduct) {
+  return `Please send ${productPrice(product)} using:\nCash App: $playmatexoxo\nVenmo: @barbiedoll10\nZelle: valleyvillageconsulting@gmail.com\n\nIn the payment notes, put your Telegram username. I will verify it before I send the content to you. Send me a screenshot of the payment after you send it.`;
 }
 
 function dollars(value: string | undefined, fallback: number) {
@@ -191,6 +214,27 @@ async function prepareDatabase(db: D1Database) {
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       resolved_at TEXT
     )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS content_products (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      content_type TEXT NOT NULL,
+      title TEXT NOT NULL UNIQUE,
+      price_cents INTEGER NOT NULL,
+      genre TEXT NOT NULL DEFAULT '',
+      actors TEXT NOT NULL DEFAULT '',
+      trailer_url TEXT NOT NULL DEFAULT '',
+      delivery_url TEXT NOT NULL,
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_content_products_active_created
+      ON content_products(active, created_at)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS product_interest (
+      chat_id TEXT PRIMARY KEY,
+      product_id INTEGER NOT NULL,
+      business_connection_id TEXT,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS booking_drafts (
       chat_id TEXT PRIMARY KEY,
       business_connection_id TEXT,
@@ -289,6 +333,10 @@ async function prepareDatabase(db: D1Database) {
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_15_stars', '6000')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_30_stars', '10000')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_media_stars', '10000')"),
+    db.prepare(`INSERT OR IGNORE INTO content_products
+      (content_type, title, price_cents, genre, actors, trailer_url, delivery_url)
+      VALUES ('video', ?, 2499, 'BBC', 'Tiffani Madison and Mauvius Garcon', ?, ?)`)
+      .bind(PRODUCT_TITLE, PRODUCT_TRAILER, PRODUCT_DELIVERY),
   ]);
 }
 
@@ -371,7 +419,11 @@ function isXQuestion(text: string) {
 }
 
 function isProductQuestion(text: string) {
-  return /\b(blonde bombshell|trailer|buy (the )?(video|content)|purchase (the )?(video|content)|video for sale|content for sale|what.*sell|(newest|latest|new) (video|content)|most recent (video|content))\b/i.test(text);
+  return /\b(blonde bombshell|trailer|buy (the )?(video|photo|content)|purchase (the )?(video|photo|content)|video for sale|content for sale|what.*sell|(newest|latest|new) (video|photo|content)|most recent (video|photo|content))\b/i.test(text);
+}
+
+function isCatalogListQuestion(text: string) {
+  return /\b(what|which|show me).*(videos|photos|content|packages|bundles).*(have|sell|available)|\b(content menu|catalog|shop menu)\b/i.test(text);
 }
 
 function isPaymentSent(text: string) {
@@ -439,6 +491,47 @@ function randomTodayActivity(chatId: string, date = new Date()) {
 async function getSettings(db: D1Database) {
   const rows = await db.prepare("SELECT key, value FROM app_settings").all<{ key: string; value: string }>();
   return Object.fromEntries(rows.results.map((row) => [row.key, row.value]));
+}
+
+async function getNewestProduct(db: D1Database) {
+  return db.prepare(`SELECT id, content_type, title, price_cents, genre, actors,
+    trailer_url, delivery_url, active, created_at FROM content_products
+    WHERE active = 1 ORDER BY id DESC LIMIT 1`).first<ContentProduct>();
+}
+
+async function getActiveProducts(db: D1Database) {
+  const products = await db.prepare(`SELECT id, content_type, title, price_cents, genre,
+    actors, trailer_url, delivery_url, active, created_at FROM content_products
+    WHERE active = 1 ORDER BY id DESC LIMIT 25`).all<ContentProduct>();
+  return products.results;
+}
+
+function catalogReply(products: ContentProduct[]) {
+  if (!products.length) return "I'm adding new content soon, babe. What kind of content do you want to see?";
+  const lines = products.slice(0, 10).map((product) =>
+    `${product.title} · ${product.content_type.replaceAll("_", " ")} · ${productPrice(product)}`);
+  return `Here's what I have right now, babe:\n\n${lines.join("\n")}\n\nTell me which title you want and I'll show you the details.`;
+}
+
+async function getInterestedProduct(db: D1Database, chatId: string) {
+  return db.prepare(`SELECT content_products.id, content_products.content_type,
+    content_products.title, content_products.price_cents, content_products.genre,
+    content_products.actors, content_products.trailer_url, content_products.delivery_url,
+    content_products.active, content_products.created_at FROM product_interest
+    JOIN content_products ON content_products.id = product_interest.product_id
+    WHERE product_interest.chat_id = ? AND content_products.active = 1`)
+    .bind(chatId).first<ContentProduct>();
+}
+
+async function rememberProductInterest(db: D1Database, chatId: string,
+  businessConnectionId: string | null, productId: number) {
+  await db.prepare(`INSERT INTO product_interest
+    (chat_id, product_id, business_connection_id, updated_at)
+    VALUES (?, ?, ?, CURRENT_TIMESTAMP) ON CONFLICT(chat_id) DO UPDATE SET
+    product_id = excluded.product_id,
+    business_connection_id = excluded.business_connection_id,
+    updated_at = CURRENT_TIMESTAMP`)
+    .bind(chatId, productId, businessConnectionId).run();
 }
 
 function isTiffaniSleeping(date = new Date()) {
@@ -820,21 +913,48 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     return json({ ok: true });
   }
 
-  if (isProductQuestion(message.text)) {
+  if (isCatalogListQuestion(message.text)) {
+    const catalog = catalogReply(await getActiveProducts(env.DB));
     await saveMessage(env.DB, chatId, "user", message.text);
-    await saveMessage(env.DB, chatId, "assistant", PRODUCT_OFFER);
-    await sendTelegramMessage(env, message, PRODUCT_OFFER);
+    await saveMessage(env.DB, chatId, "assistant", catalog);
+    await sendTelegramMessage(env, message, catalog);
+    return json({ ok: true });
+  }
+
+  const activeProducts = await getActiveProducts(env.DB);
+  const normalizedMessage = message.text.toLowerCase();
+  const mentionedProduct = activeProducts.find((product) =>
+    product.title.length >= 3 && normalizedMessage.includes(product.title.toLowerCase()));
+  if (isProductQuestion(message.text) || mentionedProduct) {
+    const product = mentionedProduct || activeProducts[0] || await getNewestProduct(env.DB);
+    if (!product) {
+      const unavailable = "I'm adding new content soon, babe. What kind of content do you want to see?";
+      await saveMessage(env.DB, chatId, "user", message.text);
+      await saveMessage(env.DB, chatId, "assistant", unavailable);
+      await sendTelegramMessage(env, message, unavailable);
+      return json({ ok: true });
+    }
+    await rememberProductInterest(env.DB, chatId, connectionId, product.id);
+    const offer = productOffer(product);
+    await saveMessage(env.DB, chatId, "user", message.text);
+    await saveMessage(env.DB, chatId, "assistant", offer);
+    await sendTelegramMessage(env, message, offer);
     return json({ ok: true });
   }
 
   if (isPaymentSent(message.text)) {
+    const product = await getInterestedProduct(env.DB, chatId) || await getNewestProduct(env.DB);
+    if (!product) {
+      await sendTelegramMessage(env, message, "Tell me which content you paid for so I can check it, babe.");
+      return json({ ok: true });
+    }
     const existing = await env.DB.prepare(`SELECT id FROM purchase_requests
       WHERE chat_id = ? AND status = 'pending' LIMIT 1`).bind(chatId).first();
     if (!existing) {
       await env.DB.prepare(`INSERT INTO purchase_requests
         (chat_id, business_connection_id, product_title, price, payment_note)
         VALUES (?, ?, ?, ?, ?)`)
-        .bind(chatId, message.business_connection_id || null, PRODUCT_TITLE, PRODUCT_PRICE, message.text)
+        .bind(chatId, message.business_connection_id || null, product.title, productPrice(product), message.text)
         .run();
     }
     const confirmation = "Ok, thanks babe. Let me check when I get the chance and I'll send you the link!";
@@ -845,9 +965,16 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   }
 
   if (isBuyConfirmation(message.text)) {
+    const product = await getInterestedProduct(env.DB, chatId) || await getNewestProduct(env.DB);
+    if (!product) {
+      await sendTelegramMessage(env, message, "I'm adding new content soon, babe.");
+      return json({ ok: true });
+    }
+    await rememberProductInterest(env.DB, chatId, connectionId, product.id);
+    const paymentOptions = productPaymentOptions(product);
     await saveMessage(env.DB, chatId, "user", message.text);
-    await saveMessage(env.DB, chatId, "assistant", PAYMENT_OPTIONS);
-    await sendTelegramMessage(env, message, PAYMENT_OPTIONS);
+    await saveMessage(env.DB, chatId, "assistant", paymentOptions);
+    await sendTelegramMessage(env, message, paymentOptions);
     return json({ ok: true });
   }
 
@@ -903,6 +1030,8 @@ async function handleAdminPending(request: Request, env: Env) {
     FROM pending_replies WHERE status = 'pending' ORDER BY id ASC LIMIT 100`).all();
   const purchases = await env.DB.prepare(`SELECT id, product_title, price, payment_note, created_at
     FROM purchase_requests WHERE status = 'pending' ORDER BY id ASC LIMIT 100`).all();
+  const purchaseHistory = await env.DB.prepare(`SELECT id, product_title, price, payment_note,
+    status, created_at, resolved_at FROM purchase_requests ORDER BY id DESC LIMIT 200`).all();
   const bookings = await env.DB.prepare(`SELECT booking_requests.id, booking_requests.details,
     booking_requests.created_at,
     COALESCE(telegram_contacts.username, telegram_contacts.display_name, fan_profiles.name, 'Telegram fan') AS telegram_name,
@@ -927,6 +1056,9 @@ async function handleAdminPending(request: Request, env: Env) {
     COUNT(*) AS transaction_count FROM sexting_sessions`).first<{ total_stars: number; transaction_count: number }>();
   const sextingMedia = await env.DB.prepare(`SELECT id, label, media_type, file_name,
     mime_type, active, created_at FROM sexting_media ORDER BY id DESC LIMIT 100`).all();
+  const contentProducts = await env.DB.prepare(`SELECT id, content_type, title, price_cents,
+    genre, actors, trailer_url, delivery_url, active, created_at
+    FROM content_products ORDER BY id DESC LIMIT 200`).all();
   const learned = await env.DB.prepare("SELECT COUNT(*) AS count FROM learned_answers").first<{ count: number }>();
   const weekly = await env.DB.prepare(`SELECT COALESCE(SUM(amount_cents), 0) AS total_cents,
     COUNT(*) AS transaction_count FROM earnings_events
@@ -938,6 +1070,7 @@ async function handleAdminPending(request: Request, env: Env) {
   return json({
     pending: pending.results,
     purchases: purchases.results,
+    purchase_history: purchaseHistory.results,
     bookings: bookings.results,
     customs: customs.results,
     custom_history: customHistory.results,
@@ -945,6 +1078,7 @@ async function handleAdminPending(request: Request, env: Env) {
     sexting_history: sextingHistory.results,
     stars: { total: starsSummary?.total_stars || 0, count: starsSummary?.transaction_count || 0 },
     sexting_media: sextingMedia.results,
+    products: contentProducts.results,
     learned_count: learned?.count || 0,
     earnings: {
       weekly_cents: weekly?.total_cents || 0,
@@ -956,6 +1090,66 @@ async function handleAdminPending(request: Request, env: Env) {
     },
     settings,
   });
+}
+
+function validHttpUrl(value: string, required = false) {
+  if (!value) return !required;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "https:" || parsed.protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
+async function handleAdminProducts(request: Request, env: Env, url: URL) {
+  if (!isAdminRequest(request)) return json({ error: "Sign in required" }, 401);
+  await prepareDatabase(env.DB);
+  const match = url.pathname.match(/^\/api\/admin\/products\/(\d+)$/);
+  if (request.method === "POST" && url.pathname === "/api/admin/products") {
+    const body = await request.json() as Partial<ContentProduct> & { price?: string };
+    const title = String(body.title || "").trim();
+    const contentType = String(body.content_type || "").trim();
+    const priceCents = Math.round(Number(body.price || 0) * 100);
+    const trailerUrl = String(body.trailer_url || "").trim();
+    const deliveryUrl = String(body.delivery_url || "").trim();
+    if (!title || !["photo", "photo_package", "video", "video_bundle"].includes(contentType) ||
+      !Number.isFinite(priceCents) || priceCents < 100 || priceCents > 10000000 ||
+      !validHttpUrl(trailerUrl) || !validHttpUrl(deliveryUrl, true)) {
+      return json({ error: "Complete the title, type, price, and valid delivery link" }, 400);
+    }
+    try {
+      await env.DB.prepare(`INSERT INTO content_products
+        (content_type, title, price_cents, genre, actors, trailer_url, delivery_url)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`)
+        .bind(contentType, title.slice(0, 180), priceCents,
+          String(body.genre || "").trim().slice(0, 180),
+          String(body.actors || "").trim().slice(0, 300), trailerUrl, deliveryUrl).run();
+    } catch {
+      return json({ error: "A product with that title already exists" }, 409);
+    }
+    return json({ ok: true });
+  }
+  if (match && request.method === "PATCH") {
+    const body = await request.json() as { active?: boolean };
+    if (typeof body.active !== "boolean") return json({ error: "Active status is required" }, 400);
+    await env.DB.prepare(`UPDATE content_products SET active = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?`).bind(body.active ? 1 : 0, Number(match[1])).run();
+    return json({ ok: true });
+  }
+  if (match && request.method === "DELETE") {
+    const used = await env.DB.prepare(`SELECT id FROM purchase_requests
+      WHERE product_title = (SELECT title FROM content_products WHERE id = ?) LIMIT 1`)
+      .bind(Number(match[1])).first();
+    if (used) {
+      await env.DB.prepare(`UPDATE content_products SET active = 0, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?`).bind(Number(match[1])).run();
+    } else {
+      await env.DB.prepare("DELETE FROM content_products WHERE id = ?").bind(Number(match[1])).run();
+    }
+    return json({ ok: true });
+  }
+  return json({ error: "Product request not found" }, 404);
 }
 
 async function handleAdminReply(request: Request, env: Env) {
@@ -1003,17 +1197,26 @@ async function handleAdminPurchase(request: Request, env: Env) {
   await prepareDatabase(env.DB);
   const body = await request.json() as { id?: number; action?: "approve" | "decline" };
   if (!body.id || !body.action) return json({ error: "Purchase action is required" }, 400);
-  const purchase = await env.DB.prepare(`SELECT id, chat_id, business_connection_id
-    FROM purchase_requests WHERE id = ? AND status = 'pending'`).bind(body.id).first<{
+  const purchase = await env.DB.prepare(`SELECT purchase_requests.id, purchase_requests.chat_id,
+    purchase_requests.business_connection_id, purchase_requests.product_title,
+    purchase_requests.price, content_products.delivery_url, content_products.price_cents
+    FROM purchase_requests LEFT JOIN content_products
+      ON content_products.title = purchase_requests.product_title
+    WHERE purchase_requests.id = ? AND purchase_requests.status = 'pending'`).bind(body.id).first<{
       id: number;
       chat_id: string;
       business_connection_id: string | null;
+      product_title: string;
+      price: string;
+      delivery_url: string | null;
+      price_cents: number | null;
     }>();
   if (!purchase) return json({ error: "Purchase is no longer pending" }, 404);
 
   const approved = body.action === "approve";
+  if (approved && !purchase.delivery_url) return json({ error: "This product needs a delivery link" }, 409);
   const responseText = approved
-    ? `Payment approved. Here is ${PRODUCT_TITLE}:\n${PRODUCT_DELIVERY}`
+    ? `Payment approved. Here is ${purchase.product_title}:\n${purchase.delivery_url}`
     : "I could not verify that payment yet. Please check the payment details and send me the method and sender name you used.";
   await sendTelegramMessage(env, {
     message_id: 0,
@@ -1034,8 +1237,9 @@ async function handleAdminPurchase(request: Request, env: Env) {
     WHERE id = ?`).bind(approved ? "approved" : "declined", purchase.id).run();
   if (approved) {
     await env.DB.prepare(`INSERT OR IGNORE INTO earnings_events
-      (source_type, source_id, description, amount_cents) VALUES ('content', ?, ?, 2499)`)
-      .bind(String(purchase.id), PRODUCT_TITLE)
+      (source_type, source_id, description, amount_cents) VALUES ('content', ?, ?, ?)`)
+      .bind(String(purchase.id), purchase.product_title, purchase.price_cents ||
+        Math.round(Number(purchase.price.replace(/[^0-9.]/g, "")) * 100))
       .run();
   }
   return json({ ok: true });
@@ -1285,6 +1489,10 @@ const worker = {
 
     if (url.pathname.startsWith("/api/admin/sexting-media")) {
       return handleAdminSextingMedia(request, env, url);
+    }
+
+    if (url.pathname.startsWith("/api/admin/products")) {
+      return handleAdminProducts(request, env, url);
     }
 
     if (url.pathname === "/api/admin/settings" && request.method === "POST") {
