@@ -242,6 +242,24 @@ function isCustomVideoQuestion(text: string) {
   return /\b(custom|customs|custom video|custom content|custom photo|custom photos|make me a video|make me content|personalized video|personalized content)\b/i.test(text);
 }
 
+function isTodayActivityQuestion(text: string) {
+  return /\b(what are you doing today|what are you up to today|what do you have planned today|plans for today|what's your day looking like|whats your day looking like)\b/i.test(text);
+}
+
+function randomTodayActivity() {
+  const activities = [
+    "I'm going to the beach today. What are you getting into?",
+    "I'm shooting some customs today. What are you up to?",
+    "I'm working today, babe. What are you doing?",
+    "I'm running some errands today. What are you getting into?",
+    "I'm going to Disneyland today. What are you up to?",
+    "I'm going to see a movie today. What are you doing?",
+    "I'm getting food with my friends today. What are you up to?",
+    "I'm going to the mall today! I love shopping. What are you getting into?",
+  ];
+  return activities[Math.floor(Math.random() * activities.length)];
+}
+
 async function getSettings(db: D1Database) {
   const rows = await db.prepare("SELECT key, value FROM app_settings").all<{ key: string; value: string }>();
   return Object.fromEntries(rows.results.map((row) => [row.key, row.value]));
@@ -495,6 +513,14 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     await saveMessage(env.DB, chatId, "user", message.text);
     await saveMessage(env.DB, chatId, "assistant", CAPABILITIES);
     await sendTelegramMessage(env, message, CAPABILITIES);
+    return json({ ok: true });
+  }
+
+  if (isTodayActivityQuestion(message.text)) {
+    const reply = randomTodayActivity();
+    await saveMessage(env.DB, chatId, "user", message.text);
+    await saveMessage(env.DB, chatId, "assistant", reply);
+    await sendTelegramMessage(env, message, reply);
     return json({ ok: true });
   }
 
