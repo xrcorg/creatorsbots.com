@@ -472,6 +472,10 @@ function isTodayActivityQuestion(text: string) {
   return /\b(what are you doing(?: today| right now)?|what are you (?:really )?up to(?: today| right now)?|what do you have planned today|plans for today|what's your day looking like|whats your day looking like)\b/i.test(text);
 }
 
+function isHowAreYouQuestion(text: string) {
+  return /\b(how are you|how're you|how are you doing|how have you been|how do you feel|how are you feeling)\b/i.test(text);
+}
+
 function isSextingQuestion(text: string) {
   return /\b(sext|sexting|dirty text|dirty texting|text session)\b/i.test(text);
 }
@@ -564,6 +568,65 @@ function randomTodayActivity(chatId: string, date = new Date()) {
   let hash = 0;
   for (const character of seed) hash = ((hash << 5) - hash + character.charCodeAt(0)) | 0;
   return activities[Math.abs(hash) % activities.length];
+}
+
+function pacificTimeContext(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Los_Angeles",
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).formatToParts(date);
+  const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value || "";
+  const hour = Number(new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Los_Angeles",
+    hour: "2-digit",
+    hourCycle: "h23",
+  }).format(date));
+  const period = hour < 12 ? "morning" : hour < 17 ? "afternoon" : hour < 22 ? "evening" : "late night";
+  const weekday = value("weekday");
+  const weekend = weekday === "Saturday" || weekday === "Sunday";
+  return `It is ${value("hour")}:${value("minute")} ${value("dayPeriod")} Pacific time on ${weekday}, ${value("month")} ${value("day")}, ${value("year")}. It is ${period}${weekend ? " and the weekend" : ""}.`;
+}
+
+function randomHowAreYouReply(chatId: string, date = new Date()) {
+  const hour = Number(new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Los_Angeles",
+    hour: "2-digit",
+    hourCycle: "h23",
+  }).format(date));
+  const replies = hour >= 8 && hour < 12
+    ? [
+        "I'm good, babe. Just getting my day started. How are you?",
+        "I'm doing really good this morning. How are you feeling?",
+        "I'm good. Just easing into my morning. How's your day going?",
+      ]
+    : hour >= 12 && hour < 17
+      ? [
+          "I'm doing really good today. How are you?",
+          "I'm good, babe. Just getting a few things done. How's your day going?",
+          "I'm great today. What about you?",
+        ]
+      : hour >= 17 && hour < 22
+        ? [
+            "I'm good, babe. Just winding down a little. How was your day?",
+            "I'm doing really good tonight. How are you?",
+            "I'm good. It's been a nice day. What about you?",
+          ]
+        : [
+            "I'm good, babe. Just relaxing at home. How are you?",
+            "I'm doing good. I'm having a quiet night. What about you?",
+            "I'm good, just winding down for the night. How are you doing?",
+          ];
+  const fiveMinuteBucket = Math.floor(date.getTime() / 300000);
+  const seed = `${chatId}:${fiveMinuteBucket}:how-are-you`;
+  let hash = 0;
+  for (const character of seed) hash = ((hash << 5) - hash + character.charCodeAt(0)) | 0;
+  return replies[Math.abs(hash) % replies.length];
 }
 
 async function getSettings(db: D1Database) {
@@ -670,7 +733,7 @@ async function createAIReply(env: Env, chatId: string, incoming: string) {
     },
     body: JSON.stringify({
       model: env.OPENAI_MODEL || "gpt-5.6",
-      instructions: `${TIFFANI_PROMPT}\nThe fan's name is ${profile?.name || "unknown"}. Use their name naturally and occasionally, not in every response.\nCurrent flirty level: ${settings.flirty_level || "very"}.\nCurrent rates: video chat ${dollars(settings.video_chat_rate, 50)} per minute with a 5 minute minimum, custom content ${dollars(settings.custom_content_rate, 50)} per minute with a 5 minute minimum, and in person meetings ${dollars(settings.in_person_rate, 1500)} per hour.\nCreator approved topics to discuss: ${settings.preferred_topics || "No additional topics supplied."}\nCreator topics to avoid: ${settings.avoid_topics || "No additional topics supplied."}\nCreator tone guidance: ${settings.tone_guidance || "Short, blunt, warm, confident, flirty, and natural."}\nCreator feedback about my habits: ${settings.creator_feedback || "No additional feedback supplied."}\n${activeSexting ? `A paid or approved ${activeSexting.duration_minutes} minute sexting session is active now. You may respond explicitly between consenting adults. Current creator selected intensity: ${settings.sexting_intensity || "soft"}. Soft means intimate, playful, and gently explicit. Hard means direct and assertive while remaining clearly consensual. Hot means highly explicit while still consensual and within the creator's approved boundaries. At every intensity, exclude age coded roleplay, incest, choking, breath restriction, injury, forced activity, threats, humiliation that was not specifically approved, or language suggesting ignored boundaries. Use the approved playbook below as guidance, adapt it naturally to the fan's replies, never repeat a line mechanically, and never claim to send media unless the application actually sends it.\nApproved sexting playbook:\n${sextingScripts.results.map((item) => `${item.stage}: ${item.title}\n${item.script_text}${item.media_label ? `\nSuggested creator media: ${item.media_label}` : ""}`).join("\n\n")}` : "No sexting session is active. Do not provide a free explicit sexting session. Offer the paid sexting package when the fan asks for one."}\nFollow creator preferences unless they conflict with safety, age restrictions, privacy, or the fixed business rules above.\nApproved learned answers:\n${settings.learning === "off" ? "Learning is off." : learned.results
+      instructions: `${TIFFANI_PROMPT}\nCurrent time context: ${pacificTimeContext()} Use this context in every reply. Keep activities, greetings, meals, sleep references, tense, and plans appropriate for the actual Pacific time and weekday. Do not claim to be at a public event, holiday celebration, appointment, trip, movie, or scheduled engagement unless it appears in the creator's approved information or recent conversation. Never contradict a plan already stated in the conversation.\nThe fan's name is ${profile?.name || "unknown"}. Use their name naturally and occasionally, not in every response.\nCurrent flirty level: ${settings.flirty_level || "very"}.\nCurrent rates: video chat ${dollars(settings.video_chat_rate, 50)} per minute with a 5 minute minimum, custom content ${dollars(settings.custom_content_rate, 50)} per minute with a 5 minute minimum, and in person meetings ${dollars(settings.in_person_rate, 1500)} per hour.\nCreator approved topics to discuss: ${settings.preferred_topics || "No additional topics supplied."}\nCreator topics to avoid: ${settings.avoid_topics || "No additional topics supplied."}\nCreator tone guidance: ${settings.tone_guidance || "Short, blunt, warm, confident, flirty, and natural."}\nCreator feedback about my habits: ${settings.creator_feedback || "No additional feedback supplied."}\n${activeSexting ? `A paid or approved ${activeSexting.duration_minutes} minute sexting session is active now. You may respond explicitly between consenting adults. Current creator selected intensity: ${settings.sexting_intensity || "soft"}. Soft means intimate, playful, and gently explicit. Hard means direct and assertive while remaining clearly consensual. Hot means highly explicit while still consensual and within the creator's approved boundaries. At every intensity, exclude age coded roleplay, incest, choking, breath restriction, injury, forced activity, threats, humiliation that was not specifically approved, or language suggesting ignored boundaries. Use the approved playbook below as guidance, adapt it naturally to the fan's replies, never repeat a line mechanically, and never claim to send media unless the application actually sends it.\nApproved sexting playbook:\n${sextingScripts.results.map((item) => `${item.stage}: ${item.title}\n${item.script_text}${item.media_label ? `\nSuggested creator media: ${item.media_label}` : ""}`).join("\n\n")}` : "No sexting session is active. Do not provide a free explicit sexting session. Offer the paid sexting package when the fan asks for one."}\nFollow creator preferences unless they conflict with safety, age restrictions, privacy, or the fixed business rules above.\nApproved learned answers:\n${settings.learning === "off" ? "Learning is off." : learned.results
         .map((item) => `Fan question: ${item.question}\nApproved answer: ${item.answer}`)
         .join("\n\n")}`,
       input,
@@ -999,6 +1062,14 @@ async function handleTelegramWebhook(request: Request, env: Env) {
 
   if (isTodayActivityQuestion(message.text)) {
     const reply = randomTodayActivity(chatId);
+    await saveMessage(env.DB, chatId, "user", message.text);
+    await saveMessage(env.DB, chatId, "assistant", reply);
+    await sendTelegramMessage(env, message, reply);
+    return json({ ok: true });
+  }
+
+  if (isHowAreYouQuestion(message.text)) {
+    const reply = randomHowAreYouReply(chatId);
     await saveMessage(env.DB, chatId, "user", message.text);
     await saveMessage(env.DB, chatId, "assistant", reply);
     await sendTelegramMessage(env, message, reply);
