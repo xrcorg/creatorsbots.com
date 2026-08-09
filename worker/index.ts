@@ -647,7 +647,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       return json({ ok: true });
     }
     await sendStarsInvoice(env, message, selected.title,
-      `${selected.minutes} minute private sexting session for verified adults.`,
+      `${selected.minutes} minute private sexting session.`,
       `sexting:${selected.key}:${selected.minutes}:${selected.title}`, selected.stars);
     await env.DB.prepare(`UPDATE sexting_drafts SET status = 'invoice_sent', updated_at = CURRENT_TIMESTAMP
       WHERE chat_id = ?`).bind(chatId).run();
@@ -662,7 +662,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     const selected = sextingPackage(message.text, settings);
     if (selected) {
       await sendStarsInvoice(env, message, selected.title,
-        `${selected.minutes} minute private sexting session for verified adults.`,
+        `${selected.minutes} minute private sexting session.`,
         `sexting:${selected.key}:${selected.minutes}:${selected.title}`, selected.stars);
       return json({ ok: true });
     }
