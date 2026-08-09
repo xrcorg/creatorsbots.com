@@ -525,14 +525,35 @@ async function createSextingCheckout(env: Env, message: TelegramMessage, chatId:
 }
 
 function randomTodayActivity(chatId: string, date = new Date()) {
-  const activities = [
-    "I'm going to the beach today. What are you getting into?",
-    "I'm having a spa day today, babe. What are you up to?",
-    "I'm getting a relaxing massage today. What are you doing?",
-    "I'm staying home and reading for a little while. What are you getting into?",
-    "I'm watching some anime and relaxing today. What are you up to?",
-    "I'm planning my next trip. I really want to visit Bali, Tokyo, or Costa Rica. What are you doing today?",
-  ];
+  const hour = Number(new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Los_Angeles",
+    hour: "2-digit",
+    hourCycle: "h23",
+  }).format(date));
+  const activities = hour >= 8 && hour < 17
+    ? [
+        "I'm going to the beach today. What are you getting into?",
+        "I'm shooting some customs today, babe. What are you up to?",
+        "I'm working for a little while. What are you doing today?",
+        "I'm running some errands today. What are you getting into?",
+        "I'm going to Disneyland today. What are you up to?",
+        "I'm going to the mall today. I love shopping. What are you doing?",
+        "I'm having a spa day today, babe. What are you up to?",
+      ]
+    : hour >= 17 && hour < 22
+      ? [
+          "I'm getting food with my friends tonight. What are you up to?",
+          "I'm going to see a movie tonight. What are you doing?",
+          "I'm watching some anime and relaxing tonight. What are you up to?",
+          "I'm staying in and reading for a little while tonight. What are you doing?",
+          "I'm winding down after working today. What are you getting into tonight?",
+        ]
+      : [
+          "I'm relaxing at home and watching some anime. What are you up to?",
+          "I'm staying in and reading for a little while. What are you doing?",
+          "I'm winding down and getting ready for bed soon. What are you getting into?",
+          "I'm having a quiet night at home. What are you up to?",
+        ];
   const localDay = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Los_Angeles",
     year: "numeric",
