@@ -485,8 +485,8 @@ function askedToShowTrailer(text: string) {
   return /\b(?:want|wanna|like)\s+(?:me\s+)?to\s+(?:see|show|send)(?:\s+(?:you|me))?\s+(?:the\s+|a\s+)?(?:trailer|preview)|\b(?:want|wanna|like)\s+(?:to\s+)?see\s+(?:the\s+|a\s+)?(?:trailer|preview)\b/i.test(text);
 }
 
-function isTrailerAffirmativeReply(text: string) {
-  return isAffirmativeReply(text) || /^(alright|i guess|okay i guess|ok i guess)[.! ]*$/i.test(text.trim());
+function askedToBuyProduct(text: string) {
+  return /\b(?:do you|did you|would you)\s+(?:want|wanna|like)\s+to\s+buy\b|\bwant\s+the\s+full\s+(?:video|content)\b/i.test(text);
 }
 
 function isPaymentSent(text: string) {
@@ -1228,7 +1228,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     return json({ ok: true });
   }
 
-  if (isTrailerAffirmativeReply(message.text)) {
+  if (isAffirmativeReply(message.text)) {
     const lastAssistantMessage = await env.DB.prepare(`SELECT content FROM chat_messages
       WHERE chat_id = ? AND role = 'assistant' ORDER BY id DESC LIMIT 1`)
       .bind(chatId).first<{ content: string }>();
@@ -1240,6 +1240,17 @@ async function handleTelegramWebhook(request: Request, env: Env) {
         await saveMessage(env.DB, chatId, "user", message.text);
         await saveMessage(env.DB, chatId, "assistant", trailerReply);
         await sendTelegramMessage(env, message, trailerReply);
+        return json({ ok: true });
+      }
+    }
+    if (lastAssistantMessage && askedToBuyProduct(lastAssistantMessage.content)) {
+      const product = await getInterestedProduct(env.DB, chatId) || await getNewestProduct(env.DB);
+      if (product) {
+        await rememberProductInterest(env.DB, chatId, connectionId, product.id);
+        const paymentOptions = productPaymentOptions(product);
+        await saveMessage(env.DB, chatId, "user", message.text);
+        await saveMessage(env.DB, chatId, "assistant", paymentOptions);
+        await sendTelegramMessage(env, message, paymentOptions);
         return json({ ok: true });
       }
     }

@@ -9,8 +9,8 @@ import {
   isCancelReply,
 } from "../worker/conversation-rules.ts";
 
-test("natural sexting confirmations are accepted", () => {
-  for (const reply of ["yes", "Yes I do", "yeah i do", "let's do it"]) {
+test("natural confirmations are accepted", () => {
+  for (const reply of ["yes", "Yes I do", "yeah i do", "let's do it", "ok", "alright", "I guess"]) {
     assert.equal(isAffirmativeReply(reply), true, reply);
   }
 });
