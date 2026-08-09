@@ -13,7 +13,7 @@ const initialMessages: Message[] = [
   {
     id: 1,
     role: "bot",
-    text: "Before we start, are you 18 years of age or older?",
+    text: "Before you join, I have to make sure you're 18+. Can you say yes or no?",
     time: "Now",
   },
 ];
