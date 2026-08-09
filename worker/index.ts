@@ -4,6 +4,7 @@ import handler from "vinext/server/app-router-entry";
 interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
+  MEDIA: R2Bucket;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
@@ -255,6 +256,16 @@ async function prepareDatabase(db: D1Database) {
       business_connection_id TEXT,
       status TEXT NOT NULL DEFAULT 'awaiting_package',
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS sexting_media (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      label TEXT NOT NULL,
+      media_type TEXT NOT NULL,
+      file_name TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      r2_key TEXT NOT NULL UNIQUE,
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('flirty_level', 'very')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('human_takeover', 'on')"),
@@ -876,6 +887,8 @@ async function handleAdminPending(request: Request, env: Env) {
     ORDER BY completed_at DESC LIMIT 100`).all();
   const starsSummary = await env.DB.prepare(`SELECT COALESCE(SUM(stars), 0) AS total_stars,
     COUNT(*) AS transaction_count FROM sexting_sessions`).first<{ total_stars: number; transaction_count: number }>();
+  const sextingMedia = await env.DB.prepare(`SELECT id, label, media_type, file_name,
+    mime_type, active, created_at FROM sexting_media ORDER BY id DESC LIMIT 100`).all();
   const learned = await env.DB.prepare("SELECT COUNT(*) AS count FROM learned_answers").first<{ count: number }>();
   const weekly = await env.DB.prepare(`SELECT COALESCE(SUM(amount_cents), 0) AS total_cents,
     COUNT(*) AS transaction_count FROM earnings_events
@@ -893,6 +906,7 @@ async function handleAdminPending(request: Request, env: Env) {
     sexting_sessions: sextingSessions.results,
     sexting_history: sextingHistory.results,
     stars: { total: starsSummary?.total_stars || 0, count: starsSummary?.transaction_count || 0 },
+    sexting_media: sextingMedia.results,
     learned_count: learned?.count || 0,
     earnings: {
       weekly_cents: weekly?.total_cents || 0,
@@ -1128,6 +1142,49 @@ async function handleAdminSexting(request: Request, env: Env) {
   return json({ ok: true });
 }
 
+async function handleAdminSextingMedia(request: Request, env: Env, url: URL) {
+  if (!isAdminRequest(request)) return json({ error: "Sign in required" }, 401);
+  await prepareDatabase(env.DB);
+  const match = url.pathname.match(/^\/api\/admin\/sexting-media\/(\d+)(?:\/file)?$/);
+  if (request.method === "POST" && url.pathname === "/api/admin/sexting-media") {
+    const form = await request.formData();
+    const file = form.get("file");
+    const label = String(form.get("label") || "").trim();
+    if (!(file instanceof File) || !label) return json({ error: "A label and file are required" }, 400);
+    if (!file.type.startsWith("image/") && !file.type.startsWith("video/")) {
+      return json({ error: "Only image and video files are supported" }, 400);
+    }
+    const mediaType = file.type.startsWith("video/") ? "video" : "image";
+    const safeName = file.name.replace(/[^a-zA-Z0-9._]/g, "_").slice(-120);
+    const r2Key = `sexting/${crypto.randomUUID()}-${safeName}`;
+    await env.MEDIA.put(r2Key, file.stream(), { httpMetadata: { contentType: file.type } });
+    await env.DB.prepare(`INSERT INTO sexting_media
+      (label, media_type, file_name, mime_type, r2_key) VALUES (?, ?, ?, ?, ?)`)
+      .bind(label.slice(0, 160), mediaType, file.name.slice(0, 255), file.type, r2Key).run();
+    return json({ ok: true });
+  }
+  if (match && request.method === "GET" && url.pathname.endsWith("/file")) {
+    const media = await env.DB.prepare(`SELECT r2_key, mime_type FROM sexting_media WHERE id = ?`)
+      .bind(Number(match[1])).first<{ r2_key: string; mime_type: string }>();
+    if (!media) return json({ error: "Media not found" }, 404);
+    const object = await env.MEDIA.get(media.r2_key);
+    if (!object) return json({ error: "Media file not found" }, 404);
+    return new Response(object.body, { headers: {
+      "content-type": media.mime_type,
+      "cache-control": "private, max-age=3600",
+    } });
+  }
+  if (match && request.method === "DELETE") {
+    const media = await env.DB.prepare(`SELECT r2_key FROM sexting_media WHERE id = ?`)
+      .bind(Number(match[1])).first<{ r2_key: string }>();
+    if (!media) return json({ error: "Media not found" }, 404);
+    await env.MEDIA.delete(media.r2_key);
+    await env.DB.prepare(`DELETE FROM sexting_media WHERE id = ?`).bind(Number(match[1])).run();
+    return json({ ok: true });
+  }
+  return json({ error: "Media request not found" }, 404);
+}
+
 async function handleAdminSettings(request: Request, env: Env) {
   if (!isAdminRequest(request)) return json({ error: "Sign in required" }, 401);
   await prepareDatabase(env.DB);
@@ -1186,6 +1243,10 @@ const worker = {
 
     if (url.pathname === "/api/admin/sexting" && request.method === "POST") {
       return handleAdminSexting(request, env);
+    }
+
+    if (url.pathname.startsWith("/api/admin/sexting-media")) {
+      return handleAdminSextingMedia(request, env, url);
     }
 
     if (url.pathname === "/api/admin/settings" && request.method === "POST") {

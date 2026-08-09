@@ -55,6 +55,16 @@ type LiveSextingSession = {
   completed_at?: string;
 };
 
+type SextingMedia = {
+  id: number;
+  label: string;
+  media_type: "image" | "video";
+  file_name: string;
+  mime_type: string;
+  active: number;
+  created_at: string;
+};
+
 type EarningsSummary = {
   weekly_cents: number;
   weekly_count: number;
@@ -166,6 +176,9 @@ export default function Home() {
   const [sextingSessions, setSextingSessions] = useState<LiveSextingSession[]>([]);
   const [sextingHistory, setSextingHistory] = useState<LiveSextingSession[]>([]);
   const [starsSummary, setStarsSummary] = useState({ total: 0, count: 0 });
+  const [sextingMedia, setSextingMedia] = useState<SextingMedia[]>([]);
+  const [mediaLabel, setMediaLabel] = useState("");
+  const [mediaFile, setMediaFile] = useState<File | null>(null);
   const [customLinks, setCustomLinks] = useState<Record<number, string>>({});
   const [earnings, setEarnings] = useState<EarningsSummary>({ weekly_cents: 0, weekly_count: 0, all_time_cents: 0, all_time_count: 0, recent: [], history: [] });
   const [earningsView, setEarningsView] = useState<"weekly" | "all" | null>(null);
@@ -180,7 +193,7 @@ export default function Home() {
       setLiveLoading(true);
       const response = await fetch("/api/admin/pending", { cache: "no-store" });
       if (!response.ok) throw new Error("Unable to load the creator inbox");
-      const data = await response.json() as { pending: LivePendingReply[]; purchases: LivePurchase[]; bookings: LiveBooking[]; customs: LiveCustom[]; custom_history: LiveCustom[]; sexting_sessions: LiveSextingSession[]; sexting_history: LiveSextingSession[]; stars: { total: number; count: number }; learned_count: number; earnings: EarningsSummary; settings: CreatorSettings };
+      const data = await response.json() as { pending: LivePendingReply[]; purchases: LivePurchase[]; bookings: LiveBooking[]; customs: LiveCustom[]; custom_history: LiveCustom[]; sexting_sessions: LiveSextingSession[]; sexting_history: LiveSextingSession[]; sexting_media: SextingMedia[]; stars: { total: number; count: number }; learned_count: number; earnings: EarningsSummary; settings: CreatorSettings };
       setLivePending(data.pending);
       setLivePurchases(data.purchases);
       setLiveBookings(data.bookings);
@@ -189,6 +202,7 @@ export default function Home() {
       setSextingSessions(data.sexting_sessions || []);
       setSextingHistory(data.sexting_history || []);
       setStarsSummary(data.stars || { total: 0, count: 0 });
+      setSextingMedia(data.sexting_media || []);
       if (data.bookings[0]?.suggested_type) setBookingType(data.bookings[0].suggested_type);
       setEarnings(data.earnings);
       setSettings(data.settings);
@@ -388,6 +402,39 @@ export default function Home() {
       await loadLivePending();
     } catch {
       setLiveError("The sexting session could not be updated. Please try again.");
+    } finally {
+      setLiveLoading(false);
+    }
+  }
+
+  async function uploadSextingMedia(event: FormEvent) {
+    event.preventDefault();
+    if (!mediaFile || !mediaLabel.trim()) return;
+    try {
+      setLiveLoading(true);
+      const form = new FormData();
+      form.set("label", mediaLabel.trim());
+      form.set("file", mediaFile);
+      const response = await fetch("/api/admin/sexting-media", { method: "POST", body: form });
+      if (!response.ok) throw new Error("Upload failed");
+      setMediaLabel("");
+      setMediaFile(null);
+      await loadLivePending();
+    } catch {
+      setLiveError("The photo or video could not be uploaded. Please try again.");
+    } finally {
+      setLiveLoading(false);
+    }
+  }
+
+  async function deleteSextingMedia(id: number) {
+    try {
+      setLiveLoading(true);
+      const response = await fetch(`/api/admin/sexting-media/${id}`, { method: "DELETE" });
+      if (!response.ok) throw new Error("Delete failed");
+      await loadLivePending();
+    } catch {
+      setLiveError("The media could not be removed. Please try again.");
     } finally {
       setLiveLoading(false);
     }
@@ -640,6 +687,27 @@ export default function Home() {
                 </button>
               </div>
             )) : <p className="queueNote">No paid sexting sessions waiting.</p>}
+          </section>
+
+          <section className="mediaLibrary">
+            <div className="sectionHeading"><strong>Sexting media library</strong><span>{sextingMedia.length}</span></div>
+            <form onSubmit={uploadSextingMedia}>
+              <label><span>Photo or video label</span><input onChange={(event) => setMediaLabel(event.target.value)} placeholder="Pink lingerie tease" value={mediaLabel} /></label>
+              <label><span>Upload approved media</span><input accept="image/*,video/*" onChange={(event) => setMediaFile(event.target.files?.[0] || null)} type="file" /></label>
+              <button className="primaryAction" disabled={liveLoading || !mediaFile || !mediaLabel.trim()}>Upload media</button>
+            </form>
+            <div className="mediaGrid">
+              {sextingMedia.map((media) => (
+                <article key={media.id}>
+                  {media.media_type === "image"
+                    ? <img alt={media.label} src={`/api/admin/sexting-media/${media.id}/file`} />
+                    : <video controls preload="metadata" src={`/api/admin/sexting-media/${media.id}/file`} />}
+                  <strong>{media.label}</strong>
+                  <small>{media.file_name}</small>
+                  <button disabled={liveLoading} onClick={() => void deleteSextingMedia(media.id)} type="button">Remove</button>
+                </article>
+              ))}
+            </div>
           </section>
 
           <section className="customQueue">

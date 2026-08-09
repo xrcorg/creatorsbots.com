@@ -171,6 +171,16 @@ button { cursor: pointer; }
 .sessionCard { margin-top: 10px; padding: 12px; border: 1px solid #f1d3e2; border-radius: 14px; background: #fff8fb; }
 .sessionCard p { margin: 9px 0 4px; font-size: 11px; font-weight: 750; }
 .sessionCard > small { color: var(--muted); font-size: 9px; }
+.mediaLibrary { margin-bottom: 16px; padding: 14px; border: 1px solid var(--line); border-radius: 16px; background: #fff; }
+.mediaLibrary form { display: grid; gap: 8px; }
+.mediaLibrary form label > span { display: block; margin-bottom: 4px; color: var(--muted); font-size: 9px; }
+.mediaLibrary form input { width: 100%; border: 1px solid var(--line); border-radius: 9px; padding: 8px; background: #fffafd; font-size: 10px; }
+.mediaGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 12px; }
+.mediaGrid article { min-width: 0; display: grid; gap: 5px; padding: 8px; border: 1px solid #f1dbe6; border-radius: 12px; background: #fffafd; }
+.mediaGrid img, .mediaGrid video { width: 100%; aspect-ratio: 1; border-radius: 9px; background: #f2e8ed; object-fit: cover; }
+.mediaGrid strong { overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.mediaGrid small { overflow: hidden; color: var(--muted); font-size: 7px; text-overflow: ellipsis; white-space: nowrap; }
+.mediaGrid button { border: 0; background: transparent; color: #9a5776; font-size: 8px; text-decoration: underline; }
 .earningsHistory .sectionHeading button { border: 0; background: transparent; color: var(--muted); font-size: 20px; line-height: 1; }
 .historyRow { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid #f1e7ec; font-size: 10px; }
 .historyRow span { display: grid; gap: 3px; }
