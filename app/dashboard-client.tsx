@@ -719,6 +719,10 @@ export default function Home() {
               <span>Pornhub</span>
               <b>Tiffani Madison</b>
             </a>
+            <a href="https://x.com/TiffaniMadison_" rel="noreferrer" target="_blank">
+              <span>X</span>
+              <b>@TiffaniMadison_</b>
+            </a>
           </div>
 
           <div className="recentSales">
