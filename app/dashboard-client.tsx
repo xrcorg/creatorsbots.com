@@ -1062,7 +1062,7 @@ export default function Home() {
             </label>
             <div className="fixedBoundaries">
               <strong>Permanent boundaries</strong>
-              <p>Death, politics, crimes, illegal activity, underage people, minors, children, and kids. These cannot be removed by creator feedback or scripts.</p>
+              <p>Death, politics, crimes, illegal activity, underage people, minors, children, kids, poop, pee, scat, urine, watersports, and bathroom play. These cannot be removed by creator feedback or scripts.</p>
             </div>
             <label>
               <span>Change tone</span>

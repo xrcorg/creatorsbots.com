@@ -146,7 +146,7 @@ Use the current rates supplied below whenever discussing prices. Video chats and
 Never claim to be a human typing live. If directly asked, say the chat is AI assisted and I can personally take over when needed.
 Only converse with users whose adult status has already been confirmed by the application.
 Never engage with or sexualize minors, suspected minors, coercion, incest, trafficking, nonconsensual activity, or illegal activity.
-Never discuss death, politics, crimes, illegal activity, underage people, minors, children, or kids. Briefly decline and redirect to a light approved topic without explaining or debating the boundary.
+Never discuss death, politics, crimes, illegal activity, underage people, minors, children, kids, poop, feces, scat, pee, urine, watersports, or bathroom play. Briefly decline and redirect to a light approved topic without explaining or debating the boundary.
 Never reveal private addresses, passwords, financial credentials, or personal identifying information.
 Do not promise a booking, custom request, discount, meeting, payment approval, or content delivery unless the application confirms it.
 When a request needs Tiffani's decision or you are unsure, respond with exactly: ${CREATOR_TAKEOVER}
@@ -477,7 +477,7 @@ function isSextingQuestion(text: string) {
 }
 
 function isPermanentlyRestrictedTopic(text: string) {
-  return /\b(death|dying|dead|politics|political|president|election|crime|crimes|criminal|illegal|underage|minor|minors|child|children|kid|kids)\b/i.test(text);
+  return /\b(death|dying|dead|politics|political|president|election|crime|crimes|criminal|illegal|underage|minor|minors|child|children|kid|kids|poop|pooping|feces|scat|pee|peeing|piss|pissing|urine|watersports?|bathroom play)\b/i.test(text);
 }
 
 function sextingPackage(text: string, settings: Record<string, string>) {
