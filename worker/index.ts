@@ -40,6 +40,7 @@ type TelegramUpdate = {
 
 const AGE_PROMPT = "Before you join, I have to make sure you're 18+. Can you say yes or no?";
 const INTRO = "Hey, it's Tiffany. What are you up to?";
+const NAME_PROMPT = "What should I call you?";
 const CLOSED = "I can only chat with adults who are 18 or older. This conversation is now closed.";
 const CREATOR_TAKEOVER = "__TIFFANI_TAKEOVER__";
 const CAPABILITIES = "I can help you book a private video chat or professional fan meet and greet. You can also buy photo and video content or request custom content from me. What are you interested in?";
@@ -112,6 +113,12 @@ async function prepareDatabase(db: D1Database) {
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS chat_messages_chat_id_idx
       ON chat_messages(chat_id, id)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS fan_profiles (
+      chat_id TEXT PRIMARY KEY,
+      name TEXT,
+      name_status TEXT NOT NULL DEFAULT 'awaiting_name',
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS pending_replies (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       chat_id TEXT NOT NULL,
@@ -272,6 +279,9 @@ async function createAIReply(env: Env, chatId: string, incoming: string) {
     "SELECT question, answer FROM learned_answers ORDER BY id DESC LIMIT 50",
   ).all<{ question: string; answer: string }>();
   const settings = await getSettings(env.DB);
+  const profile = await env.DB.prepare("SELECT name FROM fan_profiles WHERE chat_id = ?")
+    .bind(chatId)
+    .first<{ name: string | null }>();
 
   const input = [...history.results].reverse().map((item) => ({
     role: item.role,
@@ -287,7 +297,7 @@ async function createAIReply(env: Env, chatId: string, incoming: string) {
     },
     body: JSON.stringify({
       model: env.OPENAI_MODEL || "gpt-5.6",
-      instructions: `${TIFFANI_PROMPT}\nCurrent flirty level: ${settings.flirty_level || "very"}.\nApproved learned answers:\n${settings.learning === "off" ? "Learning is off." : learned.results
+      instructions: `${TIFFANI_PROMPT}\nThe fan's name is ${profile?.name || "unknown"}. Use their name naturally and occasionally, not in every response.\nCurrent flirty level: ${settings.flirty_level || "very"}.\nApproved learned answers:\n${settings.learning === "off" ? "Learning is off." : learned.results
         .map((item) => `Fan question: ${item.question}\nApproved answer: ${item.answer}`)
         .join("\n\n")}`,
       input,
@@ -361,7 +371,12 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       await env.DB.prepare("UPDATE fan_sessions SET age_status = 'verified', updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?")
         .bind(chatId)
         .run();
+      await env.DB.prepare(`INSERT INTO fan_profiles (chat_id, name_status) VALUES (?, 'awaiting_name')
+        ON CONFLICT(chat_id) DO UPDATE SET name_status = CASE
+          WHEN fan_profiles.name IS NULL THEN 'awaiting_name' ELSE fan_profiles.name_status END,
+          updated_at = CURRENT_TIMESTAMP`).bind(chatId).run();
       await sendTelegramMessage(env, message, INTRO);
+      await sendTelegramMessage(env, message, NAME_PROMPT);
     } else if (isAdultNo(message.text)) {
       await env.DB.prepare("UPDATE fan_sessions SET age_status = 'blocked', updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?")
         .bind(chatId)
@@ -370,6 +385,31 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     } else {
       await sendTelegramMessage(env, message, AGE_PROMPT);
     }
+    return json({ ok: true });
+  }
+
+  const profile = await env.DB.prepare("SELECT name, name_status FROM fan_profiles WHERE chat_id = ?")
+    .bind(chatId)
+    .first<{ name: string | null; name_status: string }>();
+  if (!profile) {
+    await env.DB.prepare("INSERT INTO fan_profiles (chat_id, name_status) VALUES (?, 'awaiting_name')")
+      .bind(chatId)
+      .run();
+    await sendTelegramMessage(env, message, NAME_PROMPT);
+    return json({ ok: true, name_needed: true });
+  }
+  if (profile.name_status === "awaiting_name") {
+    const name = message.text.trim().replace(/^(my name is|i am|i'm|im)\s+/i, "").slice(0, 50).trim();
+    if (!name) {
+      await sendTelegramMessage(env, message, NAME_PROMPT);
+      return json({ ok: true, name_needed: true });
+    }
+    await env.DB.prepare(`UPDATE fan_profiles SET name = ?, name_status = 'complete',
+      updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?`).bind(name, chatId).run();
+    const greeting = `Nice to meet you, ${name}.`;
+    await saveMessage(env.DB, chatId, "user", message.text);
+    await saveMessage(env.DB, chatId, "assistant", greeting);
+    await sendTelegramMessage(env, message, greeting);
     return json({ ok: true });
   }
 
