@@ -478,7 +478,11 @@ function isProductQuestion(text: string) {
 }
 
 function isCatalogListQuestion(text: string) {
-  return /\b(what|which|show me).*(videos|photos|content|packages|bundles).*(have|sell|available)|\b(content menu|catalog|shop menu)\b/i.test(text);
+  return /\b(what|which|show me).*(videos|photos|content|packages|bundles).*(have|sell|available)|\b(?:do you have|got|have you got)\s+(?:any\s+)?(?:videos|photos|content|packages|bundles)\b|\b(?:any|some)\s+(?:videos|photos|content|packages|bundles)(?:\s+(?:for sale|available))?\b|\b(content menu|catalog|shop menu)\b/i.test(text);
+}
+
+function askedToShowTrailer(text: string) {
+  return /\b(?:want|wanna|like)\s+(?:me\s+)?to\s+(?:see|show|send)(?:\s+(?:you|me))?\s+(?:the\s+|a\s+)?(?:trailer|preview)|\b(?:want|wanna|like)\s+(?:to\s+)?see\s+(?:the\s+|a\s+)?(?:trailer|preview)\b/i.test(text);
 }
 
 function isPaymentSent(text: string) {
@@ -1218,6 +1222,23 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     await saveMessage(env.DB, chatId, "assistant", reply);
     await sendTelegramMessage(env, message, reply);
     return json({ ok: true });
+  }
+
+  if (isAffirmativeReply(message.text)) {
+    const lastAssistantMessage = await env.DB.prepare(`SELECT content FROM chat_messages
+      WHERE chat_id = ? AND role = 'assistant' ORDER BY id DESC LIMIT 1`)
+      .bind(chatId).first<{ content: string }>();
+    if (lastAssistantMessage && askedToShowTrailer(lastAssistantMessage.content)) {
+      const product = await getInterestedProduct(env.DB, chatId) || await getNewestProduct(env.DB);
+      if (product?.trailer_url) {
+        await rememberProductInterest(env.DB, chatId, connectionId, product.id);
+        const trailerReply = `Here you go, babe. This is the trailer for ${product.title}:\n${product.trailer_url}\n\nDo you want to buy the full video for ${productPrice(product)}?`;
+        await saveMessage(env.DB, chatId, "user", message.text);
+        await saveMessage(env.DB, chatId, "assistant", trailerReply);
+        await sendTelegramMessage(env, message, trailerReply);
+        return json({ ok: true });
+      }
+    }
   }
 
   if (isCatalogListQuestion(message.text)) {
