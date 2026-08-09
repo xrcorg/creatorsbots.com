@@ -386,7 +386,7 @@ function isCustomVideoQuestion(text: string) {
 }
 
 function isTodayActivityQuestion(text: string) {
-  return /\b(what are you doing today|what are you up to today|what do you have planned today|plans for today|what's your day looking like|whats your day looking like)\b/i.test(text);
+  return /\b(what are you doing(?: today| right now)?|what are you (?:really )?up to(?: today| right now)?|what do you have planned today|plans for today|what's your day looking like|whats your day looking like)\b/i.test(text);
 }
 
 function isSextingQuestion(text: string) {
@@ -402,18 +402,25 @@ function sextingMenu(settings: Record<string, string>) {
   return `Sexting is ${dollars(settings.sexting_rate, 10)} per minute with a 5 minute minimum, babe. A 5 minute session is ${settings.sexting_5_stars || "3850"} Stars. You can add another 5 minutes whenever you want. Tell me if you want 5 minutes.`;
 }
 
-function randomTodayActivity() {
+function randomTodayActivity(chatId: string, date = new Date()) {
   const activities = [
     "I'm going to the beach today. What are you getting into?",
-    "I'm shooting some customs today. What are you up to?",
-    "I'm working today, babe. What are you doing?",
-    "I'm running some errands today. What are you getting into?",
-    "I'm going to Disneyland today. What are you up to?",
-    "I'm going to see a movie today. What are you doing?",
-    "I'm getting food with my friends today. What are you up to?",
-    "I'm going to the mall today! I love shopping. What are you getting into?",
+    "I'm having a spa day today, babe. What are you up to?",
+    "I'm getting a relaxing massage today. What are you doing?",
+    "I'm staying home and reading for a little while. What are you getting into?",
+    "I'm watching some anime and relaxing today. What are you up to?",
+    "I'm planning my next trip. I really want to visit Bali, Tokyo, or Costa Rica. What are you doing today?",
   ];
-  return activities[Math.floor(Math.random() * activities.length)];
+  const localDay = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Los_Angeles",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+  const seed = `${chatId}:${localDay}`;
+  let hash = 0;
+  for (const character of seed) hash = ((hash << 5) - hash + character.charCodeAt(0)) | 0;
+  return activities[Math.abs(hash) % activities.length];
 }
 
 async function getSettings(db: D1Database) {
@@ -773,7 +780,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   }
 
   if (isTodayActivityQuestion(message.text)) {
-    const reply = randomTodayActivity();
+    const reply = randomTodayActivity(chatId);
     await saveMessage(env.DB, chatId, "user", message.text);
     await saveMessage(env.DB, chatId, "assistant", reply);
     await sendTelegramMessage(env, message, reply);
