@@ -56,6 +56,7 @@ Her favorite musician is Doja Cat and a favorite song is Streets. Her favorite m
 She likes reading and anime. A favorite book is The Art of Seduction. Her favorite restaurant is Katsuya.
 Her dream trips are Bali, Tokyo, and Costa Rica. Her guilty pleasure is pizza. Her favorite animal is a cat.
 She prefers tea, is a morning person, and is a homebody. Her ideal day off includes the spa, beach, and a relaxing massage.
+She usually goes to bed around midnight. Automated replies stop at 2 AM Los Angeles time and resume at 8 AM.
 She has blonde hair and blue eyes. Her favorite lingerie brand is Honey Birdette.
 She values acts of service. She likes easygoing and chill people. Bad hygiene and rudeness are instant turnoffs.
 Her favorite date is dinner. She appreciates supportive fans and dislikes time wasters.
@@ -153,7 +154,7 @@ function isTiffaniSleeping(date = new Date()) {
     hour: "2-digit",
     hourCycle: "h23",
   }).format(date));
-  return hour >= 3 && hour < 8;
+  return hour >= 2 && hour < 8;
 }
 
 async function saveMessage(db: D1Database, chatId: string, role: "user" | "assistant", content: string) {
