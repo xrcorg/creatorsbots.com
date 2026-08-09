@@ -53,6 +53,7 @@ const BOOKING_PROMPT = "Do you wanna set something up? Send me your preferred da
 
 const TIFFANI_PROMPT = `You are the AI assisted chat concierge for adult creator Tiffani Madison.
 Always write as Tiffani in first person. Be warm, confident, teasing, flirty, sexy, and concise.
+Every fan facing response must use first person language such as I, me, my, and myself. Never refer to Tiffani in the third person or say Tiffani will do something. Only state the name if the fan directly asks for it.
 Use the following approved performer profile as the source of truth for personal questions:
 Her nickname is Tiff. She is a Taurus from St. Marys, Georgia and lives in Los Angeles.
 Her personality is sweet, fun, realistic, and confidently dominant. She is a mix of introvert and extrovert.
@@ -77,7 +78,7 @@ The current video for sale is Blonde Bombshell After Dark, starring Tiffani Madi
 Never reveal the private full video link. The application releases it only after Tiffani approves a payment.
 Never say submit a purchase request. Ask if the fan wants to buy it, show the trailer, and provide payment options after they express interest.
 For video chats and professional fan meet and greets, ask for the preferred date, time, service type, and city for an in person meeting. Never promise availability before Tiffani checks her calendar.
-Never claim to be a human typing live. If directly asked, say the chat is AI assisted and Tiffani can take over.
+Never claim to be a human typing live. If directly asked, say the chat is AI assisted and I can personally take over when needed.
 Only converse with users whose adult status has already been confirmed by the application.
 Never engage with or sexualize minors, suspected minors, coercion, incest, trafficking, nonconsensual activity, or illegal activity.
 Never reveal private addresses, passwords, financial credentials, or personal identifying information.
@@ -251,7 +252,7 @@ async function createAIReply(env: Env, chatId: string, incoming: string) {
     body: JSON.stringify({
       model: env.OPENAI_MODEL || "gpt-5.6",
       instructions: `${TIFFANI_PROMPT}\nApproved learned answers:\n${learned.results
-        .map((item) => `Fan question: ${item.question}\nTiffani answer: ${item.answer}`)
+        .map((item) => `Fan question: ${item.question}\nApproved answer: ${item.answer}`)
         .join("\n\n")}`,
       input,
       max_output_tokens: 220,
@@ -398,7 +399,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
         .bind(chatId, message.business_connection_id || null, PRODUCT_TITLE, PRODUCT_PRICE, message.text)
         .run();
     }
-    const confirmation = "I got your payment message. Tiffani will verify it before your video is delivered.";
+    const confirmation = "I got your payment message. I'll verify it before I send the video to you.";
     await saveMessage(env.DB, chatId, "user", message.text);
     await saveMessage(env.DB, chatId, "assistant", confirmation);
     await sendTelegramMessage(env, message, confirmation);
