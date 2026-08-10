@@ -2310,6 +2310,23 @@ async function handleAdminSocialLinks(request: Request, env: Env, url: URL) {
     return json({ ok: true });
   }
   const match = url.pathname.match(/^\/api\/admin\/social-links\/(\d+)$/);
+  if (request.method === "PATCH" && match) {
+    const body = await request.json() as { platform?: string; label?: string; url?: string };
+    const platform = body.platform?.trim().slice(0, 50) || "";
+    const label = body.label?.trim().slice(0, 100) || "";
+    const linkUrl = body.url?.trim() || "";
+    if (!platform || !label || !validHttpUrl(linkUrl) || !linkUrl.startsWith("https://")) {
+      return json({ error: "Platform, label, and a secure link are required" }, 400);
+    }
+    try {
+      const result = await env.DB.prepare(`UPDATE creator_social_links SET platform = ?, label = ?, url = ?
+        WHERE id = ?`).bind(platform, label, linkUrl, Number(match[1])).run();
+      if (!result.meta.changes) return json({ error: "Social link was not found" }, 404);
+    } catch {
+      return json({ error: "That social link is already added" }, 409);
+    }
+    return json({ ok: true });
+  }
   if (request.method === "DELETE" && match) {
     await env.DB.prepare(`DELETE FROM creator_social_links WHERE id = ?`).bind(Number(match[1])).run();
     return json({ ok: true });

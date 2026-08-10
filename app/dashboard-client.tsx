@@ -284,6 +284,7 @@ export default function Home() {
   const [announcementPreview, setAnnouncementPreview] = useState(false);
   const [socialLinks, setSocialLinks] = useState<SocialLink[]>([]);
   const [socialForm, setSocialForm] = useState({ platform: "Instagram", label: "", url: "" });
+  const [editingSocialId, setEditingSocialId] = useState<number | null>(null);
   const [trainingSuggestions, setTrainingSuggestions] = useState<TrainingSuggestion[]>([]);
   const [trainingForm, setTrainingForm] = useState({ category: "topic" as TrainingSuggestion["category"], suggestion: "" });
   const [agendaDate, setAgendaDate] = useState(() => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles" }).format(new Date()));
@@ -770,8 +771,8 @@ export default function Home() {
     event.preventDefault();
     try {
       setLiveLoading(true);
-      const response = await fetch("/api/admin/social-links", {
-        method: "POST",
+      const response = await fetch(editingSocialId ? `/api/admin/social-links/${editingSocialId}` : "/api/admin/social-links", {
+        method: editingSocialId ? "PATCH" : "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(socialForm),
       });
@@ -780,6 +781,7 @@ export default function Home() {
         throw new Error(data.error || "Social link could not be added");
       }
       setSocialForm({ platform: "Instagram", label: "", url: "" });
+      setEditingSocialId(null);
       await loadLivePending();
     } catch (error) {
       setLiveError(error instanceof Error ? error.message : "The social link could not be added.");
@@ -788,11 +790,22 @@ export default function Home() {
     }
   }
 
+  function editSocialLink(link: SocialLink) {
+    setEditingSocialId(link.id);
+    setSocialForm({ platform: link.platform, label: link.label, url: link.url });
+  }
+
+  function cancelSocialEdit() {
+    setEditingSocialId(null);
+    setSocialForm({ platform: "Instagram", label: "", url: "" });
+  }
+
   async function deleteSocialLink(id: number) {
     try {
       setLiveLoading(true);
       const response = await fetch(`/api/admin/social-links/${id}`, { method: "DELETE" });
       if (!response.ok) throw new Error("Social link could not be removed");
+      if (editingSocialId === id) cancelSocialEdit();
       await loadLivePending();
     } catch {
       setLiveError("The social link could not be removed. Please try again.");
@@ -1323,10 +1336,11 @@ export default function Home() {
               <label><span>Platform</span><select value={socialForm.platform} onChange={(event) => setSocialForm((current) => ({ ...current, platform: event.target.value }))}><option>Instagram</option><option>TikTok</option><option>YouTube</option><option>Twitch</option><option>X</option><option>Pornhub</option><option>OnlyFans</option><option>All links</option><option>Other</option></select></label>
               <label><span>Display name</span><input required placeholder="@username or profile name" value={socialForm.label} onChange={(event) => setSocialForm((current) => ({ ...current, label: event.target.value }))} /></label>
               <label><span>Profile link</span><input required type="url" placeholder="https://..." value={socialForm.url} onChange={(event) => setSocialForm((current) => ({ ...current, url: event.target.value }))} /></label>
-              <button className="primaryAction" disabled={liveLoading}>Add social link</button>
+              <button className="primaryAction" disabled={liveLoading}>{editingSocialId ? "Save changes" : "Add social link"}</button>
+              {editingSocialId && <button className="secondaryAction" type="button" onClick={cancelSocialEdit}>Cancel editing</button>}
             </form>
             <div className="socialLinkList">
-              {socialLinks.map((link) => <article key={link.id}><a href={link.url} rel="noreferrer" target="_blank"><span>{link.platform}</span><b>{link.label}</b></a><button type="button" disabled={liveLoading} onClick={() => void deleteSocialLink(link.id)}>Delete</button></article>)}
+              {socialLinks.map((link) => <article key={link.id}><a href={link.url} rel="noreferrer" target="_blank"><span>{link.platform}</span><b>{link.label}</b></a><button type="button" disabled={liveLoading} onClick={() => editSocialLink(link)}>Edit</button><button type="button" disabled={liveLoading} onClick={() => void deleteSocialLink(link.id)}>Delete</button></article>)}
             </div>
           </div>
 
