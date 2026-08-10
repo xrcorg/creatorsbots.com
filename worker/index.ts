@@ -92,6 +92,7 @@ type ContentProduct = {
   content_type: string;
   title: string;
   price_cents: number;
+  stars_price: number;
   genre: string;
   actors: string;
   trailer_url: string;
@@ -113,7 +114,7 @@ function productOffer(product: ContentProduct) {
     return `I have ${product.title} available for ${productPrice(product)}, babe. Do you want to buy it?`;
   }
   if (product.content_type === "video_rating") {
-    return `I can give you a private video rating for ${productPrice(product)}, babe. After I confirm payment, send me your photo and I'll respond with a short video clip. Do you want one?`;
+    return `I can give you a private video rating for ${videoRatingStars(product).toLocaleString()} Telegram Stars, babe. It's listed at ${productPrice(product)}. After payment, send me your photo and I'll respond with a short video clip. Do you want one?`;
   }
   const trailer = product.trailer_url ? `\n\nDo you want to buy it? Here's a trailer I have as well:\n${product.trailer_url}` : "\n\nDo you want to buy it?";
   return `My newest ${product.content_type.replaceAll("_", " ")} is ${product.title}${product.actors ? `, starring ${product.actors}` : ""}.${product.genre ? ` It's ${product.genre}.` : ""} It's ${productPrice(product)}.${trailer}`;
@@ -130,7 +131,7 @@ function productPaymentOptions(product: ContentProduct) {
 }
 
 function videoRatingStars(product: ContentProduct) {
-  return Math.max(1, Math.round(product.price_cents / 10));
+  return Math.max(1, Math.round(product.stars_price || 5000));
 }
 
 async function createVideoRatingCheckout(env: Env, message: TelegramMessage, product: ContentProduct) {
@@ -341,6 +342,7 @@ async function prepareDatabase(db: D1Database) {
       content_type TEXT NOT NULL,
       title TEXT NOT NULL UNIQUE,
       price_cents INTEGER NOT NULL,
+      stars_price INTEGER NOT NULL DEFAULT 0,
       genre TEXT NOT NULL DEFAULT '',
       actors TEXT NOT NULL DEFAULT '',
       trailer_url TEXT NOT NULL DEFAULT '',
@@ -638,6 +640,12 @@ async function prepareDatabase(db: D1Database) {
   if (!customColumns.results.some((column) => column.name === "completion_comment")) {
     await db.prepare("ALTER TABLE custom_fulfillments ADD COLUMN completion_comment TEXT NOT NULL DEFAULT ''").run();
   }
+  const contentColumns = await db.prepare("PRAGMA table_info(content_products)").all<{ name: string }>();
+  if (!contentColumns.results.some((column) => column.name === "stars_price")) {
+    await db.prepare("ALTER TABLE content_products ADD COLUMN stars_price INTEGER NOT NULL DEFAULT 0").run();
+  }
+  await db.prepare(`UPDATE content_products SET stars_price = 5000
+    WHERE content_type = 'video_rating' AND stars_price = 0`).run();
 }
 
 async function sendTelegramMessage(env: Env, message: TelegramMessage, text: string) {
@@ -967,14 +975,14 @@ async function getSettings(db: D1Database) {
 }
 
 async function getNewestProduct(db: D1Database) {
-  return db.prepare(`SELECT id, content_type, title, price_cents, genre, actors,
+  return db.prepare(`SELECT id, content_type, title, price_cents, stars_price, genre, actors,
     trailer_url, delivery_url, active, created_at FROM content_products
     WHERE active = 1 AND content_type NOT IN ('physical_item', 'video_rating')
     ORDER BY id DESC LIMIT 1`).first<ContentProduct>();
 }
 
 async function getActiveProducts(db: D1Database) {
-  const products = await db.prepare(`SELECT id, content_type, title, price_cents, genre,
+  const products = await db.prepare(`SELECT id, content_type, title, price_cents, stars_price, genre,
     actors, trailer_url, delivery_url, active, created_at FROM content_products
     WHERE active = 1 ORDER BY id DESC LIMIT 25`).all<ContentProduct>();
   return products.results;
@@ -983,14 +991,14 @@ async function getActiveProducts(db: D1Database) {
 function catalogReply(products: ContentProduct[]) {
   if (!products.length) return "I'm adding new content soon, babe. What kind of content do you want to see?";
   const lines = products.slice(0, 10).map((product) =>
-    `${product.title} · ${product.content_type.replaceAll("_", " ")} · ${productPrice(product)}`);
+    `${product.title} · ${product.content_type.replaceAll("_", " ")} · ${product.content_type === "video_rating" ? `${videoRatingStars(product).toLocaleString()} Stars` : productPrice(product)}`);
   return `Here's what I have right now, babe:\n\n${lines.join("\n")}\n\nTell me which title you want and I'll show you the details.`;
 }
 
 async function getInterestedProduct(db: D1Database, chatId: string) {
   return db.prepare(`SELECT content_products.id, content_products.content_type,
     content_products.title, content_products.price_cents, content_products.genre,
-    content_products.actors, content_products.trailer_url, content_products.delivery_url,
+    content_products.stars_price, content_products.actors, content_products.trailer_url, content_products.delivery_url,
     content_products.active, content_products.created_at FROM product_interest
     JOIN content_products ON content_products.id = product_interest.product_id
     WHERE product_interest.chat_id = ? AND content_products.active = 1`)
@@ -1190,7 +1198,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     const [, key] = payload.split(":");
     let valid = false;
     if (payload.startsWith("rating:")) {
-      const product = await env.DB.prepare(`SELECT id, content_type, title, price_cents, genre, actors,
+      const product = await env.DB.prepare(`SELECT id, content_type, title, price_cents, stars_price, genre, actors,
         trailer_url, delivery_url, active, created_at FROM content_products
         WHERE id = ? AND content_type = 'video_rating' AND active = 1`).bind(Number(key)).first<ContentProduct>();
       valid = Boolean(product) && update.pre_checkout_query.currency === "XTR" &&
@@ -1209,7 +1217,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   if (!message || message.from?.is_bot) return json({ ok: true });
   if (message.successful_payment?.currency === "XTR" && message.successful_payment.invoice_payload.startsWith("rating:")) {
     const [, productIdText] = message.successful_payment.invoice_payload.split(":");
-    const product = await env.DB.prepare(`SELECT id, content_type, title, price_cents, genre, actors,
+    const product = await env.DB.prepare(`SELECT id, content_type, title, price_cents, stars_price, genre, actors,
       trailer_url, delivery_url, active, created_at FROM content_products
       WHERE id = ? AND content_type = 'video_rating'`).bind(Number(productIdText)).first<ContentProduct>();
     if (!product || message.successful_payment.total_amount !== videoRatingStars(product)) {
@@ -2056,7 +2064,7 @@ async function handleAdminPending(request: Request, env: Env) {
     )`).first<{ total_stars: number; transaction_count: number }>();
   const sextingMedia = await env.DB.prepare(`SELECT id, label, media_type, file_name,
     mime_type, active, created_at FROM sexting_media ORDER BY id DESC LIMIT 100`).all();
-  const contentProducts = await env.DB.prepare(`SELECT id, content_type, title, price_cents,
+  const contentProducts = await env.DB.prepare(`SELECT id, content_type, title, price_cents, stars_price,
     genre, actors, trailer_url, delivery_url, active, created_at
     FROM content_products ORDER BY id DESC LIMIT 200`).all();
   const sextingScripts = await env.DB.prepare(`SELECT id, stage, title, script_text,
@@ -2255,24 +2263,26 @@ async function handleAdminProducts(request: Request, env: Env, url: URL) {
   await prepareDatabase(env.DB);
   const match = url.pathname.match(/^\/api\/admin\/products\/(\d+)$/);
   if (request.method === "POST" && url.pathname === "/api/admin/products") {
-    const body = await request.json() as Partial<ContentProduct> & { price?: string };
+    const body = await request.json() as Partial<ContentProduct> & { price?: string; stars_price?: number | string };
     const title = String(body.title || "").trim();
     const contentType = String(body.content_type || "").trim();
     const priceCents = Math.round(Number(body.price || 0) * 100);
+    const starsPrice = contentType === "video_rating" ? Math.round(Number(body.stars_price || 0)) : 0;
     const trailerUrl = String(body.trailer_url || "").trim();
     const deliveryUrl = String(body.delivery_url || "").trim();
     const allowedTypes = ["photo", "photo_package", "video", "video_bundle", "physical_item", "video_rating"];
     const needsDeliveryLink = !["physical_item", "video_rating"].includes(contentType);
     if (!title || !allowedTypes.includes(contentType) ||
       !Number.isFinite(priceCents) || priceCents < 100 || priceCents > 10000000 ||
+      (contentType === "video_rating" && (!Number.isFinite(starsPrice) || starsPrice < 1 || starsPrice > 1000000)) ||
       !validHttpUrl(trailerUrl) || !validHttpUrl(deliveryUrl, needsDeliveryLink)) {
       return json({ error: "Complete the title, type, price, and valid delivery link" }, 400);
     }
     try {
       await env.DB.prepare(`INSERT INTO content_products
-        (content_type, title, price_cents, genre, actors, trailer_url, delivery_url)
-        VALUES (?, ?, ?, ?, ?, ?, ?)`)
-        .bind(contentType, title.slice(0, 180), priceCents,
+        (content_type, title, price_cents, stars_price, genre, actors, trailer_url, delivery_url)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+        .bind(contentType, title.slice(0, 180), priceCents, starsPrice,
           String(body.genre || "").trim().slice(0, 180),
           String(body.actors || "").trim().slice(0, 300), trailerUrl, deliveryUrl).run();
     } catch {
@@ -2281,7 +2291,7 @@ async function handleAdminProducts(request: Request, env: Env, url: URL) {
     return json({ ok: true });
   }
   if (match && request.method === "PATCH") {
-    const body = await request.json() as Partial<ContentProduct> & { price?: string; active?: boolean };
+    const body = await request.json() as Partial<ContentProduct> & { price?: string; stars_price?: number | string; active?: boolean };
     const productId = Number(match[1]);
     if (typeof body.active === "boolean" && body.title === undefined) {
       await env.DB.prepare(`UPDATE content_products SET active = ?, updated_at = CURRENT_TIMESTAMP
@@ -2294,20 +2304,22 @@ async function handleAdminProducts(request: Request, env: Env, url: URL) {
     const title = String(body.title || "").trim();
     const contentType = String(body.content_type || "").trim();
     const priceCents = Math.round(Number(body.price || 0) * 100);
+    const starsPrice = contentType === "video_rating" ? Math.round(Number(body.stars_price || 0)) : 0;
     const trailerUrl = String(body.trailer_url || "").trim();
     const deliveryUrl = String(body.delivery_url || "").trim();
     const allowedTypes = ["photo", "photo_package", "video", "video_bundle", "physical_item", "video_rating"];
     const needsDeliveryLink = !["physical_item", "video_rating"].includes(contentType);
     if (!title || !allowedTypes.includes(contentType) ||
       !Number.isFinite(priceCents) || priceCents < 100 || priceCents > 10000000 ||
+      (contentType === "video_rating" && (!Number.isFinite(starsPrice) || starsPrice < 1 || starsPrice > 1000000)) ||
       !validHttpUrl(trailerUrl) || !validHttpUrl(deliveryUrl, needsDeliveryLink)) {
       return json({ error: "Complete the title, type, price, and valid delivery link" }, 400);
     }
     try {
       await env.DB.batch([
-        env.DB.prepare(`UPDATE content_products SET content_type = ?, title = ?, price_cents = ?, genre = ?,
+        env.DB.prepare(`UPDATE content_products SET content_type = ?, title = ?, price_cents = ?, stars_price = ?, genre = ?,
           actors = ?, trailer_url = ?, delivery_url = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
-          .bind(contentType, title.slice(0, 180), priceCents,
+          .bind(contentType, title.slice(0, 180), priceCents, starsPrice,
             String(body.genre || "").trim().slice(0, 180), String(body.actors || "").trim().slice(0, 300),
             trailerUrl, deliveryUrl, productId),
         env.DB.prepare(`UPDATE purchase_requests SET product_title = ?, price = ?
