@@ -267,6 +267,7 @@ export default function Home() {
   const [liveLoading, setLiveLoading] = useState(false);
   const [liveError, setLiveError] = useState("");
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  const [dashboardView, setDashboardView] = useState<"today" | "content" | "settings" | "history">("today");
   const previousAttentionCount = useRef<number | null>(null);
 
   const loadLivePending = useCallback(async () => {
@@ -844,7 +845,7 @@ export default function Home() {
           </div>
         </aside>
 
-        <aside className="creatorPanel visible">
+        <aside className="creatorPanel visible" data-dashboard-view={dashboardView}>
           <div className="creatorHeader">
             <div>
               <p className="eyebrow">Creator inbox</p>
@@ -852,6 +853,14 @@ export default function Home() {
             </div>
             <span className="liveBadge">Live</span>
           </div>
+
+          <nav className="controlRoomNav" aria-label="Control room sections">
+            {(["today", "content", "settings", "history"] as const).map((view) => (
+              <button className={dashboardView === view ? "active" : ""} key={view} onClick={() => setDashboardView(view)} type="button">
+                {view === "today" ? "Today" : view === "content" ? "Content" : view === "settings" ? "Settings" : "History"}
+              </button>
+            ))}
+          </nav>
 
           <div className="earningsOverview">
             <button onClick={() => setEarningsView((current) => current === "weekly" ? null : "weekly")}><span>Past 7 days</span><strong>{money(earnings.weekly_cents)}</strong><small>{earnings.weekly_count} approved sales · View history</small></button>
@@ -885,7 +894,7 @@ export default function Home() {
             <small>{starsSummary.count} paid sexting sessions</small>
           </section>
 
-          <section className="announcementCenter">
+          <section className="announcementCenter dashboardSection dashboardToday">
             <div className="sectionHeading"><strong>Live announcements</strong><span>{announcements.length}</span></div>
             <p className="queueNote">Send a live stream link to every verified fan chat.</p>
             <div className="announcementForm">
@@ -899,7 +908,7 @@ export default function Home() {
             </div>
           </section>
 
-          <section className="dailyAgenda">
+          <section className="dailyAgenda dashboardSection dashboardToday">
             <div className="sectionHeading"><strong>Daily task list</strong><span>{openAgendaCount}</span></div>
             <div className="agendaControls">
               <label><span>Day</span><input type="date" value={agendaDate} onChange={(event) => setAgendaDate(event.target.value)} /></label>
@@ -939,7 +948,7 @@ export default function Home() {
             </form>
           </section>
 
-          <section className="sextingQueue">
+          <section className="sextingQueue dashboardSection dashboardToday">
             <div className="sectionHeading"><strong>Sexting sessions</strong><span>{sextingSessions.length}</span></div>
             {sextingSessions.length ? sextingSessions.map((session) => (
               <div className="sessionCard" key={session.id}>
@@ -953,7 +962,7 @@ export default function Home() {
             )) : <p className="queueNote">No paid sexting sessions waiting.</p>}
           </section>
 
-          <section className="mediaLibrary">
+          <section className="mediaLibrary dashboardSection dashboardContent">
             <div className="sectionHeading"><strong>Sexting media library</strong><span>{sextingMedia.length}</span></div>
             <form onSubmit={uploadSextingMedia}>
               <label><span>Photo or video label</span><input onChange={(event) => setMediaLabel(event.target.value)} placeholder="Pink lingerie tease" value={mediaLabel} /></label>
@@ -974,7 +983,7 @@ export default function Home() {
             </div>
           </section>
 
-          <section className="scriptLibrary">
+          <section className="scriptLibrary dashboardSection dashboardContent">
             <div className="sectionHeading"><strong>Sexting scripts</strong><span>{sextingScripts.length}</span></div>
             <p className="queueNote">Active scripts guide the bot only during an approved session. It adapts them to the conversation instead of repeating them word for word.</p>
             <form onSubmit={addSextingScript}>
@@ -997,7 +1006,7 @@ export default function Home() {
             </div>
           </section>
 
-          <section className="contentCatalog">
+          <section className="contentCatalog dashboardSection dashboardContent">
             <div className="sectionHeading"><strong>Content catalog</strong><span>{contentProducts.length}</span></div>
             <p className="queueNote">The newest active item is what the bot offers first.</p>
             <form onSubmit={addContentProduct}>
@@ -1022,7 +1031,7 @@ export default function Home() {
             </div>
           </section>
 
-          <section className="customQueue">
+          <section className="customQueue dashboardSection dashboardToday">
             <div className="sectionHeading">
               <strong>Customs to fulfill</strong>
               <span>{liveCustoms.length}</span>
@@ -1052,7 +1061,7 @@ export default function Home() {
           </section>
 
           {livePurchases.length ? (
-            <div className="takeoverCard purchaseApproval">
+            <div className="takeoverCard purchaseApproval dashboardSection dashboardToday">
               <div className="alertTitle"><span>$</span> Payment approval</div>
               <p className="fanQuestion">{livePurchases[0].product_title}</p>
               <div className="purchasePrice">{livePurchases[0].price}</div>
@@ -1065,7 +1074,7 @@ export default function Home() {
               </button>
             </div>
           ) : liveBookings.length ? (
-            <div className="takeoverCard bookingApproval">
+            <div className="takeoverCard bookingApproval dashboardSection dashboardToday">
               <div className="alertTitle"><span>□</span> {liveBookings[0].suggested_type === "custom_content" ? "Custom request" : "Booking request"}</div>
               <div className="requestOwner">{liveBookings[0].telegram_name}</div>
               <p className="fanQuestion">“{liveBookings[0].details}”</p>
@@ -1103,7 +1112,7 @@ export default function Home() {
               </button>
             </div>
           ) : livePending.length ? (
-            <div className="takeoverCard">
+            <div className="takeoverCard dashboardSection dashboardToday">
               <div className="alertTitle"><span>!</span> Reply requested</div>
               <p className="fanQuestion">“{livePending[0].question}”</p>
               <div className="botPaused">The bot stayed silent so you can answer personally.</div>
@@ -1126,21 +1135,21 @@ export default function Home() {
               </button>
             </div>
           ) : (
-            <div className="emptyQueue">
+            <div className="emptyQueue dashboardSection dashboardToday">
               <span>✓</span>
               <h3>{liveLoading ? "Checking live messages" : "You're all caught up"}</h3>
               <p>{liveError || "Unanswered questions and payment approvals will appear here automatically."}</p>
             </div>
           )}
 
-          <div className="testPrompts">
+          <div className="testPrompts dashboardSection dashboardSettings">
             <strong>Quick test prompts</strong>
             <button onClick={() => { setInput("Can I get a custom video?"); setCreatorMode(false); }}>Custom request</button>
             <button onClick={() => { setInput("What anime do you like?"); setCreatorMode(false); }}>Personality question</button>
             <button onClick={() => { setInput("I want to book a call"); setCreatorMode(false); }}>Booking request</button>
           </div>
 
-          <div className="personaSummary settingsPanel">
+          <div className="personaSummary settingsPanel dashboardSection dashboardSettings">
             <div>
               <span>Flirty level</span>
               <section>{(["soft", "flirty", "very"] as const).map((value) => <button className={settings.flirty_level === value ? "selected" : ""} key={value} onClick={() => void updateSetting("flirty_level", value)}>{value}</button>)}</section>
@@ -1163,7 +1172,7 @@ export default function Home() {
             <div><span>Age gate</span><strong>Required</strong></div>
           </div>
 
-          <div className="creatorProfileLinks">
+          <div className="creatorProfileLinks dashboardSection dashboardSettings">
             <div className="sectionHeading"><strong>Approved social links</strong><span>{socialLinks.length}</span></div>
             <p className="queueNote">The bot shares only links shown here.</p>
             <form onSubmit={addSocialLink}>
@@ -1177,7 +1186,7 @@ export default function Home() {
             </div>
           </div>
 
-          <section className="conversationTraining">
+          <section className="conversationTraining dashboardSection dashboardSettings">
             <div className="sectionHeading"><strong>Conversation training</strong><span>{trainingSuggestions.length}</span></div>
             <p className="queueNote">Add or delete individual instructions. Changes affect future bot replies.</p>
             <form onSubmit={addTrainingSuggestion}>
@@ -1194,7 +1203,7 @@ export default function Home() {
             </div>
           </section>
 
-          <section className="customHistory">
+          <section className="customHistory dashboardSection dashboardHistory">
             <strong>Content order history</strong>
             {purchaseHistory.length ? purchaseHistory.map((purchase) => (
               <div key={purchase.id}>
@@ -1204,7 +1213,7 @@ export default function Home() {
             )) : <p>No content orders yet.</p>}
           </section>
 
-          <div className="recentSales">
+          <div className="recentSales dashboardSection dashboardHistory">
             <strong>Recent earnings</strong>
             {earnings.recent.length ? earnings.recent.slice(0, 6).map((item) => (
               <div key={item.id}>
@@ -1214,7 +1223,7 @@ export default function Home() {
             )) : <p>No approved sales yet.</p>}
           </div>
 
-          <section className="customHistory">
+          <section className="customHistory dashboardSection dashboardHistory">
             <strong>Completed customs</strong>
             {customHistory.length ? customHistory.map((custom) => (
               <div key={custom.id}>
@@ -1223,7 +1232,7 @@ export default function Home() {
               </div>
             )) : <p>No completed customs yet.</p>}
           </section>
-          <section className="customHistory">
+          <section className="customHistory dashboardSection dashboardHistory">
             <strong>Completed sexting sessions</strong>
             {sextingHistory.length ? sextingHistory.map((session) => (
               <div key={session.id}>

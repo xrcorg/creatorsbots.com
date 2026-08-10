@@ -157,6 +157,14 @@ button { cursor: pointer; }
 
 .creatorPanel { min-width: 0; overflow: auto; background: white; }
 .creatorHeader { justify-content: space-between; margin-bottom: 22px; }
+.controlRoomNav { position: sticky; top: 0; z-index: 8; display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 0 0 16px; padding: 6px; border: 1px solid #efd9e4; border-radius: 14px; background: rgba(255,255,255,.94); box-shadow: 0 8px 24px rgba(93,35,64,.08); backdrop-filter: blur(12px); }
+.controlRoomNav button { border: 0; border-radius: 10px; padding: 10px 8px; background: transparent; color: var(--muted); font-size: 10px; font-weight: 800; }
+.controlRoomNav button.active { background: var(--pink); color: white; box-shadow: 0 5px 14px rgba(237,79,154,.24); }
+.creatorPanel .dashboardSection { display: none; }
+.creatorPanel[data-dashboard-view="today"] .dashboardToday,
+.creatorPanel[data-dashboard-view="content"] .dashboardContent,
+.creatorPanel[data-dashboard-view="settings"] .dashboardSettings,
+.creatorPanel[data-dashboard-view="history"] .dashboardHistory { display: block; }
 .creatorHeader h2 { margin: 0; font-family: Georgia, serif; font-size: 24px; }
 .liveBadge { background: #f1fff6; padding: 7px 10px; }
 .earningsOverview { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
@@ -351,6 +359,8 @@ button { cursor: pointer; }
   .workspace { display: block; min-height: auto; border-radius: 22px; }
   .sidePanel { display: none; }
   .creatorPanel { position: static; width: 100%; max-height: none; padding: 18px; }
+  .controlRoomNav { top: 8px; grid-template-columns: repeat(4, max-content); overflow-x: auto; justify-content: start; }
+  .controlRoomNav button { min-width: 78px; }
   .footerNote { display: none; }
 }
 
