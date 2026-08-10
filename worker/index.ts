@@ -1,6 +1,6 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
-import { bookingDetailsMissing, customDetailsMissing, isAffirmativeReply, isBotQuestion, isCancelReply, parseNameIntroduction } from "./conversation-rules";
+import { bookingDetailsMissing, customDetailsMissing, isAffirmativeReply, isBotQuestion, isCancelReply, isLikelyCityReply, parseNameIntroduction } from "./conversation-rules";
 
 interface Env {
   ASSETS: Fetcher;
@@ -1240,8 +1240,10 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     const recentBookingMessages = await env.DB.prepare(`SELECT content FROM chat_messages
       WHERE chat_id = ? AND role = 'user' ORDER BY id DESC LIMIT 5`)
       .bind(chatId).all<{ content: string }>();
-    const combinedBookingDetails = [...recentBookingMessages.results]
-      .reverse().map((item) => item.content).concat(message.text).join(" ");
+    const priorBookingDetails = [...recentBookingMessages.results]
+      .reverse().map((item) => item.content).join(" ");
+    const standaloneCityReply = bookingDetailsMissing(priorBookingDetails).includes("city") && isLikelyCityReply(message.text);
+    const combinedBookingDetails = `${priorBookingDetails}${standaloneCityReply ? " city is " : " "}${message.text}`.trim();
     const missingBookingDetails = bookingDetailsMissing(combinedBookingDetails);
     if (missingBookingDetails.length) {
       const detailsPrompt = missingBookingDetails.includes("video chat or in person meet")

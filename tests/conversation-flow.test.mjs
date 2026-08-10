@@ -7,6 +7,7 @@ import {
   isAffirmativeReply,
   isBotQuestion,
   isCancelReply,
+  isLikelyCityReply,
   parseNameIntroduction,
 } from "../worker/conversation-rules.ts";
 
@@ -33,6 +34,14 @@ test("bookings require a service, date, and time", () => {
   assert.deepEqual(bookingDetailsMissing("tomorrow at 3 pm"), ["video chat or in person meet"]);
   assert.deepEqual(bookingDetailsMissing("in person tomorrow at 3 pm"), ["city"]);
   assert.deepEqual(bookingDetailsMissing("in person tomorrow at 3 pm in Los Angeles"), []);
+});
+
+test("standalone city replies are accepted after the city prompt", () => {
+  assert.equal(isLikelyCityReply("LA"), true);
+  assert.equal(isLikelyCityReply("Los Angeles"), true);
+  assert.equal(isLikelyCityReply("Las Vegas"), true);
+  assert.equal(isLikelyCityReply("tomorrow"), false);
+  assert.equal(isLikelyCityReply("3 pm"), false);
 });
 
 test("customs require both creative details and a duration", () => {

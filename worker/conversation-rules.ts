@@ -18,6 +18,12 @@ export function bookingDetailsMissing(text: string) {
   return missing;
 }
 
+export function isLikelyCityReply(text: string) {
+  const value = text.trim().replace(/[.!?]+$/g, "");
+  if (!/^[a-z][a-z .'-]{1,59}$/i.test(value)) return false;
+  return !/^(today|tomorrow|tonight|morning|afternoon|evening|noon|midnight|yes|no|sure|okay|ok|alright)$/i.test(value);
+}
+
 export function customDetailsMissing(text: string) {
   const hasDuration = /\b\d+(?:\.\d+)?\s*(?:minute|minutes|min|mins)\b/i.test(text) ||
     /\b(five|six|seven|eight|nine|ten|fifteen|twenty|thirty)\s*(?:minute|minutes|min|mins)\b/i.test(text);
