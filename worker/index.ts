@@ -1163,6 +1163,7 @@ async function createAIReply(env: Env, chatId: string, incoming: string) {
     .first<{ name: string | null }>();
   const activeSexting = await env.DB.prepare(`SELECT duration_minutes, started_at, ends_at
     FROM sexting_sessions WHERE chat_id = ? AND status = 'active'
+      AND ends_at IS NOT NULL AND ends_at > CURRENT_TIMESTAMP
     ORDER BY id DESC LIMIT 1`).bind(chatId).first<{ duration_minutes: number; started_at: string; ends_at: string }>();
   const sextingScripts = activeSexting
     ? await env.DB.prepare(`SELECT stage, title, script_text, media_label FROM sexting_scripts
@@ -1327,7 +1328,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     const takeover = await env.DB.prepare(`UPDATE sexting_sessions
       SET control_mode = 'human', taken_over_at = CURRENT_TIMESTAMP
       WHERE id = (SELECT id FROM sexting_sessions WHERE chat_id = ? AND status = 'active'
-        AND (ends_at IS NULL OR ends_at > CURRENT_TIMESTAMP) ORDER BY id DESC LIMIT 1)`)
+        AND ends_at IS NOT NULL AND ends_at > CURRENT_TIMESTAMP ORDER BY id DESC LIMIT 1)`)
       .bind(chatId).run();
     if (takeover.meta.changes) {
       await saveMessage(env.DB, chatId, "assistant", message.text);
@@ -1489,8 +1490,8 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     WHERE chat_id = ? ORDER BY id DESC LIMIT 1`).bind(chatId)
     .first<{ id: number; status: string; ends_at: string | null; control_mode: string }>();
   const activeHumanTakeover = latestSextingSession?.status === "active" &&
-    latestSextingSession.control_mode === "human" && (!latestSextingSession.ends_at ||
-      Date.parse(`${latestSextingSession.ends_at.replace(" ", "T")}Z`) > Date.now());
+    latestSextingSession.control_mode === "human" && Boolean(latestSextingSession.ends_at) &&
+      Date.parse(`${latestSextingSession.ends_at!.replace(" ", "T")}Z`) > Date.now();
   if (activeHumanTakeover) {
     await saveMessage(env.DB, chatId, "user", message.text);
     return json({ ok: true, creator_controlling_session: true });
@@ -1508,10 +1509,10 @@ async function handleTelegramWebhook(request: Request, env: Env) {
 
   await env.DB.prepare(`UPDATE sexting_sessions SET status = 'completed',
     completed_at = COALESCE(completed_at, CURRENT_TIMESTAMP)
-    WHERE chat_id = ? AND status = 'active' AND ends_at IS NOT NULL AND ends_at <= CURRENT_TIMESTAMP`)
+    WHERE chat_id = ? AND status = 'active' AND (ends_at IS NULL OR ends_at <= CURRENT_TIMESTAMP)`)
     .bind(chatId).run();
   const activeSextingSession = await env.DB.prepare(`SELECT id, control_mode FROM sexting_sessions
-    WHERE chat_id = ? AND status = 'active' AND (ends_at IS NULL OR ends_at > CURRENT_TIMESTAMP)
+    WHERE chat_id = ? AND status = 'active' AND ends_at IS NOT NULL AND ends_at > CURRENT_TIMESTAMP
     ORDER BY id DESC LIMIT 1`)
     .bind(chatId).first<{ id: number; control_mode: string }>();
   const pendingSextingDraft = await env.DB.prepare(`SELECT status FROM sexting_drafts WHERE chat_id = ?`)
