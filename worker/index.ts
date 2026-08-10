@@ -252,6 +252,10 @@ async function prepareDatabase(db: D1Database) {
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS adult_verifications (
+      telegram_user_id TEXT PRIMARY KEY,
+      verified_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS chat_messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       chat_id TEXT NOT NULL,
@@ -718,6 +722,10 @@ function isSextingPaymentQuestion(text: string) {
   return /\b(how (?:do|can) i pay|how to pay|pay for it|send (?:me )?(?:the )?invoice|stars invoice|ready to pay)\b/i.test(text);
 }
 
+function isSextingTimeQuestion(text: string) {
+  return /\b(how much|what|any)\s+time\s+(?:do\s+i\s+have\s+)?left\b|\bhow\s+long\s+(?:do\s+i\s+have|is\s+left|left)\b|\btime\s+remaining\b/i.test(text);
+}
+
 function sextingMenu(settings: Record<string, string>) {
   return `Sexting is ${settings.sexting_5_stars || "500"} Stars for 5 minutes or ${settings.sexting_10_stars || "1000"} Stars for 10 minutes, babe. Which one do you want?`;
 }
@@ -953,6 +961,13 @@ async function collectQuickMessages(db: D1Database, chatId: string, message: Tel
   };
 }
 
+async function hasNewerBufferedMessage(db: D1Database, chatId: string, messageId: number) {
+  const newer = await db.prepare(`SELECT message_id FROM inbound_message_buffer
+    WHERE chat_id = ? AND message_id > ? ORDER BY message_id DESC LIMIT 1`)
+    .bind(chatId, messageId).first<{ message_id: number }>();
+  return Boolean(newer);
+}
+
 function isMultiConversationalTurn(text: string, count: number) {
   if (count < 2) return false;
   if (/\b(sext|video chat|video call|meet|meeting|book|buy|pay|payment|custom|content|photo|video|trailer)\b/i.test(text)) return false;
@@ -1108,6 +1123,25 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     .bind(chatId)
     .first<{ age_status: string }>();
 
+  if (session?.age_status === "verified" && userId) {
+    await env.DB.prepare(`INSERT OR IGNORE INTO adult_verifications (telegram_user_id) VALUES (?)`)
+      .bind(userId).run();
+  }
+
+  if (session?.age_status !== "verified") {
+    const priorVerification = userId ? await env.DB.prepare(`SELECT telegram_user_id FROM adult_verifications
+      WHERE telegram_user_id = ?`).bind(userId).first() : null;
+    const priorProfile = await env.DB.prepare(`SELECT name FROM fan_profiles WHERE chat_id = ? AND name IS NOT NULL`)
+      .bind(chatId).first();
+    const priorPaidSession = await env.DB.prepare(`SELECT id FROM sexting_sessions WHERE chat_id = ? LIMIT 1`)
+      .bind(chatId).first();
+    if (priorVerification || priorProfile || priorPaidSession) {
+      await env.DB.prepare(`UPDATE fan_sessions SET age_status = 'verified', updated_at = CURRENT_TIMESTAMP
+        WHERE chat_id = ?`).bind(chatId).run();
+      session.age_status = "verified";
+    }
+  }
+
   if (session?.age_status === "blocked") return json({ ok: true });
 
   const settings = await getSettings(env.DB);
@@ -1122,12 +1156,19 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       await env.DB.prepare("UPDATE fan_sessions SET age_status = 'verified', updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?")
         .bind(chatId)
         .run();
+      if (userId) {
+        await env.DB.prepare(`INSERT OR IGNORE INTO adult_verifications (telegram_user_id) VALUES (?)`)
+          .bind(userId).run();
+      }
       await env.DB.prepare(`INSERT INTO fan_profiles (chat_id, name_status) VALUES (?, 'awaiting_name')
         ON CONFLICT(chat_id) DO UPDATE SET name_status = CASE
           WHEN fan_profiles.name IS NULL THEN 'awaiting_name' ELSE fan_profiles.name_status END,
           updated_at = CURRENT_TIMESTAMP`).bind(chatId).run();
-      await sendTelegramMessage(env, message, INTRO);
-      await sendTelegramMessage(env, message, NAME_PROMPT);
+      const knownProfile = await env.DB.prepare(`SELECT name FROM fan_profiles WHERE chat_id = ?`)
+        .bind(chatId).first<{ name: string | null }>();
+      await sendTelegramMessage(env, message, knownProfile?.name
+        ? INTRO
+        : "Hey, it's Tiffany. What's your name, babe?");
     } else if (isAdultNo(message.text)) {
       await env.DB.prepare("UPDATE fan_sessions SET age_status = 'blocked', updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?")
         .bind(chatId)
@@ -1164,6 +1205,20 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     await sendTelegramMessage(env, message, greeting);
     if (!remainder) return json({ ok: true });
     message.text = remainder;
+  }
+
+  const latestSextingSession = await env.DB.prepare(`SELECT id, status, ends_at FROM sexting_sessions
+    WHERE chat_id = ? ORDER BY id DESC LIMIT 1`).bind(chatId)
+    .first<{ id: number; status: string; ends_at: string | null }>();
+  if (isSextingTimeQuestion(message.text) && latestSextingSession?.ends_at) {
+    await new Promise((resolve) => setTimeout(resolve, randomResponseDelayMs(true)));
+    const endTime = Date.parse(`${latestSextingSession.ends_at.replace(" ", "T")}Z`);
+    const secondsLeft = Math.max(0, Math.ceil((endTime - Date.now()) / 1000));
+    const timeReply = secondsLeft > 0
+      ? `You have about ${Math.max(1, Math.ceil(secondsLeft / 60))} minutes left, babe.`
+      : "Our session just ended, babe. Want another 5 or 10 minutes?";
+    await sendSavedReply(env, message, chatId, timeReply);
+    return json({ ok: true, sexting_time: true });
   }
 
   await env.DB.prepare(`UPDATE sexting_sessions SET status = 'completed',
@@ -1203,6 +1258,9 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     } catch (error) {
       console.error("Active sexting reply failed", error);
     }
+    if (await hasNewerBufferedMessage(env.DB, chatId, message.message_id)) {
+      return json({ ok: true, combined_with_newer_message: true });
+    }
     await saveMessage(env.DB, chatId, "user", message.text);
     if (sextingReply === CREATOR_TAKEOVER) {
       if (settings.human_takeover !== "off") await queueCreatorReply(env.DB, message);
@@ -1219,6 +1277,9 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       combinedReply = await createAIReply(env, chatId, message.text);
     } catch (error) {
       console.error("Combined conversation reply failed", error);
+    }
+    if (await hasNewerBufferedMessage(env.DB, chatId, message.message_id)) {
+      return json({ ok: true, combined_with_newer_message: true });
     }
     await saveMessage(env.DB, chatId, "user", message.text);
     if (combinedReply === CREATOR_TAKEOVER) {
