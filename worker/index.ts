@@ -1,7 +1,7 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { bookingDetailsMissing, customDetailsMissing, isAffirmativeReply, isBotQuestion, isCancelReply, isLikelyCityReply, parseNameIntroduction } from "./conversation-rules";
+import { bookingDetailsMissing, customDetailsMissing, isAffirmativeReply, isBotQuestion, isCancelReply, isLikelyCityReply, isSextingPackageFollowUp, parseNameIntroduction } from "./conversation-rules";
 
 interface Env {
   ASSETS: Fetcher;
@@ -1668,13 +1668,20 @@ async function handleTelegramWebhook(request: Request, env: Env) {
         ? { key: "text5", title: `${Math.max(1, Math.min(9, Number(settings.sexting_min_minutes || 5)))} minute sexting session`, minutes: Math.max(1, Math.min(9, Number(settings.sexting_min_minutes || 5))), stars: Number(settings.sexting_5_stars || 500) }
         : null);
     if (!selected) {
-      await sendTelegramMessage(env, message, sextingMenu(settings));
+      if (isSextingPackageFollowUp(message.text)) {
+        await sendTelegramMessage(env, message, sextingMenu(settings));
+        return json({ ok: true });
+      }
+      // A package choice is only a temporary conversational state. If the fan
+      // changes the subject, close it silently so ordinary questions can flow.
+      await env.DB.prepare(`UPDATE sexting_drafts SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+        WHERE chat_id = ?`).bind(chatId).run();
+    } else {
+      const checkoutStatus = await createSextingCheckout(env, message, selected);
+      await env.DB.prepare(`UPDATE sexting_drafts SET status = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE chat_id = ?`).bind(checkoutStatus, chatId).run();
       return json({ ok: true });
     }
-    const checkoutStatus = await createSextingCheckout(env, message, selected);
-    await env.DB.prepare(`UPDATE sexting_drafts SET status = ?, updated_at = CURRENT_TIMESTAMP
-      WHERE chat_id = ?`).bind(checkoutStatus, chatId).run();
-    return json({ ok: true });
   }
 
   if (isInPersonSexSolicitation(message.text)) {

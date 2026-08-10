@@ -41,6 +41,14 @@ export function isCancelReply(text: string) {
     /^(?:no|nope|neither)(?:\s+(?:thanks|thank you|sorry))?[.! ]*$/i.test(text.trim());
 }
 
+export function isSextingPackageFollowUp(text: string) {
+  const value = text.trim();
+  return isAffirmativeReply(value) ||
+    /\b(sext|sexting|package|option|stars?|minutes?)\b/i.test(value) ||
+    /^(?:5|five|10|ten)[.! ]*$/i.test(value) ||
+    /^(?:how much|what does it cost|what are the prices?)[?!. ]*$/i.test(value);
+}
+
 export function parseNameIntroduction(text: string) {
   const cleaned = text.trim().replace(/^(?:my name is|i am|i'm|im)\s+/i, "");
   const intent = /\s+(?=(?:and\s+)?(?:i\s+(?:want|wanna|would like|need)|i'd\s+like|can\s+i|could\s+i|do\s+you|what\b|how\b|let's\b|lets\b))/i.exec(cleaned);

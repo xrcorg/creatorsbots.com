@@ -8,6 +8,7 @@ import {
   isBotQuestion,
   isCancelReply,
   isLikelyCityReply,
+  isSextingPackageFollowUp,
   parseNameIntroduction,
 } from "../worker/conversation-rules.ts";
 
@@ -20,6 +21,15 @@ test("natural confirmations are accepted", () => {
 test("natural cancellations leave unfinished flows", () => {
   for (const reply of ["not now", "maybe later", "no thanks", "never mind", "neither sorry", "nope", "not interested"]) {
     assert.equal(isCancelReply(reply), true, reply);
+  }
+});
+
+test("stale sexting offers do not hijack a changed subject", () => {
+  for (const reply of ["what's your favorite animal?", "what about dogs?", "how are you?", "I like sushi"]) {
+    assert.equal(isSextingPackageFollowUp(reply), false, reply);
+  }
+  for (const reply of ["5", "ten minutes", "what are the prices?", "sexting options", "yes please"]) {
+    assert.equal(isSextingPackageFollowUp(reply), true, reply);
   }
 });
 
