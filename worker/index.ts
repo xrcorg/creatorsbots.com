@@ -378,6 +378,15 @@ async function prepareDatabase(db: D1Database) {
       url TEXT NOT NULL UNIQUE,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS conversation_training (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      category TEXT NOT NULL,
+      suggestion TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(category, suggestion)
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_conversation_training_category
+      ON conversation_training(category)`),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('flirty_level', 'very')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('human_takeover', 'on')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('learning', 'approval')"),
@@ -405,6 +414,14 @@ async function prepareDatabase(db: D1Database) {
       VALUES ('X', '@TiffaniMadison_', ?)`).bind(X_URL),
     db.prepare(`INSERT OR IGNORE INTO creator_social_links (platform, label, url)
       VALUES ('All links', 'Hubzter', ?)`).bind(ALL_LINKS_URL),
+    db.prepare(`INSERT OR IGNORE INTO conversation_training (category, suggestion)
+      SELECT 'topic', value FROM app_settings WHERE key = 'preferred_topics' AND value != ''`),
+    db.prepare(`INSERT OR IGNORE INTO conversation_training (category, suggestion)
+      SELECT 'avoid', value FROM app_settings WHERE key = 'avoid_topics' AND value != ''`),
+    db.prepare(`INSERT OR IGNORE INTO conversation_training (category, suggestion)
+      SELECT 'tone', value FROM app_settings WHERE key = 'tone_guidance' AND value != ''`),
+    db.prepare(`INSERT OR IGNORE INTO conversation_training (category, suggestion)
+      SELECT 'feedback', value FROM app_settings WHERE key = 'creator_feedback' AND value != ''`),
     db.prepare(`INSERT OR IGNORE INTO content_products
       (content_type, title, price_cents, genre, actors, trailer_url, delivery_url)
       VALUES ('video', ?, 2499, 'BBC', 'Tiffani Madison and Mauvius Garcon', ?, ?)`)
@@ -803,6 +820,16 @@ async function createAIReply(env: Env, chatId: string, incoming: string) {
     "SELECT question, answer FROM learned_answers ORDER BY id DESC LIMIT 50",
   ).all<{ question: string; answer: string }>();
   const settings = await getSettings(env.DB);
+  const training = await env.DB.prepare(`SELECT category, suggestion FROM conversation_training
+    ORDER BY id ASC`).all<{ category: string; suggestion: string }>();
+  const trainingText = (category: string, fallback: string) => {
+    const values = training.results.filter((item) => item.category === category).map((item) => item.suggestion);
+    return values.length ? values.join("\n") : fallback;
+  };
+  settings.preferred_topics = trainingText("topic", "No additional topics supplied.");
+  settings.avoid_topics = trainingText("avoid", "No additional topics supplied.");
+  settings.tone_guidance = trainingText("tone", "Short, blunt, warm, confident, flirty, and natural.");
+  settings.creator_feedback = trainingText("feedback", "No additional feedback supplied.");
   const profile = await env.DB.prepare("SELECT name FROM fan_profiles WHERE chat_id = ?")
     .bind(chatId)
     .first<{ name: string | null }>();
@@ -1473,6 +1500,8 @@ async function handleAdminPending(request: Request, env: Env) {
     FROM announcements ORDER BY id DESC LIMIT 100`).all();
   const socialLinks = await env.DB.prepare(`SELECT id, platform, label, url, created_at
     FROM creator_social_links ORDER BY id ASC`).all();
+  const trainingSuggestions = await env.DB.prepare(`SELECT id, category, suggestion, created_at
+    FROM conversation_training ORDER BY category ASC, id ASC`).all();
   const learned = await env.DB.prepare("SELECT COUNT(*) AS count FROM learned_answers").first<{ count: number }>();
   const weekly = await env.DB.prepare(`SELECT COALESCE(SUM(amount_cents), 0) AS total_cents,
     COUNT(*) AS transaction_count FROM earnings_events
@@ -1497,6 +1526,7 @@ async function handleAdminPending(request: Request, env: Env) {
     daily_tasks: dailyTasks.results,
     announcements: announcements.results,
     social_links: socialLinks.results,
+    training_suggestions: trainingSuggestions.results,
     learned_count: learned?.count || 0,
     earnings: {
       weekly_cents: weekly?.total_cents || 0,
@@ -1909,6 +1939,33 @@ async function handleAdminSocialLinks(request: Request, env: Env, url: URL) {
   return json({ error: "Social link request not found" }, 404);
 }
 
+async function handleAdminTraining(request: Request, env: Env, url: URL) {
+  if (!isAdminRequest(request)) return json({ error: "Sign in required" }, 401);
+  await prepareDatabase(env.DB);
+  if (request.method === "POST" && url.pathname === "/api/admin/training") {
+    const body = await request.json() as { category?: string; suggestion?: string };
+    const allowedCategories = ["topic", "avoid", "tone", "feedback"];
+    const category = body.category?.trim() || "";
+    const suggestion = body.suggestion?.trim().slice(0, 1000) || "";
+    if (!allowedCategories.includes(category) || !suggestion) {
+      return json({ error: "Choose a training category and enter a suggestion" }, 400);
+    }
+    try {
+      await env.DB.prepare(`INSERT INTO conversation_training (category, suggestion)
+        VALUES (?, ?)`).bind(category, suggestion).run();
+    } catch {
+      return json({ error: "That training suggestion is already added" }, 409);
+    }
+    return json({ ok: true });
+  }
+  const match = url.pathname.match(/^\/api\/admin\/training\/(\d+)$/);
+  if (request.method === "DELETE" && match) {
+    await env.DB.prepare(`DELETE FROM conversation_training WHERE id = ?`).bind(Number(match[1])).run();
+    return json({ ok: true });
+  }
+  return json({ error: "Training request not found" }, 404);
+}
+
 async function handleAdminSexting(request: Request, env: Env) {
   if (!isAdminRequest(request)) return json({ error: "Sign in required" }, 401);
   await prepareDatabase(env.DB);
@@ -2057,6 +2114,10 @@ const worker = {
 
     if (url.pathname.startsWith("/api/admin/social-links")) {
       return handleAdminSocialLinks(request, env, url);
+    }
+
+    if (url.pathname.startsWith("/api/admin/training")) {
+      return handleAdminTraining(request, env, url);
     }
 
     if (url.pathname === "/api/admin/sexting" && request.method === "POST") {

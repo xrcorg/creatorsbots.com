@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const contentProducts = sqliteTable("content_products", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -74,3 +74,12 @@ export const creatorSocialLinks = sqliteTable("creator_social_links", {
   url: text("url").notNull().unique(),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
+
+export const conversationTraining = sqliteTable("conversation_training", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  category: text("category").notNull(),
+  suggestion: text("suggestion").notNull(),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  uniqueIndex("idx_conversation_training_category_suggestion").on(table.category, table.suggestion),
+]);

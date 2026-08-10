@@ -124,6 +124,13 @@ type SocialLink = {
   created_at: string;
 };
 
+type TrainingSuggestion = {
+  id: number;
+  category: "topic" | "avoid" | "tone" | "feedback";
+  suggestion: string;
+  created_at: string;
+};
+
 type EarningsSummary = {
   weekly_cents: number;
   weekly_count: number;
@@ -240,6 +247,8 @@ export default function Home() {
   const [announcementPreview, setAnnouncementPreview] = useState(false);
   const [socialLinks, setSocialLinks] = useState<SocialLink[]>([]);
   const [socialForm, setSocialForm] = useState({ platform: "Instagram", label: "", url: "" });
+  const [trainingSuggestions, setTrainingSuggestions] = useState<TrainingSuggestion[]>([]);
+  const [trainingForm, setTrainingForm] = useState({ category: "topic" as TrainingSuggestion["category"], suggestion: "" });
   const [agendaDate, setAgendaDate] = useState(() => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles" }).format(new Date()));
   const [taskForm, setTaskForm] = useState({ title: "", task_type: "video_chat" as DailyTask["task_type"], scheduled_at: "", fan_name: "", details: "", amount: "" });
   const [scriptForm, setScriptForm] = useState({ stage: "warmup" as SextingScript["stage"], title: "", script_text: "", media_label: "" });
@@ -262,7 +271,7 @@ export default function Home() {
       setLiveLoading(true);
       const response = await fetch("/api/admin/pending", { cache: "no-store" });
       if (!response.ok) throw new Error("Unable to load the creator inbox");
-      const data = await response.json() as { pending: LivePendingReply[]; purchases: LivePurchase[]; purchase_history: LivePurchase[]; bookings: LiveBooking[]; customs: LiveCustom[]; custom_history: LiveCustom[]; sexting_sessions: LiveSextingSession[]; sexting_history: LiveSextingSession[]; sexting_media: SextingMedia[]; sexting_scripts: SextingScript[]; daily_tasks: DailyTask[]; announcements: Announcement[]; social_links: SocialLink[]; products: ContentProduct[]; stars: { total: number; count: number }; learned_count: number; earnings: EarningsSummary; settings: CreatorSettings };
+      const data = await response.json() as { pending: LivePendingReply[]; purchases: LivePurchase[]; purchase_history: LivePurchase[]; bookings: LiveBooking[]; customs: LiveCustom[]; custom_history: LiveCustom[]; sexting_sessions: LiveSextingSession[]; sexting_history: LiveSextingSession[]; sexting_media: SextingMedia[]; sexting_scripts: SextingScript[]; daily_tasks: DailyTask[]; announcements: Announcement[]; social_links: SocialLink[]; training_suggestions: TrainingSuggestion[]; products: ContentProduct[]; stars: { total: number; count: number }; learned_count: number; earnings: EarningsSummary; settings: CreatorSettings };
       setLivePending(data.pending);
       setLivePurchases(data.purchases);
       setPurchaseHistory(data.purchase_history || []);
@@ -278,6 +287,7 @@ export default function Home() {
       setDailyTasks(data.daily_tasks || []);
       setAnnouncements(data.announcements || []);
       setSocialLinks(data.social_links || []);
+      setTrainingSuggestions(data.training_suggestions || []);
       if (data.bookings[0]?.suggested_type) setBookingType(data.bookings[0].suggested_type);
       setEarnings(data.earnings);
       setSettings(data.settings);
@@ -724,6 +734,41 @@ export default function Home() {
     }
   }
 
+  async function addTrainingSuggestion(event: FormEvent) {
+    event.preventDefault();
+    try {
+      setLiveLoading(true);
+      const response = await fetch("/api/admin/training", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(trainingForm),
+      });
+      if (!response.ok) {
+        const data = await response.json() as { error?: string };
+        throw new Error(data.error || "Training suggestion could not be added");
+      }
+      setTrainingForm((current) => ({ ...current, suggestion: "" }));
+      await loadLivePending();
+    } catch (error) {
+      setLiveError(error instanceof Error ? error.message : "The training suggestion could not be added.");
+    } finally {
+      setLiveLoading(false);
+    }
+  }
+
+  async function deleteTrainingSuggestion(id: number) {
+    try {
+      setLiveLoading(true);
+      const response = await fetch(`/api/admin/training/${id}`, { method: "DELETE" });
+      if (!response.ok) throw new Error("Training suggestion could not be removed");
+      await loadLivePending();
+    } catch {
+      setLiveError("The training suggestion could not be removed. Please try again.");
+    } finally {
+      setLiveLoading(false);
+    }
+  }
+
   const selectedAgendaTasks = dailyTasks.filter((task) => task.scheduled_at.slice(0, 10) === agendaDate);
   const openAgendaCount = selectedAgendaTasks.filter((task) => task.status === "open").length;
   const unscheduledCount = liveBookings.length + liveCustoms.length + livePurchases.length + sextingSessions.length;
@@ -1127,31 +1172,20 @@ export default function Home() {
           </div>
 
           <section className="conversationTraining">
-            <div className="sectionHeading"><strong>Conversation training</strong></div>
-            <label>
-              <span>Topics to talk about</span>
-              <textarea onChange={(event) => setSettings((current) => ({ ...current, preferred_topics: event.target.value }))} placeholder="Anime, shopping, travel, movies..." value={settings.preferred_topics} />
-              <button onClick={() => void updateSetting("preferred_topics", settings.preferred_topics)}>Save topics</button>
-            </label>
-            <label>
-              <span>Avoid discussing</span>
-              <textarea onChange={(event) => setSettings((current) => ({ ...current, avoid_topics: event.target.value }))} placeholder="Private family details, home address..." value={settings.avoid_topics} />
-              <button onClick={() => void updateSetting("avoid_topics", settings.avoid_topics)}>Save boundaries</button>
-            </label>
+            <div className="sectionHeading"><strong>Conversation training</strong><span>{trainingSuggestions.length}</span></div>
+            <p className="queueNote">Add or delete individual instructions. Changes affect future bot replies.</p>
+            <form onSubmit={addTrainingSuggestion}>
+              <label><span>Training type</span><select value={trainingForm.category} onChange={(event) => setTrainingForm((current) => ({ ...current, category: event.target.value as TrainingSuggestion["category"] }))}><option value="topic">Topic to discuss</option><option value="avoid">Topic to avoid</option><option value="tone">Tone instruction</option><option value="feedback">Behavior feedback</option></select></label>
+              <label><span>Suggestion</span><textarea required maxLength={1000} placeholder="Add one clear instruction..." value={trainingForm.suggestion} onChange={(event) => setTrainingForm((current) => ({ ...current, suggestion: event.target.value }))} /></label>
+              <button className="primaryAction" disabled={liveLoading}>Add training suggestion</button>
+            </form>
+            <div className="trainingSuggestionList">
+              {trainingSuggestions.map((item) => <article key={item.id}><div><span>{item.category === "topic" ? "Talk about" : item.category === "avoid" ? "Avoid" : item.category === "tone" ? "Tone" : "Feedback"}</span><p>{item.suggestion}</p></div><button type="button" disabled={liveLoading} onClick={() => void deleteTrainingSuggestion(item.id)}>Delete</button></article>)}
+            </div>
             <div className="fixedBoundaries">
               <strong>Permanent boundaries</strong>
               <p>Death, politics, crimes, illegal activity, underage people, minors, children, kids, poop, pee, scat, urine, watersports, and bathroom play. These cannot be removed by creator feedback or scripts.</p>
             </div>
-            <label>
-              <span>Change tone</span>
-              <textarea onChange={(event) => setSettings((current) => ({ ...current, tone_guidance: event.target.value }))} placeholder="Describe how the bot should sound..." value={settings.tone_guidance} />
-              <button onClick={() => void updateSetting("tone_guidance", settings.tone_guidance)}>Save tone</button>
-            </label>
-            <label>
-              <span>Feedback for the bot</span>
-              <textarea onChange={(event) => setSettings((current) => ({ ...current, creator_feedback: event.target.value }))} placeholder="Use my name less, ask more follow up questions..." value={settings.creator_feedback} />
-              <button onClick={() => void updateSetting("creator_feedback", settings.creator_feedback)}>Save feedback</button>
-            </label>
           </section>
 
           <section className="customHistory">
