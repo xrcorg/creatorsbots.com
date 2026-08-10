@@ -651,6 +651,10 @@ function askedToShowTrailer(text: string) {
   return /\b(?:want|wanna|like)\s+(?:me\s+)?to\s+(?:see|show|send)(?:\s+(?:you|me))?\s+(?:the\s+|a\s+)?(?:trailer|preview)|\b(?:want|wanna|like)\s+(?:to\s+)?see\s+(?:the\s+|a\s+)?(?:trailer|preview)\b/i.test(text);
 }
 
+function isDirectTrailerRequest(text: string) {
+  return /\b(?:can|could|may)\s+i\s+(?:see|watch)\s+(?:the\s+|a\s+)?(?:trailer|preview)\b|\b(?:show|send)\s+me\s+(?:the\s+|a\s+)?(?:trailer|preview)\b|\b(?:see|watch)\s+(?:the\s+|a\s+)?(?:trailer|preview)\b/i.test(text);
+}
+
 function askedToBuyProduct(text: string) {
   return /\b(?:do you|did you|would you)\s+(?:want|wanna|like)\s+to\s+buy\b|\bwant\s+the\s+full\s+(?:video|content)\b/i.test(text);
 }
@@ -1605,6 +1609,18 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     return json({ ok: true });
   }
 
+  if (isDirectTrailerRequest(message.text)) {
+    const product = await getInterestedProduct(env.DB, chatId) || await getNewestProduct(env.DB);
+    if (product?.trailer_url) {
+      await rememberProductInterest(env.DB, chatId, connectionId, product.id);
+      const trailerReply = `Here you go, babe. This is the trailer for ${product.title}:\n${product.trailer_url}\n\nDo you want the full video for ${productPrice(product)}?`;
+      await saveMessage(env.DB, chatId, "user", message.text);
+      await saveMessage(env.DB, chatId, "assistant", trailerReply);
+      await sendTelegramMessage(env, message, trailerReply);
+      return json({ ok: true });
+    }
+  }
+
   const activeProducts = await getActiveProducts(env.DB);
   const normalizedMessage = message.text.toLowerCase();
   const mentionedProduct = activeProducts.find((product) =>
@@ -2297,12 +2313,14 @@ async function handleAdminSexting(request: Request, env: Env) {
   const body = await request.json() as { id?: number; action?: "start" | "complete" };
   if (!body.id || !body.action) return json({ error: "A session action is required" }, 400);
   const session = await env.DB.prepare(`SELECT id, chat_id, business_connection_id,
-    duration_minutes, status FROM sexting_sessions WHERE id = ?`).bind(body.id).first<{
+    duration_minutes, status, started_at, ends_at FROM sexting_sessions WHERE id = ?`).bind(body.id).first<{
       id: number;
       chat_id: string;
       business_connection_id: string | null;
       duration_minutes: number;
       status: string;
+      started_at: string | null;
+      ends_at: string | null;
     }>();
   if (!session) return json({ error: "Session not found" }, 404);
   const telegramMessage: TelegramMessage = {
@@ -2319,9 +2337,18 @@ async function handleAdminSexting(request: Request, env: Env) {
       ends_at = datetime('now', '+' || ? || ' minutes') WHERE id = ?`).bind(session.duration_minutes, session.id).run();
   } else {
     if (session.status !== "active") return json({ error: "Session is not active" }, 409);
-    const reply = "That was fun, babe. Let me know when you want another session.";
-    await sendTelegramMessage(env, telegramMessage, reply);
-    await saveMessage(env.DB, session.chat_id, "assistant", reply);
+    const latestUserMessage = await env.DB.prepare(`SELECT content FROM chat_messages
+      WHERE chat_id = ? AND role = 'user' ORDER BY id DESC LIMIT 1`)
+      .bind(session.chat_id).first<{ content: string }>();
+    const endsAt = session.ends_at ? Date.parse(`${session.ends_at.replace(" ", "T")}Z`) : 0;
+    const sessionIsStale = Boolean(endsAt && Date.now() > endsAt + 15 * 60 * 1000);
+    const conversationMovedOn = Boolean(latestUserMessage &&
+      /\b(?:buy|purchase|content|video|photo|trailer|custom|book|booking|payment|pay)\b/i.test(latestUserMessage.content));
+    if (!sessionIsStale && !conversationMovedOn) {
+      const reply = "That was fun, babe. Let me know when you want another session.";
+      await sendTelegramMessage(env, telegramMessage, reply);
+      await saveMessage(env.DB, session.chat_id, "assistant", reply);
+    }
     await env.DB.prepare(`UPDATE sexting_sessions SET status = 'completed', completed_at = CURRENT_TIMESTAMP
       WHERE id = ?`).bind(session.id).run();
   }
