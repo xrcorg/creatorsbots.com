@@ -397,6 +397,10 @@ async function prepareDatabase(db: D1Database) {
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_inbound_message_buffer_chat
       ON inbound_message_buffer(chat_id, message_id)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS telegram_updates (
+      update_id INTEGER PRIMARY KEY,
+      received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('flirty_level', 'very')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('human_takeover', 'on')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('learning', 'approval')"),
@@ -601,7 +605,11 @@ function isHowAreYouQuestion(text: string) {
 }
 
 function isSextingQuestion(text: string) {
-  return /\b(sext|sexting|dirty text|dirty texting|text session)\b/i.test(text);
+  return /\b(sext|sexting|dirty text|dirty texting|text session|i want sex|want to have sex|what are you wearing)\b/i.test(text);
+}
+
+function isInPersonSexSolicitation(text: string) {
+  return /\b(meet|meeting|in person|come over|hook up)\b[\s\S]*\b(sex|fuck|sexual)\b|\b(sex|fuck|sexual)\b[\s\S]*\b(meet|meeting|in person|come over|hook up)\b/i.test(text);
 }
 
 function isPermanentlyRestrictedTopic(text: string) {
@@ -952,8 +960,11 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   }
 
   const update = await request.json() as TelegramUpdate;
+  await prepareDatabase(env.DB);
+  const claimedUpdate = await env.DB.prepare(`INSERT OR IGNORE INTO telegram_updates (update_id)
+    VALUES (?)`).bind(update.update_id).run();
+  if (!claimedUpdate.meta.changes) return json({ ok: true, duplicate: true });
   if (update.pre_checkout_query) {
-    await prepareDatabase(env.DB);
     const settings = await getSettings(env.DB);
     const [, key] = update.pre_checkout_query.invoice_payload.split(":");
     const expectedStars = key === "text5" ? Number(settings.sexting_5_stars || 3850) : 0;
@@ -966,7 +977,6 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   }
   const message = update.business_message || update.message;
   if (!message || message.from?.is_bot) return json({ ok: true });
-  await prepareDatabase(env.DB);
   if (message.successful_payment?.currency === "XTR" && message.successful_payment.invoice_payload.startsWith("sexting:")) {
     const [, key, minutesText, title] = message.successful_payment.invoice_payload.split(":");
     const minutes = Number(minutesText);
@@ -1197,6 +1207,14 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     const checkoutStatus = await createSextingCheckout(env, message, chatId, selected, settings);
     await env.DB.prepare(`UPDATE sexting_drafts SET status = ?, updated_at = CURRENT_TIMESTAMP
       WHERE chat_id = ?`).bind(checkoutStatus, chatId).run();
+    return json({ ok: true });
+  }
+
+  if (isInPersonSexSolicitation(message.text)) {
+    const redirect = "I don't arrange sex in person. We can do a paid sexting session or private video chat instead.";
+    await saveMessage(env.DB, chatId, "user", message.text);
+    await saveMessage(env.DB, chatId, "assistant", redirect);
+    await sendTelegramMessage(env, message, redirect);
     return json({ ok: true });
   }
 
