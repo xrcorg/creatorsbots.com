@@ -422,6 +422,7 @@ async function prepareDatabase(db: D1Database) {
       description TEXT NOT NULL,
       amount_cents INTEGER NOT NULL,
       delivery_url TEXT,
+      completion_comment TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL DEFAULT 'awaiting_fulfillment',
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       completed_at TEXT
@@ -632,6 +633,10 @@ async function prepareDatabase(db: D1Database) {
   }
   if (!sextingColumns.results.some((column) => column.name === "taken_over_at")) {
     await db.prepare("ALTER TABLE sexting_sessions ADD COLUMN taken_over_at TEXT").run();
+  }
+  const customColumns = await db.prepare("PRAGMA table_info(custom_fulfillments)").all<{ name: string }>();
+  if (!customColumns.results.some((column) => column.name === "completion_comment")) {
+    await db.prepare("ALTER TABLE custom_fulfillments ADD COLUMN completion_comment TEXT NOT NULL DEFAULT ''").run();
   }
 }
 
@@ -2031,11 +2036,11 @@ async function handleAdminPending(request: Request, env: Env) {
     LEFT JOIN fan_profiles ON fan_profiles.chat_id = booking_requests.chat_id
     WHERE booking_requests.status = 'pending' ORDER BY booking_requests.id ASC LIMIT 100`).all();
   const customs = await env.DB.prepare(`SELECT id, telegram_name, duration_minutes, description,
-    amount_cents, created_at FROM custom_fulfillments WHERE status = 'awaiting_fulfillment'
+    amount_cents, completion_comment, status, created_at FROM custom_fulfillments WHERE status = 'awaiting_fulfillment'
     ORDER BY id ASC LIMIT 100`).all();
   const customHistory = await env.DB.prepare(`SELECT id, telegram_name, duration_minutes, description,
-    amount_cents, delivery_url, status, created_at, completed_at FROM custom_fulfillments
-    WHERE status IN ('completed', 'closed_unpaid')
+    amount_cents, delivery_url, completion_comment, status, created_at, completed_at FROM custom_fulfillments
+    WHERE status IN ('completed', 'cancelled', 'closed_unpaid')
     ORDER BY COALESCE(completed_at, created_at) DESC LIMIT 100`).all();
   const sextingSessions = await env.DB.prepare(`SELECT id, telegram_name, package_title,
     duration_minutes, stars, status, control_mode, taken_over_at, created_at, started_at, ends_at
@@ -2538,9 +2543,16 @@ async function handleAdminBooking(request: Request, env: Env) {
 async function handleAdminCustom(request: Request, env: Env) {
   if (!await isAdminRequest(request, env)) return json({ error: "Sign in required" }, 401);
   await prepareDatabase(env.DB);
-  const body = await request.json() as { id?: number; delivery_url?: string; action?: "complete" | "close_unpaid" };
+  const body = await request.json() as {
+    id?: number;
+    delivery_url?: string;
+    comment?: string;
+    action?: "complete" | "cancel" | "close_unpaid";
+  };
   const deliveryUrl = body.delivery_url?.trim();
-  if (!body.id || (body.action !== "close_unpaid" && (!deliveryUrl || !/^https?:\/\//i.test(deliveryUrl)))) {
+  const action = body.action || "complete";
+  const comment = String(body.comment || "").trim().slice(0, 1000);
+  if (!body.id || (action === "complete" && (!deliveryUrl || !/^https?:\/\//i.test(deliveryUrl)))) {
     return json({ error: "A valid delivery link is required" }, 400);
   }
   const custom = await env.DB.prepare(`SELECT id, booking_request_id, chat_id, business_connection_id
@@ -2549,14 +2561,24 @@ async function handleAdminCustom(request: Request, env: Env) {
     .first<{ id: number; booking_request_id: number; chat_id: string; business_connection_id: string | null }>();
   if (!custom) return json({ error: "Custom request is no longer awaiting fulfillment" }, 404);
 
-  const deliveryMessage = `I made this for you! ${deliveryUrl}`;
-  const followUp = "I hope you enjoy it! Lmk what you think";
   const telegramMessage: TelegramMessage = {
     message_id: 0,
     chat: { id: Number(custom.chat_id) },
     business_connection_id: custom.business_connection_id || undefined,
   };
-  if (body.action === "close_unpaid") {
+  if (action === "cancel") {
+    const cancellation = "I'm sorry babe, I can't complete this custom. I'll message you about the next step.";
+    await sendTelegramMessage(env, telegramMessage, cancellation);
+    await saveMessage(env.DB, custom.chat_id, "assistant", cancellation);
+    await env.DB.batch([
+      env.DB.prepare(`UPDATE custom_fulfillments SET status = 'cancelled', completion_comment = ?,
+        completed_at = CURRENT_TIMESTAMP WHERE id = ?`).bind(comment, custom.id),
+      env.DB.prepare(`UPDATE booking_requests SET status = 'cancelled', resolved_at = CURRENT_TIMESTAMP WHERE id = ?`).bind(custom.booking_request_id),
+      env.DB.prepare(`DELETE FROM earnings_events WHERE source_type = 'custom_content' AND source_id = ?`).bind(String(custom.booking_request_id)),
+    ]);
+    return json({ ok: true });
+  }
+  if (action === "close_unpaid") {
     const reminder = "Hey babe, do you still want this custom? I know you'll love it, but I still need you to send the payment so I can get it done. Lmk if you still want it.";
     await sendTelegramMessage(env, telegramMessage, reminder);
     await saveMessage(env.DB, custom.chat_id, "assistant", reminder);
@@ -2567,12 +2589,14 @@ async function handleAdminCustom(request: Request, env: Env) {
     ]);
     return json({ ok: true });
   }
+  const deliveryMessage = `I made this for you! ${deliveryUrl}${comment ? `\n\n${comment}` : ""}`;
+  const followUp = "I hope you enjoy it! Lmk what you think";
   await sendTelegramMessage(env, telegramMessage, deliveryMessage);
   await sendTelegramMessage(env, telegramMessage, followUp);
   await saveMessage(env.DB, custom.chat_id, "assistant", deliveryMessage);
   await saveMessage(env.DB, custom.chat_id, "assistant", followUp);
-  await env.DB.prepare(`UPDATE custom_fulfillments SET delivery_url = ?, status = 'completed',
-    completed_at = CURRENT_TIMESTAMP WHERE id = ?`).bind(deliveryUrl!, custom.id).run();
+  await env.DB.prepare(`UPDATE custom_fulfillments SET delivery_url = ?, completion_comment = ?, status = 'completed',
+    completed_at = CURRENT_TIMESTAMP WHERE id = ?`).bind(deliveryUrl!, comment, custom.id).run();
   return json({ ok: true });
 }
 

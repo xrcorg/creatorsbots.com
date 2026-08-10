@@ -42,8 +42,9 @@ type LiveCustom = {
   amount_cents: number;
   created_at?: string;
   delivery_url?: string;
+  completion_comment?: string;
   completed_at?: string;
-  status?: "awaiting_fulfillment" | "completed" | "closed_unpaid";
+  status?: "awaiting_fulfillment" | "completed" | "cancelled" | "closed_unpaid";
 };
 
 type LiveSextingSession = {
@@ -346,6 +347,7 @@ export default function Home() {
   const [mediaLabel, setMediaLabel] = useState("");
   const [mediaFile, setMediaFile] = useState<File | null>(null);
   const [customLinks, setCustomLinks] = useState<Record<number, string>>({});
+  const [customComments, setCustomComments] = useState<Record<number, string>>({});
   const [earnings, setEarnings] = useState<EarningsSummary>({ weekly_cents: 0, weekly_count: 0, all_time_cents: 0, all_time_count: 0, recent: [], history: [] });
   const [saleDisputes, setSaleDisputes] = useState<SaleDispute[]>([]);
   const [disputedSale, setDisputedSale] = useState<EarningsSummary["history"][number] | null>(null);
@@ -594,10 +596,11 @@ export default function Home() {
       const response = await fetch("/api/admin/custom", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ id, delivery_url: deliveryUrl }),
+        body: JSON.stringify({ id, action: "complete", delivery_url: deliveryUrl, comment: customComments[id]?.trim() || "" }),
       });
       if (!response.ok) throw new Error("Custom delivery failed");
       setCustomLinks((current) => ({ ...current, [id]: "" }));
+      setCustomComments((current) => ({ ...current, [id]: "" }));
       await loadLivePending();
     } catch {
       setLiveError("The custom link was not sent. Check the link and try again.");
@@ -606,18 +609,18 @@ export default function Home() {
     }
   }
 
-  async function closeCustomUnpaid(id: number) {
+  async function cancelCustom(id: number) {
     try {
       setLiveLoading(true);
       const response = await fetch("/api/admin/custom", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ id, action: "close_unpaid" }),
+        body: JSON.stringify({ id, action: "cancel", comment: customComments[id]?.trim() || "" }),
       });
-      if (!response.ok) throw new Error("Custom close failed");
+      if (!response.ok) throw new Error("Custom cancellation failed");
       await loadLivePending();
     } catch {
-      setLiveError("The unpaid custom could not be closed. Please try again.");
+      setLiveError("The custom could not be cancelled. Please try again.");
     } finally {
       setLiveLoading(false);
     }
@@ -1457,11 +1460,21 @@ export default function Home() {
                     value={customLinks[custom.id] || ""}
                   />
                 </label>
+                <label className="amountField">
+                  <span>Optional comment</span>
+                  <textarea
+                    aria-label={`Optional delivery comment for ${custom.telegram_name}`}
+                    maxLength={1000}
+                    onChange={(event) => setCustomComments((current) => ({ ...current, [custom.id]: event.target.value }))}
+                    placeholder="Add a personal note if needed..."
+                    value={customComments[custom.id] || ""}
+                  />
+                </label>
                 <button className="primaryAction" disabled={liveLoading || !customLinks[custom.id]?.trim()} onClick={() => void completeCustom(custom.id)}>
-                  Send custom and complete
+                  Finish custom and send
                 </button>
-                <button className="secondaryAction" disabled={liveLoading} onClick={() => void closeCustomUnpaid(custom.id)}>
-                  Close as unpaid and follow up
+                <button className="secondaryAction" disabled={liveLoading} onClick={() => void cancelCustom(custom.id)}>
+                  Cancel custom
                 </button>
               </div>
             )) : <p className="queueNote">No customs waiting to be fulfilled.</p>}
@@ -1514,7 +1527,7 @@ export default function Home() {
                 {bookingType === "in_person" && <small>Excluded from earnings</small>}
               </div>
               <button className="primaryAction" disabled={liveLoading} onClick={() => void resolveBooking("approve")}>
-                {bookingType === "custom_content" ? "Approve custom and send" : "Approve booking and send"}
+                {bookingType === "custom_content" ? "Accept custom" : "Approve booking and send"}
               </button>
               <button className="secondaryAction" disabled={liveLoading} onClick={() => void resolveBooking("decline")}>
                 Decline and send reply
@@ -1644,8 +1657,12 @@ export default function Home() {
             <strong>Custom history</strong>
             {customHistory.length ? customHistory.map((custom) => (
               <div key={custom.id}>
-                <span><b>{custom.telegram_name}</b><small>{custom.duration_minutes} minutes · {money(custom.amount_cents)}</small></span>
-                <time>{custom.status === "closed_unpaid" ? "Closed unpaid" : custom.completed_at ? new Date(`${custom.completed_at}Z`).toLocaleDateString() : "Completed"}</time>
+                <span>
+                  <b>{custom.telegram_name}</b>
+                  <small>{custom.duration_minutes} minutes · {money(custom.amount_cents)}{custom.completion_comment ? ` · ${custom.completion_comment}` : ""}</small>
+                  {custom.delivery_url && <a href={custom.delivery_url} rel="noreferrer" target="_blank">Open finished custom</a>}
+                </span>
+                <time>{custom.status === "cancelled" ? "Cancelled" : custom.status === "closed_unpaid" ? "Closed unpaid" : custom.completed_at ? new Date(`${custom.completed_at}Z`).toLocaleDateString() : "Completed"}</time>
               </div>
             )) : <p>No completed customs yet.</p>}
           </section>
