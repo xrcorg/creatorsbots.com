@@ -289,6 +289,7 @@ export default function Home() {
   const [taskForm, setTaskForm] = useState({ title: "", task_type: "video_chat" as DailyTask["task_type"], scheduled_at: "", fan_name: "", details: "", amount: "" });
   const [scriptForm, setScriptForm] = useState({ stage: "warmup" as SextingScript["stage"], title: "", script_text: "", media_label: "" });
   const [productForm, setProductForm] = useState({ content_type: "video" as ContentProduct["content_type"], title: "", price: "", genre: "", actors: "", trailer_url: "", delivery_url: "" });
+  const [editingProductId, setEditingProductId] = useState<number | null>(null);
   const [mediaLabel, setMediaLabel] = useState("");
   const [mediaFile, setMediaFile] = useState<File | null>(null);
   const [customLinks, setCustomLinks] = useState<Record<number, string>>({});
@@ -635,8 +636,8 @@ export default function Home() {
     event.preventDefault();
     try {
       setLiveLoading(true);
-      const response = await fetch("/api/admin/products", {
-        method: "POST",
+      const response = await fetch(editingProductId ? `/api/admin/products/${editingProductId}` : "/api/admin/products", {
+        method: editingProductId ? "PATCH" : "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(productForm),
       });
@@ -645,12 +646,31 @@ export default function Home() {
         throw new Error(data.error || "Product could not be added");
       }
       setProductForm({ content_type: "video", title: "", price: "", genre: "", actors: "", trailer_url: "", delivery_url: "" });
+      setEditingProductId(null);
       await loadLivePending();
     } catch (error) {
       setLiveError(error instanceof Error ? error.message : "The content could not be added. Please try again.");
     } finally {
       setLiveLoading(false);
     }
+  }
+
+  function editContentProduct(product: ContentProduct) {
+    setEditingProductId(product.id);
+    setProductForm({
+      content_type: product.content_type,
+      title: product.title,
+      price: (product.price_cents / 100).toFixed(2),
+      genre: product.genre || "",
+      actors: product.actors || "",
+      trailer_url: product.trailer_url || "",
+      delivery_url: product.delivery_url || "",
+    });
+  }
+
+  function cancelContentEdit() {
+    setEditingProductId(null);
+    setProductForm({ content_type: "video", title: "", price: "", genre: "", actors: "", trailer_url: "", delivery_url: "" });
   }
 
   async function updateContentProduct(id: number, action: "toggle" | "remove", active = true) {
@@ -1138,13 +1158,15 @@ export default function Home() {
               <label><span>Actors</span><input value={productForm.actors} onChange={(event) => setProductForm((current) => ({ ...current, actors: event.target.value }))} placeholder="Names separated by commas" /></label>
               <label><span>Trailer or preview link</span><input type="url" value={productForm.trailer_url} onChange={(event) => setProductForm((current) => ({ ...current, trailer_url: event.target.value }))} placeholder="https://..." /></label>
               <label><span>Full delivery link</span><input required type="url" value={productForm.delivery_url} onChange={(event) => setProductForm((current) => ({ ...current, delivery_url: event.target.value }))} placeholder="https://..." /></label>
-              <button className="primaryAction" disabled={liveLoading}>Add content</button>
+              <button className="primaryAction" disabled={liveLoading}>{editingProductId ? "Save changes" : "Add content"}</button>
+              {editingProductId && <button className="secondaryAction" type="button" onClick={cancelContentEdit}>Cancel editing</button>}
             </form>
             <div className="catalogList">
               {contentProducts.map((product) => (
                 <article className={product.active ? "" : "inactive"} key={product.id}>
                   <div><strong>{product.title}</strong><small>{product.content_type.replaceAll("_", " ")} · {money(product.price_cents)}</small></div>
                   <span>{product.active ? "Active" : "Hidden"}</span>
+                  <button type="button" onClick={() => editContentProduct(product)}>Edit</button>
                   <button type="button" onClick={() => void updateContentProduct(product.id, "toggle", Boolean(product.active))}>{product.active ? "Hide" : "Activate"}</button>
                   <button type="button" onClick={() => void updateContentProduct(product.id, "remove")}>Remove</button>
                 </article>

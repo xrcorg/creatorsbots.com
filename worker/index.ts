@@ -1952,10 +1952,40 @@ async function handleAdminProducts(request: Request, env: Env, url: URL) {
     return json({ ok: true });
   }
   if (match && request.method === "PATCH") {
-    const body = await request.json() as { active?: boolean };
-    if (typeof body.active !== "boolean") return json({ error: "Active status is required" }, 400);
-    await env.DB.prepare(`UPDATE content_products SET active = ?, updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?`).bind(body.active ? 1 : 0, Number(match[1])).run();
+    const body = await request.json() as Partial<ContentProduct> & { price?: string; active?: boolean };
+    const productId = Number(match[1]);
+    if (typeof body.active === "boolean" && body.title === undefined) {
+      await env.DB.prepare(`UPDATE content_products SET active = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?`).bind(body.active ? 1 : 0, productId).run();
+      return json({ ok: true });
+    }
+    const existing = await env.DB.prepare("SELECT title FROM content_products WHERE id = ?")
+      .bind(productId).first<{ title: string }>();
+    if (!existing) return json({ error: "Content was not found" }, 404);
+    const title = String(body.title || "").trim();
+    const contentType = String(body.content_type || "").trim();
+    const priceCents = Math.round(Number(body.price || 0) * 100);
+    const trailerUrl = String(body.trailer_url || "").trim();
+    const deliveryUrl = String(body.delivery_url || "").trim();
+    if (!title || !["photo", "photo_package", "video", "video_bundle"].includes(contentType) ||
+      !Number.isFinite(priceCents) || priceCents < 100 || priceCents > 10000000 ||
+      !validHttpUrl(trailerUrl) || !validHttpUrl(deliveryUrl, true)) {
+      return json({ error: "Complete the title, type, price, and valid delivery link" }, 400);
+    }
+    try {
+      await env.DB.batch([
+        env.DB.prepare(`UPDATE content_products SET content_type = ?, title = ?, price_cents = ?, genre = ?,
+          actors = ?, trailer_url = ?, delivery_url = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
+          .bind(contentType, title.slice(0, 180), priceCents,
+            String(body.genre || "").trim().slice(0, 180), String(body.actors || "").trim().slice(0, 300),
+            trailerUrl, deliveryUrl, productId),
+        env.DB.prepare(`UPDATE purchase_requests SET product_title = ?, price = ?
+          WHERE product_title = ? AND status = 'pending'`)
+          .bind(title.slice(0, 180), `$${(priceCents / 100).toFixed(2)}`, existing.title),
+      ]);
+    } catch {
+      return json({ error: "A product with that title already exists" }, 409);
+    }
     return json({ ok: true });
   }
   if (match && request.method === "DELETE") {
