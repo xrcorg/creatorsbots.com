@@ -18,7 +18,7 @@ test("natural confirmations are accepted", () => {
 });
 
 test("natural cancellations leave unfinished flows", () => {
-  for (const reply of ["not now", "maybe later", "no thanks", "never mind"]) {
+  for (const reply of ["not now", "maybe later", "no thanks", "never mind", "neither sorry", "nope", "not interested"]) {
     assert.equal(isCancelReply(reply), true, reply);
   }
 });

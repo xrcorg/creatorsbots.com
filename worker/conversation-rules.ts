@@ -37,7 +37,8 @@ export function isAffirmativeReply(text: string) {
 }
 
 export function isCancelReply(text: string) {
-  return /\b(cancel|never mind|nevermind|not now|maybe later|no thanks|no thank you|forget it)\b/i.test(text);
+  return /\b(cancel|never mind|nevermind|not now|maybe later|no thanks|no thank you|forget it|not interested)\b/i.test(text) ||
+    /^(?:no|nope|neither)(?:\s+(?:thanks|thank you|sorry))?[.! ]*$/i.test(text.trim());
 }
 
 export function parseNameIntroduction(text: string) {

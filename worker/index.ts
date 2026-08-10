@@ -763,7 +763,8 @@ function sextingSessionMinutes(packageKey: string, purchasedMinutes: number) {
 }
 
 function isSextingPaymentQuestion(text: string) {
-  return /\b(how (?:do|can) i pay|how to pay|pay for it|send (?:me )?(?:the )?invoice|stars invoice|ready to pay)\b/i.test(text);
+  return /\b(how (?:do|can) i pay|how to pay|pay for it|send (?:me )?(?:the )?invoice|stars invoice|ready to pay)\b/i.test(text) ||
+    /\b(?:pay|payment)\b[\s\S]*\b(?:cash ?app|venmo|zelle|paypal|crypto|card|cash|instead)\b|\b(?:cash ?app|venmo|zelle|paypal|crypto|card|cash)\b[\s\S]*\b(?:pay|payment|instead)\b/i.test(text);
 }
 
 function isSextingTimeQuestion(text: string) {
@@ -1299,8 +1300,11 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     WHERE chat_id = ? AND status = 'active' AND (ends_at IS NULL OR ends_at > CURRENT_TIMESTAMP)
     ORDER BY id DESC LIMIT 1`)
     .bind(chatId).first<{ id: number; control_mode: string }>();
+  const pendingSextingDraft = await env.DB.prepare(`SELECT status FROM sexting_drafts WHERE chat_id = ?`)
+    .bind(chatId).first<{ status: string }>();
   const collected = await collectQuickMessages(env.DB, chatId, message,
-    Boolean(activeSextingSession));
+    Boolean(activeSextingSession || pendingSextingDraft?.status === "awaiting_package" ||
+      (pendingSextingDraft && isSextingPaymentQuestion(message.text))));
   if (!collected) return json({ ok: true, combined_with_newer_message: true });
   message.text = collected.text;
 
@@ -1417,8 +1421,14 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     return json({ ok: true });
   }
 
-  const sextingDraft = await env.DB.prepare(`SELECT status FROM sexting_drafts WHERE chat_id = ?`)
-    .bind(chatId).first<{ status: string }>();
+  const sextingDraft = pendingSextingDraft;
+  if (sextingDraft && sextingDraft.status !== "awaiting_package" && isSextingPaymentQuestion(message.text)) {
+    const paymentReply = "For sexting here, I use Telegram Stars, babe. Tell me if you want 5 or 10 minutes and I'll send the invoice.";
+    await env.DB.prepare(`UPDATE sexting_drafts SET status = 'awaiting_package', updated_at = CURRENT_TIMESTAMP
+      WHERE chat_id = ?`).bind(chatId).run();
+    await sendSavedReply(env, message, chatId, paymentReply);
+    return json({ ok: true, sexting_payment_answered: true });
+  }
   if (sextingDraft?.status === "awaiting_package") {
     if (isCancelReply(message.text)) {
       await env.DB.prepare(`UPDATE sexting_drafts SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
@@ -1428,16 +1438,18 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       await sendTelegramMessage(env, message, SEXTING_CANCELLATION_REPLY);
       return json({ ok: true });
     }
+    if (isSextingPaymentQuestion(message.text)) {
+      const paymentReply = "For sexting here, I use Telegram Stars, babe. Tell me if you want 5 or 10 minutes and I'll send the invoice.";
+      await sendSavedReply(env, message, chatId, paymentReply);
+      return json({ ok: true, sexting_payment_answered: true });
+    }
     const selected = sextingPackage(message.text, settings) ||
-      (isSextingPaymentQuestion(message.text) || isAffirmativeReply(message.text)
+      (isAffirmativeReply(message.text)
         ? { key: "text5", title: `${Math.max(1, Math.min(9, Number(settings.sexting_min_minutes || 5)))} minute sexting session`, minutes: Math.max(1, Math.min(9, Number(settings.sexting_min_minutes || 5))), stars: Number(settings.sexting_5_stars || 500) }
         : null);
     if (!selected) {
       await sendTelegramMessage(env, message, sextingMenu(settings));
       return json({ ok: true });
-    }
-    if (isSextingPaymentQuestion(message.text)) {
-      await sendTelegramMessage(env, message, "You can pay with Telegram Stars, babe. Tap the Pay button on the invoice below.");
     }
     const checkoutStatus = await createSextingCheckout(env, message, selected);
     await env.DB.prepare(`UPDATE sexting_drafts SET status = ?, updated_at = CURRENT_TIMESTAMP
