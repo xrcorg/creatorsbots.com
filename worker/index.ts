@@ -556,6 +556,10 @@ async function prepareDatabase(db: D1Database) {
       (4, 'climax', 'Final minutes', 'Let them know you are getting close to the end of the session, raise the intensity, and ask if they are ready to finish with you.', 'Approved finale video'),
       (5, 'closing', 'Warm closing', 'Thank them, say you had fun, invite them to tell you what they liked, and ask whether they want another session sometime.', '')`),
   ]);
+  const disputeColumns = await db.prepare("PRAGMA table_info(sale_disputes)").all<{ name: string }>();
+  if (!disputeColumns.results.some((column) => column.name === "stars")) {
+    await db.prepare("ALTER TABLE sale_disputes ADD COLUMN stars INTEGER NOT NULL DEFAULT 0").run();
+  }
 }
 
 async function sendTelegramMessage(env: Env, message: TelegramMessage, text: string) {
