@@ -134,6 +134,7 @@ Her nickname is Tiff. She is a Taurus from St. Marys, Georgia and lives in Los A
 Her personality is sweet, fun, realistic, and confidently dominant. She is a mix of introvert and extrovert.
 Her style is pink Barbie and Y2K. She is a switch and is known for dominatrix content.
 Her texting style is blunt and short. She often calls people babe. Use emojis occasionally, not in every message, and never use more than one emoji in a response.
+When several fan messages are provided together, read them as one turn and answer the overall meaning comprehensively. Send one cohesive reply, usually one or two short sentences. Do not produce several separate replies or repeat the same offer.
 Her favorite color is pink. Her favorite season is fall. Her favorite holiday is Halloween.
 Her favorite perfume is Versace Bright Crystal. Her favorite alcoholic drink is champagne and her favorite nonalcoholic drink is matcha.
 Her comfort food is sushi. Her favorite dessert is chocolate cake. Her favorite candle scent is lavender and her favorite flower is an orchid.
@@ -387,6 +388,15 @@ async function prepareDatabase(db: D1Database) {
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_conversation_training_category
       ON conversation_training(category)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS inbound_message_buffer (
+      chat_id TEXT NOT NULL,
+      message_id INTEGER NOT NULL,
+      message_text TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY(chat_id, message_id)
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_inbound_message_buffer_chat
+      ON inbound_message_buffer(chat_id, message_id)`),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('flirty_level', 'very')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('human_takeover', 'on')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('learning', 'approval')"),
@@ -810,6 +820,43 @@ async function queueCreatorReply(db: D1Database, message: TelegramMessage) {
     .run();
 }
 
+async function collectQuickMessages(db: D1Database, chatId: string, message: TelegramMessage) {
+  await db.prepare(`INSERT OR IGNORE INTO inbound_message_buffer
+    (chat_id, message_id, message_text) VALUES (?, ?, ?)`)
+    .bind(chatId, message.message_id, message.text || "")
+    .run();
+
+  await new Promise((resolve) => setTimeout(resolve, 5000));
+
+  const latest = await db.prepare(`SELECT MAX(message_id) AS message_id
+    FROM inbound_message_buffer WHERE chat_id = ?`)
+    .bind(chatId)
+    .first<{ message_id: number | null }>();
+  if (latest?.message_id !== message.message_id) return null;
+
+  const buffered = await db.prepare(`SELECT message_id, message_text
+    FROM inbound_message_buffer WHERE chat_id = ? AND created_at >= datetime('now', '-30 seconds')
+    ORDER BY message_id ASC LIMIT 10`)
+    .bind(chatId)
+    .all<{ message_id: number; message_text: string }>();
+  await db.prepare(`DELETE FROM inbound_message_buffer WHERE chat_id = ? AND message_id <= ?`)
+    .bind(chatId, message.message_id)
+    .run();
+
+  return {
+    text: buffered.results.map((item) => item.message_text.trim()).filter(Boolean).join("\n"),
+    count: buffered.results.length,
+  };
+}
+
+function isMultiConversationalTurn(text: string, count: number) {
+  if (count < 2) return false;
+  if (/\b(sext|video chat|video call|meet|meeting|book|buy|pay|payment|custom|content|photo|video|trailer)\b/i.test(text)) return false;
+  const conversationalSignals = [isGreeting(text), isHowAreYouQuestion(text), isTodayActivityQuestion(text)]
+    .filter(Boolean).length;
+  return conversationalSignals >= 2 || (text.match(/\?/g)?.length || 0) >= 2;
+}
+
 async function createAIReply(env: Env, chatId: string, incoming: string) {
   if (!env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is not configured");
 
@@ -1011,6 +1058,10 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     message.text = remainder;
   }
 
+  const collected = await collectQuickMessages(env.DB, chatId, message);
+  if (!collected) return json({ ok: true, combined_with_newer_message: true });
+  message.text = collected.text;
+
   const settings = await getSettings(env.DB);
   if (/^\/(terms|paysupport)\b/i.test(message.text)) {
     await sendTelegramMessage(env, message, PAYMENT_TERMS);
@@ -1022,6 +1073,23 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     await saveMessage(env.DB, chatId, "user", message.text);
     await saveMessage(env.DB, chatId, "assistant", redirect);
     await sendTelegramMessage(env, message, redirect);
+    return json({ ok: true });
+  }
+
+  if (isMultiConversationalTurn(message.text, collected.count)) {
+    let combinedReply = CREATOR_TAKEOVER;
+    try {
+      combinedReply = await createAIReply(env, chatId, message.text);
+    } catch (error) {
+      console.error("Combined conversation reply failed", error);
+    }
+    await saveMessage(env.DB, chatId, "user", message.text);
+    if (combinedReply === CREATOR_TAKEOVER) {
+      if (settings.human_takeover !== "off") await queueCreatorReply(env.DB, message);
+      return json({ ok: true, creator_reply_needed: true });
+    }
+    await saveMessage(env.DB, chatId, "assistant", combinedReply);
+    await sendTelegramMessage(env, message, combinedReply);
     return json({ ok: true });
   }
 
