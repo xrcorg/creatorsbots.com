@@ -160,7 +160,12 @@ type PlatformOverview = {
     telegram_connected: boolean;
     weekly_cents: number;
     all_time_cents: number;
-    daily_earnings: Array<{ date: string; amount_cents: number; transaction_count: number }>;
+    daily_earnings: Array<{
+      date: string;
+      amount_cents: number;
+      transaction_count: number;
+      items: Array<{ id: number; source_type: string; description: string; amount_cents: number; occurred_at: string }>;
+    }>;
   }>;
 };
 
@@ -286,6 +291,7 @@ export default function Home() {
   const [earnings, setEarnings] = useState<EarningsSummary>({ weekly_cents: 0, weekly_count: 0, all_time_cents: 0, all_time_count: 0, recent: [], history: [] });
   const [portalUser, setPortalUser] = useState<PortalUser | null>(null);
   const [platformOverview, setPlatformOverview] = useState<PlatformOverview | null>(null);
+  const [ownerDayView, setOwnerDayView] = useState<string | null>(null);
   const [earningsView, setEarningsView] = useState<"weekly" | "all" | null>(null);
   const [bookingType, setBookingType] = useState<"video_chat" | "custom_content" | "in_person">("video_chat");
   const [bookingDuration, setBookingDuration] = useState("");
@@ -860,13 +866,29 @@ export default function Home() {
                   <em className={creator.status === "live" ? "" : "draft"}>{creator.status === "live" ? "Live" : "Setup pending"}</em>
                 </div>
                 <div className="dailyReport" role="table" aria-label={`${creator.name} daily earnings`}>
-                  {creator.daily_earnings.slice().reverse().map((day) => (
-                    <div role="row" key={day.date}>
-                      <span role="cell">{new Date(`${day.date}T12:00:00`).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}</span>
-                      <span role="cell">{day.transaction_count} sale{day.transaction_count === 1 ? "" : "s"}</span>
-                      <strong role="cell">{money(day.amount_cents)}</strong>
-                    </div>
-                  ))}
+                  {creator.daily_earnings.slice().reverse().map((day) => {
+                    const dayKey = `${creator.key}:${day.date}`;
+                    const open = ownerDayView === dayKey;
+                    return (
+                      <div className={open ? "open" : ""} role="row" key={day.date}>
+                        <button disabled={!day.transaction_count} onClick={() => setOwnerDayView(open ? null : dayKey)} type="button">
+                          <span role="cell">{new Date(`${day.date}T12:00:00`).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}</span>
+                          <span role="cell">{day.transaction_count} sale{day.transaction_count === 1 ? "" : "s"}</span>
+                          <strong role="cell">{money(day.amount_cents)}</strong>
+                        </button>
+                        {open && (
+                          <div className="dailyItems">
+                            {day.items.map((item) => (
+                              <div key={item.id}>
+                                <span><b>{item.description}</b><small>{item.source_type.replaceAll("_", " ")} · {new Date(`${item.occurred_at.replace(" ", "T")}Z`).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</small></span>
+                                <strong>{money(item.amount_cents)}</strong>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             ))}

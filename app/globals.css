@@ -84,9 +84,17 @@ button { cursor: pointer; }
 .creatorSwitcher em { padding: 5px 8px; border-radius: 999px; background: #effbf4; color: #267047; font-size: 9px; font-style: normal; font-weight: 800; text-transform: uppercase; }
 .creatorSwitcher em.draft { background: #fff4df; color: #8a5b10; }
 .dailyReport { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; border-top: 1px solid #f0dce6; background: #f0dce6; }
-.dailyReport > div { display: grid; grid-template-columns: 1fr auto auto; gap: 14px; padding: 10px 12px; background: #fffafb; font-size: 10px; }
-.dailyReport > div span:nth-child(2) { color: var(--muted); }
+.dailyReport > div { background: #fffafb; font-size: 10px; }
+.dailyReport > div > button { width: 100%; display: grid; grid-template-columns: 1fr auto auto; gap: 14px; padding: 10px 12px; border: 0; background: transparent; color: var(--ink); text-align: left; }
+.dailyReport > div > button:not(:disabled) { cursor: pointer; }
+.dailyReport > div > button:not(:disabled):hover { background: #fff0f7; }
+.dailyReport > div > button:disabled { cursor: default; opacity: .62; }
+.dailyReport > div > button span:nth-child(2) { color: var(--muted); }
 .dailyReport strong { color: var(--deep-pink); text-align: right; }
+.dailyItems { display: grid; gap: 1px; border-top: 1px solid #f0dce6; background: #f0dce6; }
+.dailyItems > div { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 10px 12px 10px 22px; background: white; }
+.dailyItems span { display: grid; gap: 3px; }
+.dailyItems small { color: var(--muted); text-transform: capitalize; }
 
 .workspace {
   max-width: 1440px; min-height: calc(100vh - 112px); margin: auto; display: grid;

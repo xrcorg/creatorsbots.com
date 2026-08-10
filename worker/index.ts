@@ -1721,18 +1721,19 @@ async function handleAdminPending(request: Request, env: Env) {
     COUNT(*) AS transaction_count FROM earnings_events`).first<{ total_cents: number; transaction_count: number }>();
   const earningsHistory = await env.DB.prepare(`SELECT id, source_type, description, amount_cents, occurred_at
     FROM earnings_events ORDER BY id DESC LIMIT 1000`).all();
-  const dailyRows = await env.DB.prepare(`SELECT amount_cents, occurred_at FROM earnings_events
+  const dailyRows = await env.DB.prepare(`SELECT id, source_type, description, amount_cents, occurred_at FROM earnings_events
     WHERE occurred_at >= datetime('now', '-13 days', 'start of day') ORDER BY occurred_at ASC`)
-    .all<{ amount_cents: number; occurred_at: string }>();
-  const dailyMap = new Map<string, { amount_cents: number; transaction_count: number }>();
+    .all<{ id: number; source_type: string; description: string; amount_cents: number; occurred_at: string }>();
+  const dailyMap = new Map<string, { amount_cents: number; transaction_count: number; items: typeof dailyRows.results }>();
   for (const row of dailyRows.results) {
     const timestamp = row.occurred_at.includes("T") ? row.occurred_at : `${row.occurred_at.replace(" ", "T")}Z`;
     const date = new Intl.DateTimeFormat("en-CA", {
       timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit",
     }).format(new Date(timestamp));
-    const current = dailyMap.get(date) || { amount_cents: 0, transaction_count: 0 };
+    const current = dailyMap.get(date) || { amount_cents: 0, transaction_count: 0, items: [] };
     current.amount_cents += row.amount_cents;
     current.transaction_count += 1;
+    current.items.push(row);
     dailyMap.set(date, current);
   }
   const dailyEarnings = Array.from({ length: 14 }, (_, offset) => {
@@ -1741,7 +1742,7 @@ async function handleAdminPending(request: Request, env: Env) {
     const key = new Intl.DateTimeFormat("en-CA", {
       timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit",
     }).format(date);
-    return { date: key, ...(dailyMap.get(key) || { amount_cents: 0, transaction_count: 0 }) };
+    return { date: key, ...(dailyMap.get(key) || { amount_cents: 0, transaction_count: 0, items: [] }) };
   });
   const creatorAccounts = await env.DB.prepare(`SELECT creator_key, display_name, login_email,
     status, template_key, telegram_connected FROM creator_accounts ORDER BY created_at ASC`)
@@ -1751,7 +1752,7 @@ async function handleAdminPending(request: Request, env: Env) {
     await env.DB.prepare(`UPDATE creator_accounts SET login_email = ?, updated_at = CURRENT_TIMESTAMP
       WHERE creator_key = 'tiffani' AND login_email = ''`).bind(creatorEmail).run();
   }
-  const emptyDailyEarnings = dailyEarnings.map((day) => ({ ...day, amount_cents: 0, transaction_count: 0 }));
+  const emptyDailyEarnings = dailyEarnings.map((day) => ({ ...day, amount_cents: 0, transaction_count: 0, items: [] }));
   return json({
     portal_user: portalUser,
     pending: pending.results,
