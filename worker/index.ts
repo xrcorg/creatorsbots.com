@@ -65,7 +65,7 @@ type PortalUser = {
   creator_name: "Tiffani Madison";
 };
 
-const AGE_PROMPT = "Are you 18?";
+const AGE_PROMPT = "Are you 18? I just have to make sure I'm texting an adult.";
 const INTRO = "Hey, it's Tiffany. What are you up to?";
 const NAME_PROMPT = "What's your name, babe?";
 const CLOSED = "I can only chat with adults who are 18 or older. This conversation is now closed.";
