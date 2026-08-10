@@ -140,6 +140,27 @@ type EarningsSummary = {
   history: Array<{ id: number; source_type: string; description: string; amount_cents: number; occurred_at: string }>;
 };
 
+type PortalUser = {
+  email: string;
+  role: "owner" | "creator";
+  creator_key: string;
+  creator_name: string;
+};
+
+type PlatformOverview = {
+  creator_count: number;
+  active_creator_count: number;
+  attention_count: number;
+  creators: Array<{
+    key: string;
+    name: string;
+    email: string;
+    status: string;
+    weekly_cents: number;
+    all_time_cents: number;
+  }>;
+};
+
 type CreatorSettings = {
   flirty_level: "soft" | "flirty" | "very";
   human_takeover: "on" | "off";
@@ -260,6 +281,8 @@ export default function Home() {
   const [mediaFile, setMediaFile] = useState<File | null>(null);
   const [customLinks, setCustomLinks] = useState<Record<number, string>>({});
   const [earnings, setEarnings] = useState<EarningsSummary>({ weekly_cents: 0, weekly_count: 0, all_time_cents: 0, all_time_count: 0, recent: [], history: [] });
+  const [portalUser, setPortalUser] = useState<PortalUser | null>(null);
+  const [platformOverview, setPlatformOverview] = useState<PlatformOverview | null>(null);
   const [earningsView, setEarningsView] = useState<"weekly" | "all" | null>(null);
   const [bookingType, setBookingType] = useState<"video_chat" | "custom_content" | "in_person">("video_chat");
   const [bookingDuration, setBookingDuration] = useState("");
@@ -275,7 +298,9 @@ export default function Home() {
       setLiveLoading(true);
       const response = await fetch("/api/admin/pending", { cache: "no-store" });
       if (!response.ok) throw new Error("Unable to load the creator inbox");
-      const data = await response.json() as { pending: LivePendingReply[]; purchases: LivePurchase[]; purchase_history: LivePurchase[]; bookings: LiveBooking[]; customs: LiveCustom[]; custom_history: LiveCustom[]; sexting_sessions: LiveSextingSession[]; sexting_history: LiveSextingSession[]; sexting_media: SextingMedia[]; sexting_scripts: SextingScript[]; daily_tasks: DailyTask[]; announcements: Announcement[]; social_links: SocialLink[]; training_suggestions: TrainingSuggestion[]; products: ContentProduct[]; stars: { total: number; count: number }; learned_count: number; earnings: EarningsSummary; settings: CreatorSettings };
+      const data = await response.json() as { portal_user: PortalUser; platform_overview: PlatformOverview | null; pending: LivePendingReply[]; purchases: LivePurchase[]; purchase_history: LivePurchase[]; bookings: LiveBooking[]; customs: LiveCustom[]; custom_history: LiveCustom[]; sexting_sessions: LiveSextingSession[]; sexting_history: LiveSextingSession[]; sexting_media: SextingMedia[]; sexting_scripts: SextingScript[]; daily_tasks: DailyTask[]; announcements: Announcement[]; social_links: SocialLink[]; training_suggestions: TrainingSuggestion[]; products: ContentProduct[]; stars: { total: number; count: number }; learned_count: number; earnings: EarningsSummary; settings: CreatorSettings };
+      setPortalUser(data.portal_user);
+      setPlatformOverview(data.platform_overview);
       setLivePending(data.pending);
       setLivePurchases(data.purchases);
       setPurchaseHistory(data.purchase_history || []);
@@ -798,12 +823,41 @@ export default function Home() {
           </div>
         </div>
         <div className="topActions">
+          {portalUser && <span className="accountBadge">{portalUser.role === "owner" ? "Owner" : "Creator"} · {portalUser.email}</span>}
           <span className={`statusPill ${livePending.length || livePurchases.length || liveBookings.length || liveCustoms.length || sextingSessions.length ? "needsReply" : ""}`}>
             <i /> {statusText}
           </span>
           <button className="ghostButton" onClick={() => void enableNotifications()}>{notificationsEnabled ? "Alerts on" : "Enable alerts"}</button>
         </div>
       </header>
+
+      {portalUser?.role === "owner" && platformOverview && (
+        <section className="ownerOverview">
+          <div className="ownerHeading">
+            <div>
+              <p className="eyebrow">Platform owner</p>
+              <h1>Creator overview</h1>
+              <p>Review platform activity and securely view each creator's control room.</p>
+            </div>
+            <span className="supportMode">Viewing as Tiffani</span>
+          </div>
+          <div className="ownerMetrics">
+            <div><span>Creators</span><strong>{platformOverview.creator_count}</strong><small>{platformOverview.active_creator_count} live</small></div>
+            <div><span>Past 7 days</span><strong>{money(earnings.weekly_cents)}</strong><small>All creators</small></div>
+            <div><span>All time</span><strong>{money(earnings.all_time_cents)}</strong><small>All creators</small></div>
+            <div><span>Needs attention</span><strong>{platformOverview.attention_count}</strong><small>Across the platform</small></div>
+          </div>
+          <div className="creatorSwitcher">
+            {platformOverview.creators.map((creator) => (
+              <button className="active" key={creator.key} type="button">
+                <span><b>{creator.name}</b><small>{creator.email}</small></span>
+                <span><b>{money(creator.weekly_cents)}</b><small>Past 7 days</small></span>
+                <em>{creator.status}</em>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="workspace creatorDashboard">
         <aside className="sidePanel">

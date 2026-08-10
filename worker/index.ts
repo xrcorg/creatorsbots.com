@@ -1,5 +1,6 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
+import { createRemoteJWKSet, jwtVerify } from "jose";
 import { bookingDetailsMissing, customDetailsMissing, isAffirmativeReply, isBotQuestion, isCancelReply, isLikelyCityReply, parseNameIntroduction } from "./conversation-rules";
 
 interface Env {
@@ -17,6 +18,10 @@ interface Env {
   OPENAI_MODEL?: string;
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_WEBHOOK_SECRET?: string;
+  CLOUDFLARE_ACCESS_TEAM_DOMAIN?: string;
+  CLOUDFLARE_ACCESS_AUD?: string;
+  PORTAL_OWNER_EMAILS?: string;
+  PORTAL_CREATOR_EMAILS?: string;
 }
 
 interface ExecutionContext {
@@ -51,6 +56,13 @@ type TelegramUpdate = {
     total_amount: number;
     invoice_payload: string;
   };
+};
+
+type PortalUser = {
+  email: string;
+  role: "owner" | "creator";
+  creator_key: "tiffani";
+  creator_name: "Tiffani Madison";
 };
 
 const AGE_PROMPT = "Before you join, I have to make sure you're 18+. Can you say yes or no?";
@@ -179,6 +191,45 @@ Keep most replies to one or two short sentences and end with a natural question 
 
 function json(body: unknown, status = 200) {
   return Response.json(body, { status });
+}
+
+const accessJwks = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
+
+function emailList(value: string | undefined) {
+  return new Set((value || "").split(",").map((email) => email.trim().toLowerCase()).filter(Boolean));
+}
+
+async function getPortalUser(request: Request, env: Env): Promise<PortalUser | null> {
+  const teamDomain = env.CLOUDFLARE_ACCESS_TEAM_DOMAIN?.replace(/\/$/, "");
+  const audience = env.CLOUDFLARE_ACCESS_AUD?.trim();
+  const token = request.headers.get("cf-access-jwt-assertion");
+  if (!teamDomain || !audience || !token) {
+    if (teamDomain || audience) return null;
+    const workspaceEmail = request.headers.get("oai-authenticated-user-email")?.toLowerCase();
+    if (!workspaceEmail || !request.headers.get("oai-authenticated-user-id")) return null;
+    return { email: workspaceEmail, role: "owner", creator_key: "tiffani", creator_name: "Tiffani Madison" };
+  }
+
+  try {
+    let jwks = accessJwks.get(teamDomain);
+    if (!jwks) {
+      jwks = createRemoteJWKSet(new URL(`${teamDomain}/cdn-cgi/access/certs`));
+      accessJwks.set(teamDomain, jwks);
+    }
+    const { payload } = await jwtVerify(token, jwks, { issuer: teamDomain, audience });
+    const email = typeof payload.email === "string" ? payload.email.toLowerCase() : "";
+    if (!email) return null;
+    if (emailList(env.PORTAL_OWNER_EMAILS).has(email)) {
+      return { email, role: "owner", creator_key: "tiffani", creator_name: "Tiffani Madison" };
+    }
+    if (emailList(env.PORTAL_CREATOR_EMAILS).has(email)) {
+      return { email, role: "creator", creator_key: "tiffani", creator_name: "Tiffani Madison" };
+    }
+    return null;
+  } catch (error) {
+    console.error("Cloudflare Access verification failed", error);
+    return null;
+  }
 }
 
 async function prepareDatabase(db: D1Database) {
@@ -1569,12 +1620,13 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   return json({ ok: true });
 }
 
-function isAdminRequest(request: Request) {
-  return Boolean(request.headers.get("oai-authenticated-user-id"));
+async function isAdminRequest(request: Request, env: Env) {
+  return Boolean(await getPortalUser(request, env));
 }
 
 async function handleAdminPending(request: Request, env: Env) {
-  if (!isAdminRequest(request)) return json({ error: "Sign in required" }, 401);
+  const portalUser = await getPortalUser(request, env);
+  if (!portalUser) return json({ error: "Sign in required" }, 401);
   await prepareDatabase(env.DB);
   const settings = await getSettings(env.DB);
   const misplacedCustoms = await env.DB.prepare(`SELECT id, chat_id, business_connection_id, question
@@ -1654,6 +1706,7 @@ async function handleAdminPending(request: Request, env: Env) {
   const earningsHistory = await env.DB.prepare(`SELECT id, source_type, description, amount_cents, occurred_at
     FROM earnings_events ORDER BY id DESC LIMIT 1000`).all();
   return json({
+    portal_user: portalUser,
     pending: pending.results,
     purchases: purchases.results,
     purchase_history: purchaseHistory.results,
@@ -1679,12 +1732,26 @@ async function handleAdminPending(request: Request, env: Env) {
       recent: earningsHistory.results.slice(0, 20),
       history: earningsHistory.results,
     },
+    platform_overview: portalUser.role === "owner" ? {
+      creator_count: 1,
+      active_creator_count: 1,
+      attention_count: pending.results.length + purchases.results.length + bookings.results.length +
+        customs.results.length + sextingSessions.results.length,
+      creators: [{
+        key: "tiffani",
+        name: "Tiffani Madison",
+        email: Array.from(emailList(env.PORTAL_CREATOR_EMAILS))[0] || "",
+        status: "live",
+        weekly_cents: weekly?.total_cents || 0,
+        all_time_cents: allTime?.total_cents || 0,
+      }],
+    } : null,
     settings,
   });
 }
 
 async function handleAdminSextingScripts(request: Request, env: Env, url: URL) {
-  if (!isAdminRequest(request)) return json({ error: "Sign in required" }, 401);
+  if (!await isAdminRequest(request, env)) return json({ error: "Sign in required" }, 401);
   await prepareDatabase(env.DB);
   const match = url.pathname.match(/^\/api\/admin\/sexting-scripts\/(\d+)$/);
   if (request.method === "POST" && url.pathname === "/api/admin/sexting-scripts") {
@@ -1726,7 +1793,7 @@ function validHttpUrl(value: string, required = false) {
 }
 
 async function handleAdminProducts(request: Request, env: Env, url: URL) {
-  if (!isAdminRequest(request)) return json({ error: "Sign in required" }, 401);
+  if (!await isAdminRequest(request, env)) return json({ error: "Sign in required" }, 401);
   await prepareDatabase(env.DB);
   const match = url.pathname.match(/^\/api\/admin\/products\/(\d+)$/);
   if (request.method === "POST" && url.pathname === "/api/admin/products") {
@@ -1776,7 +1843,7 @@ async function handleAdminProducts(request: Request, env: Env, url: URL) {
 }
 
 async function handleAdminReply(request: Request, env: Env) {
-  if (!isAdminRequest(request)) return json({ error: "Sign in required" }, 401);
+  if (!await isAdminRequest(request, env)) return json({ error: "Sign in required" }, 401);
   await prepareDatabase(env.DB);
   const body = await request.json() as { id?: number; answer?: string; learn?: boolean; action?: "reply" | "ignore" };
   const answer = body.answer?.trim();
@@ -1816,7 +1883,7 @@ async function handleAdminReply(request: Request, env: Env) {
 }
 
 async function handleAdminPurchase(request: Request, env: Env) {
-  if (!isAdminRequest(request)) return json({ error: "Sign in required" }, 401);
+  if (!await isAdminRequest(request, env)) return json({ error: "Sign in required" }, 401);
   await prepareDatabase(env.DB);
   const body = await request.json() as { id?: number; action?: "approve" | "decline" };
   if (!body.id || !body.action) return json({ error: "Purchase action is required" }, 400);
@@ -1869,7 +1936,7 @@ async function handleAdminPurchase(request: Request, env: Env) {
 }
 
 async function handleAdminBooking(request: Request, env: Env) {
-  if (!isAdminRequest(request)) return json({ error: "Sign in required" }, 401);
+  if (!await isAdminRequest(request, env)) return json({ error: "Sign in required" }, 401);
   await prepareDatabase(env.DB);
   const settings = await getSettings(env.DB);
   const body = await request.json() as {
@@ -1944,7 +2011,7 @@ async function handleAdminBooking(request: Request, env: Env) {
 }
 
 async function handleAdminCustom(request: Request, env: Env) {
-  if (!isAdminRequest(request)) return json({ error: "Sign in required" }, 401);
+  if (!await isAdminRequest(request, env)) return json({ error: "Sign in required" }, 401);
   await prepareDatabase(env.DB);
   const body = await request.json() as { id?: number; delivery_url?: string };
   const deliveryUrl = body.delivery_url?.trim();
@@ -1974,7 +2041,7 @@ async function handleAdminCustom(request: Request, env: Env) {
 }
 
 async function handleAdminTasks(request: Request, env: Env) {
-  if (!isAdminRequest(request)) return json({ error: "Sign in required" }, 401);
+  if (!await isAdminRequest(request, env)) return json({ error: "Sign in required" }, 401);
   await prepareDatabase(env.DB);
   const body = await request.json() as {
     id?: number;
@@ -2039,7 +2106,7 @@ async function broadcastAnnouncement(env: Env, announcementId: number, platform:
 }
 
 async function handleAdminAnnouncements(request: Request, env: Env, ctx: ExecutionContext) {
-  if (!isAdminRequest(request)) return json({ error: "Sign in required" }, 401);
+  if (!await isAdminRequest(request, env)) return json({ error: "Sign in required" }, 401);
   await prepareDatabase(env.DB);
   const body = await request.json() as { platform?: string; message?: string; stream_url?: string };
   const platform = body.platform?.trim().slice(0, 40) || "Live stream";
@@ -2056,7 +2123,7 @@ async function handleAdminAnnouncements(request: Request, env: Env, ctx: Executi
 }
 
 async function handleAdminSocialLinks(request: Request, env: Env, url: URL) {
-  if (!isAdminRequest(request)) return json({ error: "Sign in required" }, 401);
+  if (!await isAdminRequest(request, env)) return json({ error: "Sign in required" }, 401);
   await prepareDatabase(env.DB);
   if (request.method === "POST" && url.pathname === "/api/admin/social-links") {
     const body = await request.json() as { platform?: string; label?: string; url?: string };
@@ -2083,7 +2150,7 @@ async function handleAdminSocialLinks(request: Request, env: Env, url: URL) {
 }
 
 async function handleAdminTraining(request: Request, env: Env, url: URL) {
-  if (!isAdminRequest(request)) return json({ error: "Sign in required" }, 401);
+  if (!await isAdminRequest(request, env)) return json({ error: "Sign in required" }, 401);
   await prepareDatabase(env.DB);
   if (request.method === "POST" && url.pathname === "/api/admin/training") {
     const body = await request.json() as { category?: string; suggestion?: string };
@@ -2110,7 +2177,7 @@ async function handleAdminTraining(request: Request, env: Env, url: URL) {
 }
 
 async function handleAdminSexting(request: Request, env: Env) {
-  if (!isAdminRequest(request)) return json({ error: "Sign in required" }, 401);
+  if (!await isAdminRequest(request, env)) return json({ error: "Sign in required" }, 401);
   await prepareDatabase(env.DB);
   const body = await request.json() as { id?: number; action?: "start" | "complete" };
   if (!body.id || !body.action) return json({ error: "A session action is required" }, 400);
@@ -2147,7 +2214,7 @@ async function handleAdminSexting(request: Request, env: Env) {
 }
 
 async function handleAdminSextingMedia(request: Request, env: Env, url: URL) {
-  if (!isAdminRequest(request)) return json({ error: "Sign in required" }, 401);
+  if (!await isAdminRequest(request, env)) return json({ error: "Sign in required" }, 401);
   await prepareDatabase(env.DB);
   const match = url.pathname.match(/^\/api\/admin\/sexting-media\/(\d+)(?:\/file)?$/);
   if (request.method === "POST" && url.pathname === "/api/admin/sexting-media") {
@@ -2190,7 +2257,7 @@ async function handleAdminSextingMedia(request: Request, env: Env, url: URL) {
 }
 
 async function handleAdminSettings(request: Request, env: Env) {
-  if (!isAdminRequest(request)) return json({ error: "Sign in required" }, 401);
+  if (!await isAdminRequest(request, env)) return json({ error: "Sign in required" }, 401);
   await prepareDatabase(env.DB);
   const body = await request.json() as { key?: string; value?: string };
   const allowed: Record<string, string[]> = {
