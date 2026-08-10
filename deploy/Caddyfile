@@ -17,6 +17,7 @@
     }
     reverse_proxy app:3000 {
       header_up oai-authenticated-user-id creator
+      header_up oai-authenticated-user-email creator@creatorsbots.local
     }
   }
 }
