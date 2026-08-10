@@ -349,6 +349,25 @@ async function prepareDatabase(db: D1Database) {
       occurred_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(source_type, source_id)
     )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS sale_disputes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      creator_key TEXT NOT NULL,
+      earnings_event_id INTEGER NOT NULL,
+      source_type TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      description TEXT NOT NULL,
+      amount_cents INTEGER NOT NULL,
+      occurred_at TEXT NOT NULL,
+      requester_email TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      proof TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      reviewed_by TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      reviewed_at TEXT
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_sale_disputes_status_created
+      ON sale_disputes(status, created_at)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS app_settings (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL,
@@ -1739,7 +1758,8 @@ async function handleAdminPending(request: Request, env: Env) {
   const purchases = await env.DB.prepare(`SELECT id, product_title, price, payment_note, created_at
     FROM purchase_requests WHERE status = 'pending' ORDER BY id ASC LIMIT 100`).all();
   const purchaseHistory = await env.DB.prepare(`SELECT id, product_title, price, payment_note,
-    status, created_at, resolved_at FROM purchase_requests ORDER BY id DESC LIMIT 200`).all();
+    status, created_at, resolved_at FROM purchase_requests WHERE status != 'disputed_removed'
+    ORDER BY id DESC LIMIT 200`).all();
   const bookings = await env.DB.prepare(`SELECT booking_requests.id, booking_requests.details,
     booking_requests.created_at,
     COALESCE(telegram_contacts.username, telegram_contacts.display_name, fan_profiles.name, 'Telegram fan') AS telegram_name,
@@ -1779,6 +1799,11 @@ async function handleAdminPending(request: Request, env: Env) {
     FROM creator_social_links ORDER BY id ASC`).all();
   const trainingSuggestions = await env.DB.prepare(`SELECT id, category, suggestion, created_at
     FROM conversation_training ORDER BY category ASC, id ASC`).all();
+  const saleDisputes = await env.DB.prepare(`SELECT id, creator_key, earnings_event_id, source_type,
+    source_id, description, amount_cents, occurred_at, requester_email, reason, proof, status,
+    reviewed_by, created_at, reviewed_at FROM sale_disputes
+    WHERE ? = 'owner' OR creator_key = ? ORDER BY id DESC LIMIT 500`)
+    .bind(portalUser.role, portalUser.creator_key).all();
   const learned = await env.DB.prepare("SELECT COUNT(*) AS count FROM learned_answers").first<{ count: number }>();
   const weekly = await env.DB.prepare(`SELECT COALESCE(SUM(amount_cents), 0) AS total_cents,
     COUNT(*) AS transaction_count FROM earnings_events
@@ -1857,6 +1882,7 @@ async function handleAdminPending(request: Request, env: Env) {
     announcements: announcements.results,
     social_links: socialLinks.results,
     training_suggestions: trainingSuggestions.results,
+    sale_disputes: saleDisputes.results,
     learned_count: learned?.count || 0,
     earnings: {
       weekly_cents: weekly?.total_cents || 0,
@@ -1870,7 +1896,8 @@ async function handleAdminPending(request: Request, env: Env) {
       creator_count: creatorAccounts.results.length,
       active_creator_count: creatorAccounts.results.filter((creator) => creator.status === "live").length,
       attention_count: pending.results.length + purchases.results.length + bookings.results.length +
-        customs.results.length + sextingSessions.results.length,
+        customs.results.length + sextingSessions.results.length +
+        saleDisputes.results.filter((dispute) => dispute.status === "pending").length,
       creators: creatorAccounts.results.map((creator) => ({
         key: creator.creator_key,
         name: creator.display_name,
@@ -2505,6 +2532,82 @@ async function handleAdminSettings(request: Request, env: Env) {
   return json({ ok: true, settings: await getSettings(env.DB) });
 }
 
+async function handleSaleDisputes(request: Request, env: Env) {
+  const portalUser = await getPortalUser(request, env);
+  if (!portalUser) return json({ error: "Sign in required" }, 401);
+  await prepareDatabase(env.DB);
+  const body = await request.json() as {
+    earnings_event_id?: number;
+    reason?: string;
+    proof?: string;
+    id?: number;
+    action?: "approve" | "deny";
+  };
+  if (request.method === "POST") {
+    const reason = body.reason?.trim().slice(0, 1000) || "";
+    const proof = body.proof?.trim().slice(0, 2000) || "";
+    if (!body.earnings_event_id || !reason || !proof) {
+      return json({ error: "Choose a sale and provide a reason and proof" }, 400);
+    }
+    const sale = await env.DB.prepare(`SELECT id, source_type, source_id, description, amount_cents, occurred_at
+      FROM earnings_events WHERE id = ?`).bind(body.earnings_event_id).first<{
+        id: number;
+        source_type: string;
+        source_id: string;
+        description: string;
+        amount_cents: number;
+        occurred_at: string;
+      }>();
+    if (!sale) return json({ error: "Sale was not found" }, 404);
+    const pending = await env.DB.prepare(`SELECT id FROM sale_disputes
+      WHERE earnings_event_id = ? AND status = 'pending' LIMIT 1`).bind(sale.id).first();
+    if (pending) return json({ error: "That sale already has a pending report" }, 409);
+    await env.DB.prepare(`INSERT INTO sale_disputes
+      (creator_key, earnings_event_id, source_type, source_id, description, amount_cents,
+       occurred_at, requester_email, reason, proof)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .bind(portalUser.creator_key, sale.id, sale.source_type, sale.source_id, sale.description,
+        sale.amount_cents, sale.occurred_at, portalUser.email, reason, proof).run();
+    return json({ ok: true });
+  }
+  if (request.method === "PATCH") {
+    if (portalUser.role !== "owner") return json({ error: "Owner approval is required" }, 403);
+    if (!body.id || !body.action) return json({ error: "A dispute decision is required" }, 400);
+    const dispute = await env.DB.prepare(`SELECT id, earnings_event_id, source_type, source_id
+      FROM sale_disputes WHERE id = ? AND status = 'pending'`).bind(body.id).first<{
+        id: number;
+        earnings_event_id: number;
+        source_type: string;
+        source_id: string;
+      }>();
+    if (!dispute) return json({ error: "Dispute is no longer pending" }, 404);
+    if (body.action === "deny") {
+      await env.DB.prepare(`UPDATE sale_disputes SET status = 'denied', reviewed_by = ?,
+        reviewed_at = CURRENT_TIMESTAMP WHERE id = ?`).bind(portalUser.email, dispute.id).run();
+      return json({ ok: true });
+    }
+    const updates = [
+      env.DB.prepare("DELETE FROM earnings_events WHERE id = ?").bind(dispute.earnings_event_id),
+      env.DB.prepare(`UPDATE sale_disputes SET status = 'approved', reviewed_by = ?,
+        reviewed_at = CURRENT_TIMESTAMP WHERE id = ?`).bind(portalUser.email, dispute.id),
+    ];
+    if (dispute.source_type === "content") {
+      updates.push(env.DB.prepare(`UPDATE purchase_requests SET status = 'disputed_removed'
+        WHERE id = ?`).bind(Number(dispute.source_id)));
+    } else if (dispute.source_type === "custom_content" || dispute.source_type === "video_chat") {
+      updates.push(env.DB.prepare(`UPDATE booking_requests SET status = 'disputed_removed'
+        WHERE id = ?`).bind(Number(dispute.source_id)));
+      if (dispute.source_type === "custom_content") {
+        updates.push(env.DB.prepare(`UPDATE custom_fulfillments SET status = 'disputed_removed'
+          WHERE booking_request_id = ?`).bind(Number(dispute.source_id)));
+      }
+    }
+    await env.DB.batch(updates);
+    return json({ ok: true });
+  }
+  return json({ error: "Sale dispute request not found" }, 404);
+}
+
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
@@ -2550,6 +2653,10 @@ const worker = {
 
     if (url.pathname.startsWith("/api/admin/training")) {
       return handleAdminTraining(request, env, url);
+    }
+
+    if (url.pathname === "/api/admin/sale-disputes" && (request.method === "POST" || request.method === "PATCH")) {
+      return handleSaleDisputes(request, env);
     }
 
     if (url.pathname === "/api/admin/sexting" && request.method === "POST") {

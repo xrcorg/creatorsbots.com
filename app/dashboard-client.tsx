@@ -140,6 +140,24 @@ type EarningsSummary = {
   history: Array<{ id: number; source_type: string; description: string; amount_cents: number; occurred_at: string }>;
 };
 
+type SaleDispute = {
+  id: number;
+  creator_key: string;
+  earnings_event_id: number;
+  source_type: string;
+  source_id: string;
+  description: string;
+  amount_cents: number;
+  occurred_at: string;
+  requester_email: string;
+  reason: string;
+  proof: string;
+  status: "pending" | "approved" | "denied";
+  reviewed_by?: string;
+  created_at: string;
+  reviewed_at?: string;
+};
+
 type PortalUser = {
   email: string;
   role: "owner" | "creator";
@@ -297,6 +315,9 @@ export default function Home() {
   const [mediaFile, setMediaFile] = useState<File | null>(null);
   const [customLinks, setCustomLinks] = useState<Record<number, string>>({});
   const [earnings, setEarnings] = useState<EarningsSummary>({ weekly_cents: 0, weekly_count: 0, all_time_cents: 0, all_time_count: 0, recent: [], history: [] });
+  const [saleDisputes, setSaleDisputes] = useState<SaleDispute[]>([]);
+  const [disputedSale, setDisputedSale] = useState<EarningsSummary["history"][number] | null>(null);
+  const [disputeForm, setDisputeForm] = useState({ reason: "", proof: "" });
   const [portalUser, setPortalUser] = useState<PortalUser | null>(null);
   const [platformOverview, setPlatformOverview] = useState<PlatformOverview | null>(null);
   const [ownerDayView, setOwnerDayView] = useState<string | null>(null);
@@ -315,7 +336,7 @@ export default function Home() {
       setLiveLoading(true);
       const response = await fetch("/api/admin/pending", { cache: "no-store" });
       if (!response.ok) throw new Error("Unable to load the creator inbox");
-      const data = await response.json() as { portal_user: PortalUser; platform_overview: PlatformOverview | null; pending: LivePendingReply[]; purchases: LivePurchase[]; purchase_history: LivePurchase[]; bookings: LiveBooking[]; customs: LiveCustom[]; custom_history: LiveCustom[]; sexting_sessions: LiveSextingSession[]; sexting_history: LiveSextingSession[]; sexting_media: SextingMedia[]; sexting_scripts: SextingScript[]; daily_tasks: DailyTask[]; announcements: Announcement[]; social_links: SocialLink[]; training_suggestions: TrainingSuggestion[]; products: ContentProduct[]; stars: { total: number; count: number }; learned_count: number; earnings: EarningsSummary; settings: CreatorSettings };
+      const data = await response.json() as { portal_user: PortalUser; platform_overview: PlatformOverview | null; pending: LivePendingReply[]; purchases: LivePurchase[]; purchase_history: LivePurchase[]; bookings: LiveBooking[]; customs: LiveCustom[]; custom_history: LiveCustom[]; sexting_sessions: LiveSextingSession[]; sexting_history: LiveSextingSession[]; sexting_media: SextingMedia[]; sexting_scripts: SextingScript[]; daily_tasks: DailyTask[]; announcements: Announcement[]; social_links: SocialLink[]; training_suggestions: TrainingSuggestion[]; sale_disputes: SaleDispute[]; products: ContentProduct[]; stars: { total: number; count: number }; learned_count: number; earnings: EarningsSummary; settings: CreatorSettings };
       setPortalUser(data.portal_user);
       setPlatformOverview(data.platform_overview);
       setLivePending(data.pending);
@@ -334,6 +355,7 @@ export default function Home() {
       setAnnouncements(data.announcements || []);
       setSocialLinks(data.social_links || []);
       setTrainingSuggestions(data.training_suggestions || []);
+      setSaleDisputes(data.sale_disputes || []);
       if (data.bookings[0]?.suggested_type) setBookingType(data.bookings[0].suggested_type);
       setEarnings(data.earnings);
       setSettings(data.settings);
@@ -862,9 +884,52 @@ export default function Home() {
     }
   }
 
+  async function submitSaleDispute(event: FormEvent) {
+    event.preventDefault();
+    if (!disputedSale) return;
+    try {
+      setLiveLoading(true);
+      const response = await fetch("/api/admin/sale-disputes", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ earnings_event_id: disputedSale.id, ...disputeForm }),
+      });
+      if (!response.ok) {
+        const data = await response.json() as { error?: string };
+        throw new Error(data.error || "Sale report could not be submitted");
+      }
+      setDisputedSale(null);
+      setDisputeForm({ reason: "", proof: "" });
+      await loadLivePending();
+    } catch (error) {
+      setLiveError(error instanceof Error ? error.message : "The sale report could not be submitted.");
+    } finally {
+      setLiveLoading(false);
+    }
+  }
+
+  async function reviewSaleDispute(id: number, action: "approve" | "deny") {
+    try {
+      setLiveLoading(true);
+      const response = await fetch("/api/admin/sale-disputes", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id, action }),
+      });
+      if (!response.ok) throw new Error("Dispute decision failed");
+      await loadLivePending();
+    } catch {
+      setLiveError("The dispute decision could not be saved. Please try again.");
+    } finally {
+      setLiveLoading(false);
+    }
+  }
+
   const selectedAgendaTasks = dailyTasks.filter((task) => task.scheduled_at.slice(0, 10) === agendaDate);
   const openAgendaCount = selectedAgendaTasks.filter((task) => task.status === "open").length;
   const unscheduledCount = liveBookings.length + liveCustoms.length + livePurchases.length + sextingSessions.length;
+  const pendingSaleDisputes = saleDisputes.filter((dispute) => dispute.status === "pending");
+  const reviewedSaleDisputes = saleDisputes.filter((dispute) => dispute.status !== "pending").slice(0, 20);
 
   function resetDemo() {
     setMessages(initialMessages);
@@ -911,6 +976,36 @@ export default function Home() {
             <div><span>All time</span><strong>{money(earnings.all_time_cents)}</strong><small>All creators</small></div>
             <div><span>Needs attention</span><strong>{platformOverview.attention_count}</strong><small>Across the platform</small></div>
           </div>
+          <section className="disputeQueue">
+            <div className="sectionHeading"><strong>Sale disputes</strong><span>{pendingSaleDisputes.length}</span></div>
+            {pendingSaleDisputes.length ? pendingSaleDisputes.map((dispute) => (
+              <article key={dispute.id}>
+                <div>
+                  <span>{dispute.creator_key}</span>
+                  <strong>{dispute.description} · {money(dispute.amount_cents)}</strong>
+                  <p>{dispute.reason}</p>
+                  {/^(?:https?:\/\/)/i.test(dispute.proof)
+                    ? <a href={dispute.proof} rel="noreferrer" target="_blank">View proof</a>
+                    : <small>Proof: {dispute.proof}</small>}
+                  <small>Requested by {dispute.requester_email} · {new Date(`${dispute.created_at}Z`).toLocaleString()}</small>
+                </div>
+                <button className="primaryAction" disabled={liveLoading} onClick={() => void reviewSaleDispute(dispute.id, "approve")}>Approve removal</button>
+                <button className="secondaryAction" disabled={liveLoading} onClick={() => void reviewSaleDispute(dispute.id, "deny")}>Deny</button>
+              </article>
+            )) : <p>No sale disputes waiting for review.</p>}
+            {reviewedSaleDisputes.length > 0 && (
+              <details>
+                <summary>Reviewed disputes ({reviewedSaleDisputes.length})</summary>
+                {reviewedSaleDisputes.map((dispute) => (
+                  <div className="reviewedDispute" key={dispute.id}>
+                    <span>{dispute.status}</span>
+                    <b>{dispute.description} · {money(dispute.amount_cents)}</b>
+                    <small>{dispute.reason} · Reviewed by {dispute.reviewed_by}</small>
+                  </div>
+                ))}
+              </details>
+            )}
+          </section>
           <div className="creatorSwitcher">
             {platformOverview.creators.map((creator) => (
               <div className="creatorReport" key={creator.key}>
@@ -1026,9 +1121,23 @@ export default function Home() {
               ).map((item) => (
                 <div className="historyRow" key={item.id}>
                   <span><b>{item.description}</b><small>{item.source_type.replaceAll("_", " ")} · {new Date(`${item.occurred_at}Z`).toLocaleString()}</small></span>
-                  <strong>{money(item.amount_cents)}</strong>
+                  <div className="historyActions">
+                    <strong>{money(item.amount_cents)}</strong>
+                    {saleDisputes.some((dispute) => dispute.earnings_event_id === item.id && dispute.status === "pending")
+                      ? <small>Report pending</small>
+                      : <button type="button" onClick={() => { setDisputedSale(item); setDisputeForm({ reason: "", proof: "" }); }}>Report sale</button>}
+                  </div>
                 </div>
               )) : <p>No sales in this period.</p>}
+              {disputedSale && (
+                <form className="disputeForm" onSubmit={submitSaleDispute}>
+                  <strong>Report {disputedSale.description}</strong>
+                  <label><span>What went wrong?</span><textarea required maxLength={1000} value={disputeForm.reason} onChange={(event) => setDisputeForm((current) => ({ ...current, reason: event.target.value }))} placeholder="Explain why this sale should be removed." /></label>
+                  <label><span>Proof link or details</span><input required maxLength={2000} value={disputeForm.proof} onChange={(event) => setDisputeForm((current) => ({ ...current, proof: event.target.value }))} placeholder="Paste a screenshot link, receipt link, or supporting details." /></label>
+                  <button className="primaryAction" disabled={liveLoading}>Submit for owner review</button>
+                  <button className="secondaryAction" type="button" onClick={() => setDisputedSale(null)}>Cancel</button>
+                </form>
+              )}
               <div className="historyTotal"><span>Total</span><strong>{money(earningsView === "weekly" ? earnings.weekly_cents : earnings.all_time_cents)}</strong></div>
             </section>
           )}
