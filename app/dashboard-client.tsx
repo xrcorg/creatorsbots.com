@@ -157,6 +157,9 @@ type CreatorSettings = {
   sexting_intensity: "soft" | "hard" | "hot";
   sexting_rate: string;
   sexting_5_stars: string;
+  sleep_hours_enabled: "on" | "off";
+  sleep_start: string;
+  sleep_end: string;
 };
 
 function money(cents: number) {
@@ -260,7 +263,7 @@ export default function Home() {
   const [earningsView, setEarningsView] = useState<"weekly" | "all" | null>(null);
   const [bookingType, setBookingType] = useState<"video_chat" | "custom_content" | "in_person">("video_chat");
   const [bookingDuration, setBookingDuration] = useState("");
-  const [settings, setSettings] = useState<CreatorSettings>({ flirty_level: "very", human_takeover: "on", learning: "approval", custom_approval: "required", video_chat_rate: "50", custom_content_rate: "50", in_person_rate: "1500", preferred_topics: "", avoid_topics: "", tone_guidance: "Short, blunt, warm, confident, flirty, and natural", creator_feedback: "", sexting_enabled: "on", sexting_test_mode: "on", sexting_intensity: "soft", sexting_rate: "10", sexting_5_stars: "3850" });
+  const [settings, setSettings] = useState<CreatorSettings>({ flirty_level: "very", human_takeover: "on", learning: "approval", custom_approval: "required", video_chat_rate: "50", custom_content_rate: "50", in_person_rate: "1500", preferred_topics: "", avoid_topics: "", tone_guidance: "Short, blunt, warm, confident, flirty, and natural", creator_feedback: "", sexting_enabled: "on", sexting_test_mode: "on", sexting_intensity: "soft", sexting_rate: "10", sexting_5_stars: "3850", sleep_hours_enabled: "on", sleep_start: "02:00", sleep_end: "08:00" });
   const [liveLoading, setLiveLoading] = useState(false);
   const [liveError, setLiveError] = useState("");
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
@@ -1147,6 +1150,9 @@ export default function Home() {
             <div><span>Custom approval</span><button className="settingToggle" onClick={() => void updateSetting("custom_approval", settings.custom_approval === "required" ? "off" : "required")}>{settings.custom_approval === "required" ? "Required" : "Off"}</button></div>
             <div><span>Sexting</span><button className="settingToggle" onClick={() => void updateSetting("sexting_enabled", settings.sexting_enabled === "on" ? "off" : "on")}>{settings.sexting_enabled}</button></div>
             <div><span>Free sexting test mode</span><button className="settingToggle" onClick={() => void updateSetting("sexting_test_mode", settings.sexting_test_mode === "on" ? "off" : "on")}>{settings.sexting_test_mode}</button></div>
+            <div><span>Sleep hours</span><button className="settingToggle" onClick={() => void updateSetting("sleep_hours_enabled", settings.sleep_hours_enabled === "on" ? "off" : "on")}>{settings.sleep_hours_enabled}</button></div>
+            <div className="rateSetting"><span>Sleep time</span><label><input aria-label="Sleep start time" onBlur={() => void updateSetting("sleep_start", settings.sleep_start)} onChange={(event) => setSettings((current) => ({ ...current, sleep_start: event.target.value }))} type="time" value={settings.sleep_start} /></label></div>
+            <div className="rateSetting"><span>Wake time</span><label><input aria-label="Wake time" onBlur={() => void updateSetting("sleep_end", settings.sleep_end)} onChange={(event) => setSettings((current) => ({ ...current, sleep_end: event.target.value }))} type="time" value={settings.sleep_end} /></label></div>
             <div><span>Sexting intensity</span><section>{(["soft", "hard", "hot"] as const).map((value) => <button className={settings.sexting_intensity === value ? "selected" : ""} key={value} onClick={() => void updateSetting("sexting_intensity", value)}>{value}</button>)}</section></div>
             <div className="rateSetting"><span>Video chat per minute</span><label>$<input aria-label="Video chat rate per minute" inputMode="decimal" min="1" onBlur={() => void updateSetting("video_chat_rate", settings.video_chat_rate)} onChange={(event) => setSettings((current) => ({ ...current, video_chat_rate: event.target.value }))} type="number" value={settings.video_chat_rate} /></label></div>
             <div className="rateSetting"><span>Custom content per minute</span><label>$<input aria-label="Custom content rate per minute" inputMode="decimal" min="1" onBlur={() => void updateSetting("custom_content_rate", settings.custom_content_rate)} onChange={(event) => setSettings((current) => ({ ...current, custom_content_rate: event.target.value }))} type="number" value={settings.custom_content_rate} /></label></div>

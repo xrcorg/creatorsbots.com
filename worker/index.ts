@@ -416,6 +416,9 @@ async function prepareDatabase(db: D1Database) {
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_15_stars', '6000')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_30_stars', '10000')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_media_stars', '10000')"),
+    db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sleep_hours_enabled', 'on')"),
+    db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sleep_start', '02:00')"),
+    db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sleep_end', '08:00')"),
     db.prepare(`INSERT OR IGNORE INTO creator_social_links (platform, label, url)
       VALUES ('Instagram', '@tiffanimadisonvip', ?)`).bind(INSTAGRAM_URL),
     db.prepare(`INSERT OR IGNORE INTO creator_social_links (platform, label, url)
@@ -792,13 +795,23 @@ async function rememberProductInterest(db: D1Database, chatId: string,
     .bind(chatId, productId, businessConnectionId).run();
 }
 
-function isTiffaniSleeping(date = new Date()) {
-  const hour = Number(new Intl.DateTimeFormat("en-US", {
+function isTiffaniSleeping(settings: Record<string, string>, date = new Date()) {
+  if (settings.sleep_hours_enabled === "off") return false;
+  const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/Los_Angeles",
-    hour: "2-digit",
+    hour: "2-digit", minute: "2-digit",
     hourCycle: "h23",
-  }).format(date));
-  return hour >= 2 && hour < 8;
+  }).formatToParts(date);
+  const current = Number(parts.find((part) => part.type === "hour")?.value || 0) * 60 +
+    Number(parts.find((part) => part.type === "minute")?.value || 0);
+  const toMinutes = (value: string) => {
+    const [hour, minute] = value.split(":").map(Number);
+    return hour * 60 + minute;
+  };
+  const start = toMinutes(settings.sleep_start || "02:00");
+  const end = toMinutes(settings.sleep_end || "08:00");
+  if (start === end) return false;
+  return start < end ? current >= start && current < end : current >= start || current < end;
 }
 
 async function saveMessage(db: D1Database, chatId: string, role: "user" | "assistant", content: string) {
@@ -1003,7 +1016,8 @@ async function handleTelegramWebhook(request: Request, env: Env) {
 
   if (session?.age_status === "blocked") return json({ ok: true });
 
-  if (isTiffaniSleeping()) {
+  const settings = await getSettings(env.DB);
+  if (isTiffaniSleeping(settings)) {
     await saveMessage(env.DB, chatId, "user", message.text);
     await queueCreatorReply(env.DB, message);
     return json({ ok: true });
@@ -1062,7 +1076,6 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   if (!collected) return json({ ok: true, combined_with_newer_message: true });
   message.text = collected.text;
 
-  const settings = await getSettings(env.DB);
   if (/^\/(terms|paysupport)\b/i.test(message.text)) {
     await sendTelegramMessage(env, message, PAYMENT_TERMS);
     return json({ ok: true });
@@ -2128,16 +2141,20 @@ async function handleAdminSettings(request: Request, env: Env) {
     sexting_enabled: ["on", "off"],
     sexting_test_mode: ["on", "off"],
     sexting_intensity: ["soft", "hard", "hot"],
+    sleep_hours_enabled: ["on", "off"],
   };
   const rateKeys = ["video_chat_rate", "custom_content_rate", "in_person_rate", "sexting_rate"];
   const starKeys = ["sexting_5_stars"];
   const textKeys = ["preferred_topics", "avoid_topics", "tone_guidance", "creator_feedback"];
+  const timeKeys = ["sleep_start", "sleep_end"];
   const validRate = body.key && rateKeys.includes(body.key) && body.value &&
     Number.isFinite(Number(body.value)) && Number(body.value) > 0 && Number(body.value) <= 100000;
   const validStars = body.key && starKeys.includes(body.key) && body.value &&
     Number.isInteger(Number(body.value)) && Number(body.value) > 0 && Number(body.value) <= 10000;
   const validText = body.key && textKeys.includes(body.key) && typeof body.value === "string" && body.value.length <= 4000;
-  if (!body.key || typeof body.value !== "string" || (!allowed[body.key]?.includes(body.value) && !validRate && !validStars && !validText)) {
+  const validTime = body.key && timeKeys.includes(body.key) && typeof body.value === "string" &&
+    /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(body.value);
+  if (!body.key || typeof body.value !== "string" || (!allowed[body.key]?.includes(body.value) && !validRate && !validStars && !validText && !validTime)) {
     return json({ error: "Invalid setting" }, 400);
   }
   await env.DB.prepare(`INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
