@@ -266,6 +266,15 @@ button { cursor: pointer; }
 .agendaList article b { color: var(--deep-pink); font-size: 9px; }
 .agendaList article button { grid-column: 2; border: 0; border-radius: 8px; padding: 6px; background: var(--pink); color: white; font-size: 8px; }
 .agendaList article .removeTask { grid-column: 3; background: transparent; color: var(--muted); text-decoration: underline; }
+.fulfillmentTasks { display: grid; gap: 8px; margin: 10px 0; padding: 10px; border: 1px solid #f0cfdf; border-radius: 12px; background: #fff8fb; }
+.fulfillmentTasks > strong { font-size: 11px; color: var(--deep-pink); }
+.fulfillmentTasks article { display: grid; gap: 7px; padding: 9px; border-radius: 10px; background: #fff; }
+.fulfillmentTasks article > div { display: flex; align-items: center; gap: 7px; }
+.fulfillmentTasks article span { color: var(--muted); font-size: 8px; text-transform: capitalize; }
+.fulfillmentTasks article b { font-size: 10px; }
+.fulfillmentTasks article small { margin-left: auto; color: var(--deep-pink); font-size: 9px; }
+.fulfillmentTasks article p { margin: 0; color: var(--muted); font-size: 9px; line-height: 1.45; white-space: pre-line; }
+.fulfillmentTasks label input { width: 100%; margin-top: 4px; border: 1px solid var(--line); border-radius: 9px; padding: 8px; font-size: 10px; }
 .taskForm { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid #eed8e3; }
 .taskForm > strong, .taskForm label:first-of-type, .taskForm .taskDetails, .taskForm button { grid-column: 1 / -1; }
 .taskForm textarea { min-height: 66px; resize: vertical; }

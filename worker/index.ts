@@ -38,6 +38,7 @@ type TelegramMessage = {
   text?: string;
   caption?: string;
   photo?: Array<{ file_id: string }>;
+  video?: { file_id: string };
   successful_payment?: {
     currency: string;
     total_amount: number;
@@ -71,7 +72,7 @@ const INTRO = "Hey, it's Tiffany. What are you up to?";
 const NAME_PROMPT = "What's your name, babe?";
 const CLOSED = "I can only chat with adults who are 18 or older. This conversation is now closed.";
 const CREATOR_TAKEOVER = "__TIFFANI_TAKEOVER__";
-const CAPABILITIES = "I can help you book a private video chat with me here on Telegram or an in person fan meet and greet. You can also buy photo and video content, request custom content, or have a private sexting session with me. What sounds fun?";
+const CAPABILITIES = "I can help you book a private video chat with me here on Telegram or an in person fan meet and greet. You can also buy photo and video content, shop clothing or worn items, request custom content, get a private video rating, or have a private sexting session with me. What sounds fun?";
 const INSTAGRAM_URL = "https://www.instagram.com/tiffanimadisonvip/?hl=en";
 const PORNHUB_URL = "https://www.pornhub.com/pornstar/tiffani-madison";
 const X_URL = "https://x.com/TiffaniMadison_";
@@ -108,12 +109,42 @@ function productPrice(product: ContentProduct) {
 }
 
 function productOffer(product: ContentProduct) {
+  if (product.content_type === "physical_item") {
+    return `I have ${product.title} available for ${productPrice(product)}, babe. Do you want to buy it?`;
+  }
+  if (product.content_type === "video_rating") {
+    return `I can give you a private video rating for ${productPrice(product)}, babe. After I confirm payment, send me your photo and I'll respond with a short video clip. Do you want one?`;
+  }
   const trailer = product.trailer_url ? `\n\nDo you want to buy it? Here's a trailer I have as well:\n${product.trailer_url}` : "\n\nDo you want to buy it?";
   return `My newest ${product.content_type.replaceAll("_", " ")} is ${product.title}${product.actors ? `, starring ${product.actors}` : ""}.${product.genre ? ` It's ${product.genre}.` : ""} It's ${productPrice(product)}.${trailer}`;
 }
 
 function productPaymentOptions(product: ContentProduct) {
-  return `Please send ${productPrice(product)} using:\nCash App: $playmatexoxo\nVenmo: @barbiedoll10\nZelle: valleyvillageconsulting@gmail.com\n\nIn the payment notes, put your Telegram username. I will verify it before I send the content to you. Send me a screenshot of the payment after you send it.`;
+  if (product.content_type === "video_rating") {
+    return `Video ratings are ${videoRatingStars(product)} Telegram Stars, babe. I'll send the invoice here, then you can send the photo you want rated after it is paid.`;
+  }
+  const nextStep = product.content_type === "physical_item"
+    ? "I will verify it, then I'll ask for your shipping name and address."
+    : "I will verify it before I send the content to you.";
+  return `Please send ${productPrice(product)} using:\nCash App: $playmatexoxo\nVenmo: @barbiedoll10\nZelle: valleyvillageconsulting@gmail.com\n\nIn the payment notes, put your Telegram username. ${nextStep} Send me a screenshot of the payment after you send it.`;
+}
+
+function videoRatingStars(product: ContentProduct) {
+  return Math.max(1, Math.round(product.price_cents / 10));
+}
+
+async function createVideoRatingCheckout(env: Env, message: TelegramMessage, product: ContentProduct) {
+  const stars = videoRatingStars(product);
+  await sendStarsInvoice(env, message, product.title,
+    "Private video rating delivered as a short Telegram video clip.",
+    `rating:${product.id}:${stars}:${product.title}`, stars);
+}
+
+async function sendVideoRatingCheckout(env: Env, db: D1Database, message: TelegramMessage, product: ContentProduct) {
+  await createVideoRatingCheckout(env, message, product);
+  const note = "I sent the Telegram Stars invoice, babe. Once it's paid, send me the photo you want rated.";
+  await saveMessage(db, String(message.chat.id), "assistant", note);
+  await sendTelegramMessage(env, message, note);
 }
 
 function dollars(value: string | undefined, fallback: number) {
@@ -395,6 +426,35 @@ async function prepareDatabase(db: D1Database) {
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       completed_at TEXT
     )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS physical_orders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      purchase_request_id INTEGER NOT NULL UNIQUE,
+      chat_id TEXT NOT NULL,
+      business_connection_id TEXT,
+      product_title TEXT NOT NULL,
+      customer_name TEXT NOT NULL DEFAULT '',
+      shipping_address TEXT NOT NULL DEFAULT '',
+      tracking_number TEXT NOT NULL DEFAULT '',
+      amount_cents INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'awaiting_name',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      shipped_at TEXT
+    )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS rating_orders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      purchase_request_id INTEGER NOT NULL UNIQUE,
+      chat_id TEXT NOT NULL,
+      business_connection_id TEXT,
+      telegram_name TEXT NOT NULL,
+      photo_file_id TEXT NOT NULL DEFAULT '',
+      response_file_id TEXT NOT NULL DEFAULT '',
+      amount_cents INTEGER NOT NULL DEFAULT 7500,
+      stars INTEGER NOT NULL DEFAULT 750,
+      telegram_charge_id TEXT NOT NULL UNIQUE,
+      status TEXT NOT NULL DEFAULT 'awaiting_photo',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      completed_at TEXT
+    )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS sexting_sessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       chat_id TEXT NOT NULL,
@@ -551,6 +611,9 @@ async function prepareDatabase(db: D1Database) {
       (content_type, title, price_cents, genre, actors, trailer_url, delivery_url)
       VALUES ('video', ?, 2499, 'BBC', 'Tiffani Madison and Mauvius Garcon', ?, ?)`)
       .bind(PRODUCT_TITLE, PRODUCT_TRAILER, PRODUCT_DELIVERY),
+    db.prepare(`INSERT OR IGNORE INTO content_products
+      (content_type, title, price_cents, genre, actors, trailer_url, delivery_url)
+      VALUES ('video_rating', 'Video dick rating', 7500, '', '', '', '')`),
     db.prepare(`INSERT OR IGNORE INTO sexting_scripts
       (id, stage, title, script_text, media_label) VALUES
       (1, 'warmup', 'Warm conversation', 'Start with a short personal question about their day, interests, movies, or weekend. Respond to what they actually say before turning up the flirting.', 'Soft selfie'),
@@ -676,7 +739,15 @@ async function socialReplyFor(db: D1Database, text: string) {
 }
 
 function isProductQuestion(text: string) {
-  return /\b(blonde bombshell|trailer|buy (the )?(video|photo|content)|purchase (the )?(video|photo|content)|video for sale|content for sale|what.*sell|(newest|latest|new) (video|photo|content)|most recent (video|photo|content))\b/i.test(text);
+  return /\b(blonde bombshell|trailer|buy (the )?(video|photo|content|panties|clothes|clothing)|purchase (the )?(video|photo|content|panties|clothes|clothing)|video for sale|content for sale|what.*sell|(newest|latest|new) (video|photo|content)|most recent (video|photo|content)|panty|panties|worn clothing|clothing item|dick rating|rate my dick|rate my cock|video rating)\b/i.test(text);
+}
+
+function isPhysicalItemQuestion(text: string) {
+  return /\b(panty|panties|worn item|worn clothing|clothes|clothing|outfit|lingerie for sale|sell.*(?:panties|clothes|clothing))\b/i.test(text);
+}
+
+function isVideoRatingQuestion(text: string) {
+  return /\b(dick rating|rate my dick|rate my cock|cock rating|video rating)\b/i.test(text);
 }
 
 function isCatalogListQuestion(text: string) {
@@ -893,7 +964,8 @@ async function getSettings(db: D1Database) {
 async function getNewestProduct(db: D1Database) {
   return db.prepare(`SELECT id, content_type, title, price_cents, genre, actors,
     trailer_url, delivery_url, active, created_at FROM content_products
-    WHERE active = 1 ORDER BY id DESC LIMIT 1`).first<ContentProduct>();
+    WHERE active = 1 AND content_type NOT IN ('physical_item', 'video_rating')
+    ORDER BY id DESC LIMIT 1`).first<ContentProduct>();
 }
 
 async function getActiveProducts(db: D1Database) {
@@ -1109,18 +1181,60 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   if (!claimedUpdate.meta.changes) return json({ ok: true, duplicate: true });
   if (update.pre_checkout_query) {
     const settings = await getSettings(env.DB);
-    const [, key] = update.pre_checkout_query.invoice_payload.split(":");
-    const expectedStars = key === "text5" ? Number(settings.sexting_5_stars || 500)
-      : key === "text10" ? Number(settings.sexting_10_stars || 1000) : 0;
-    const valid = settings.sexting_enabled !== "off" && update.pre_checkout_query.currency === "XTR" &&
-      update.pre_checkout_query.invoice_payload.startsWith("sexting:") &&
-      update.pre_checkout_query.total_amount === expectedStars;
+    const payload = update.pre_checkout_query.invoice_payload;
+    const [, key] = payload.split(":");
+    let valid = false;
+    if (payload.startsWith("rating:")) {
+      const product = await env.DB.prepare(`SELECT id, content_type, title, price_cents, genre, actors,
+        trailer_url, delivery_url, active, created_at FROM content_products
+        WHERE id = ? AND content_type = 'video_rating' AND active = 1`).bind(Number(key)).first<ContentProduct>();
+      valid = Boolean(product) && update.pre_checkout_query.currency === "XTR" &&
+        update.pre_checkout_query.total_amount === (product ? videoRatingStars(product) : 0);
+    } else {
+      const expectedStars = key === "text5" ? Number(settings.sexting_5_stars || 500)
+        : key === "text10" ? Number(settings.sexting_10_stars || 1000) : 0;
+      valid = settings.sexting_enabled !== "off" && update.pre_checkout_query.currency === "XTR" &&
+        payload.startsWith("sexting:") && update.pre_checkout_query.total_amount === expectedStars;
+    }
     await answerPreCheckout(env, update.pre_checkout_query.id, valid,
       valid ? undefined : "This package is no longer available.");
     return json({ ok: true });
   }
   const message = update.business_message || update.message;
   if (!message || message.from?.is_bot) return json({ ok: true });
+  if (message.successful_payment?.currency === "XTR" && message.successful_payment.invoice_payload.startsWith("rating:")) {
+    const [, productIdText] = message.successful_payment.invoice_payload.split(":");
+    const product = await env.DB.prepare(`SELECT id, content_type, title, price_cents, genre, actors,
+      trailer_url, delivery_url, active, created_at FROM content_products
+      WHERE id = ? AND content_type = 'video_rating'`).bind(Number(productIdText)).first<ContentProduct>();
+    if (!product || message.successful_payment.total_amount !== videoRatingStars(product)) {
+      return json({ ok: false, error: "The video rating package changed before payment completed." }, 409);
+    }
+    const chatId = String(message.chat.id);
+    const contact = await env.DB.prepare(`SELECT COALESCE(telegram_contacts.username,
+      telegram_contacts.display_name, fan_profiles.name, 'Telegram fan') AS telegram_name
+      FROM fan_sessions LEFT JOIN telegram_contacts ON telegram_contacts.chat_id = fan_sessions.chat_id
+      LEFT JOIN fan_profiles ON fan_profiles.chat_id = fan_sessions.chat_id
+      WHERE fan_sessions.chat_id = ?`).bind(chatId).first<{ telegram_name: string }>();
+    await env.DB.prepare(`INSERT INTO purchase_requests
+      (chat_id, business_connection_id, product_title, price, payment_note, status, resolved_at)
+      VALUES (?, ?, ?, ?, 'Telegram Stars payment', 'approved', CURRENT_TIMESTAMP)`)
+      .bind(chatId, message.business_connection_id || null, product.title, productPrice(product)).run();
+    const purchase = await env.DB.prepare(`SELECT id FROM purchase_requests WHERE chat_id = ?
+      AND product_title = ? AND status = 'approved' ORDER BY id DESC LIMIT 1`)
+      .bind(chatId, product.title).first<{ id: number }>();
+    if (purchase) {
+      await env.DB.prepare(`INSERT OR IGNORE INTO rating_orders
+        (purchase_request_id, chat_id, business_connection_id, telegram_name, amount_cents,
+        stars, telegram_charge_id) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+        .bind(purchase.id, chatId, message.business_connection_id || null,
+          contact?.telegram_name || "Telegram fan", product.price_cents,
+          message.successful_payment.total_amount, message.successful_payment.telegram_payment_charge_id).run();
+    }
+    await sendTelegramMessage(env, message,
+      "I got your Stars payment, babe. Send the photo you want me to rate here and I'll respond with a private video clip.");
+    return json({ ok: true });
+  }
   if (message.successful_payment?.currency === "XTR" && message.successful_payment.invoice_payload.startsWith("sexting:")) {
     const [, key, minutesText, title] = message.successful_payment.invoice_payload.split(":");
     const minutes = sextingSessionMinutes(key, Number(minutesText));
@@ -1140,19 +1254,31 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     await sendTelegramMessage(env, message, "I got your Stars payment, babe. I'll let you know when I'm ready to start our session.");
     return json({ ok: true });
   }
+  const chatId = String(message.chat.id);
+  const isCreatorBusinessReply = Boolean(message.business_connection_id && message.from?.id !== message.chat.id &&
+    !message.sender_business_bot);
+  if (isCreatorBusinessReply && message.video?.file_id) {
+    const completedRating = await env.DB.prepare(`UPDATE rating_orders SET status = 'completed',
+      response_file_id = ?, completed_at = CURRENT_TIMESTAMP
+      WHERE id = (SELECT id FROM rating_orders WHERE chat_id = ? AND status = 'awaiting_response'
+        ORDER BY id DESC LIMIT 1)`)
+      .bind(message.video.file_id, chatId).run();
+    if (completedRating.meta.changes) {
+      await saveMessage(env.DB, chatId, "assistant", "Creator sent the private video rating.");
+      return json({ ok: true, rating_completed: true });
+    }
+  }
   if (!message.text && message.photo?.length) {
     message.text = message.caption?.trim() || "Payment screenshot sent";
   }
+  if (!message.text && message.caption?.trim()) message.text = message.caption.trim();
   if (!message.text) return json({ ok: true });
-  const chatId = String(message.chat.id);
   const userId = message.from?.id ? String(message.from.id) : null;
   const connectionId = message.business_connection_id || null;
 
   // A Telegram Business owner's outgoing message has the fan's chat id but the
   // owner's sender id. Bot-authored business messages carry sender_business_bot.
   // Treat a personal creator reply as an immediate handoff for an active session.
-  const isCreatorBusinessReply = Boolean(message.business_connection_id && message.from?.id !== message.chat.id &&
-    !message.sender_business_bot);
   if (isCreatorBusinessReply) {
     const takeover = await env.DB.prepare(`UPDATE sexting_sessions
       SET control_mode = 'human', taken_over_at = CURRENT_TIMESTAMP
@@ -1269,6 +1395,50 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     await sendTelegramMessage(env, message, greeting);
     if (!remainder) return json({ ok: true });
     message.text = remainder;
+  }
+
+  const physicalOrder = await env.DB.prepare(`SELECT id, status FROM physical_orders
+    WHERE chat_id = ? AND status IN ('awaiting_name', 'awaiting_address') ORDER BY id DESC LIMIT 1`)
+    .bind(chatId).first<{ id: number; status: string }>();
+  if (physicalOrder) {
+    if (isCancelReply(message.text)) {
+      await env.DB.prepare(`UPDATE physical_orders SET status = 'cancelled' WHERE id = ?`)
+        .bind(physicalOrder.id).run();
+      await sendSavedReply(env, message, chatId, "No problem, babe. I cancelled the shipping request.");
+      return json({ ok: true, physical_order_cancelled: true });
+    }
+    if (physicalOrder.status === "awaiting_name") {
+      const shippingName = message.text.trim().slice(0, 120);
+      await env.DB.prepare(`UPDATE physical_orders SET customer_name = ?, status = 'awaiting_address' WHERE id = ?`)
+        .bind(shippingName, physicalOrder.id).run();
+      await sendTelegramMessage(env, message, "What shipping address should I send it to, babe? Include the street, city, state, ZIP code, and country.");
+      return json({ ok: true, shipping_name_saved: true });
+    }
+    const shippingAddress = message.text.trim().slice(0, 600);
+    await env.DB.prepare(`UPDATE physical_orders SET shipping_address = ?, status = 'awaiting_shipment' WHERE id = ?`)
+      .bind(shippingAddress, physicalOrder.id).run();
+    await sendTelegramMessage(env, message, "Got it, babe. I'll send you the tracking number here when it ships.");
+    return json({ ok: true, shipping_address_saved: true });
+  }
+
+  const ratingOrder = await env.DB.prepare(`SELECT id FROM rating_orders
+    WHERE chat_id = ? AND status = 'awaiting_photo' ORDER BY id DESC LIMIT 1`)
+    .bind(chatId).first<{ id: number }>();
+  if (ratingOrder) {
+    if (isCancelReply(message.text)) {
+      await env.DB.prepare(`UPDATE rating_orders SET status = 'cancelled' WHERE id = ?`).bind(ratingOrder.id).run();
+      await sendSavedReply(env, message, chatId, "No problem, babe. I cancelled the rating request.");
+      return json({ ok: true, rating_cancelled: true });
+    }
+    const photoFileId = message.photo?.at(-1)?.file_id;
+    if (!photoFileId) {
+      await sendTelegramMessage(env, message, "Send the photo you want me to rate here, babe.");
+      return json({ ok: true, rating_photo_needed: true });
+    }
+    await env.DB.prepare(`UPDATE rating_orders SET photo_file_id = ?, status = 'awaiting_response' WHERE id = ?`)
+      .bind(photoFileId, ratingOrder.id).run();
+    await sendTelegramMessage(env, message, "Got it, babe. I'll send your private video rating here when it's ready.");
+    return json({ ok: true, rating_photo_received: true });
   }
 
   const latestSextingSession = await env.DB.prepare(`SELECT id, status, ends_at, control_mode FROM sexting_sessions
@@ -1681,6 +1851,11 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       const product = await getInterestedProduct(env.DB, chatId) || await getNewestProduct(env.DB);
       if (product) {
         await rememberProductInterest(env.DB, chatId, connectionId, product.id);
+        if (product.content_type === "video_rating") {
+          await saveMessage(env.DB, chatId, "user", message.text);
+          await sendVideoRatingCheckout(env, env.DB, message, product);
+          return json({ ok: true });
+        }
         const paymentOptions = productPaymentOptions(product);
         await saveMessage(env.DB, chatId, "user", message.text);
         await saveMessage(env.DB, chatId, "assistant", paymentOptions);
@@ -1715,9 +1890,16 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   const mentionedProduct = activeProducts.find((product) =>
     product.title.length >= 3 && normalizedMessage.includes(product.title.toLowerCase()));
   if (isProductQuestion(message.text) || mentionedProduct) {
-    const product = mentionedProduct || activeProducts[0] || await getNewestProduct(env.DB);
+    const requestedType = isVideoRatingQuestion(message.text) ? "video_rating"
+      : isPhysicalItemQuestion(message.text) ? "physical_item" : null;
+    const product = mentionedProduct || (requestedType
+      ? activeProducts.find((item) => item.content_type === requestedType)
+      : activeProducts.find((item) => !["physical_item", "video_rating"].includes(item.content_type)) ||
+        activeProducts[0] || await getNewestProduct(env.DB));
     if (!product) {
-      const unavailable = "I'm adding new content soon, babe. What kind of content do you want to see?";
+      const unavailable = requestedType === "physical_item"
+        ? "I don't have any clothing or worn items listed right now, babe. Check back soon."
+        : "I'm adding new content soon, babe. What kind of content do you want to see?";
       await saveMessage(env.DB, chatId, "user", message.text);
       await saveMessage(env.DB, chatId, "assistant", unavailable);
       await sendTelegramMessage(env, message, unavailable);
@@ -1737,6 +1919,11 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       await sendTelegramMessage(env, message, "Tell me which content you paid for so I can check it, babe.");
       return json({ ok: true });
     }
+    if (product.content_type === "video_rating") {
+      await saveMessage(env.DB, chatId, "user", message.text);
+      await sendVideoRatingCheckout(env, env.DB, message, product);
+      return json({ ok: true });
+    }
     const existing = await env.DB.prepare(`SELECT id FROM purchase_requests
       WHERE chat_id = ? AND status = 'pending' LIMIT 1`).bind(chatId).first();
     if (!existing) {
@@ -1746,7 +1933,11 @@ async function handleTelegramWebhook(request: Request, env: Env) {
         .bind(chatId, message.business_connection_id || null, product.title, productPrice(product), message.text)
         .run();
     }
-    const confirmation = "Ok, thanks babe. Let me check when I get the chance and I'll send you the link!";
+    const confirmation = product.content_type === "physical_item"
+      ? "Ok, thanks babe. Let me verify it, then I'll get your shipping information."
+      : product.content_type === "video_rating"
+        ? "Ok, thanks babe. Let me verify it, then you can send the photo you want me to rate."
+        : "Ok, thanks babe. Let me check when I get the chance and I'll send you the link!";
     await saveMessage(env.DB, chatId, "user", message.text);
     await saveMessage(env.DB, chatId, "assistant", confirmation);
     await sendTelegramMessage(env, message, confirmation);
@@ -1760,6 +1951,11 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       return json({ ok: true });
     }
     await rememberProductInterest(env.DB, chatId, connectionId, product.id);
+    if (product.content_type === "video_rating") {
+      await saveMessage(env.DB, chatId, "user", message.text);
+      await sendVideoRatingCheckout(env, env.DB, message, product);
+      return json({ ok: true });
+    }
     const paymentOptions = productPaymentOptions(product);
     await saveMessage(env.DB, chatId, "user", message.text);
     await saveMessage(env.DB, chatId, "assistant", paymentOptions);
@@ -1818,8 +2014,11 @@ async function handleAdminPending(request: Request, env: Env) {
   }
   const pending = await env.DB.prepare(`SELECT id, question, created_at
     FROM pending_replies WHERE status = 'pending' ORDER BY id ASC LIMIT 100`).all();
-  const purchases = await env.DB.prepare(`SELECT id, product_title, price, payment_note, created_at
-    FROM purchase_requests WHERE status = 'pending' ORDER BY id ASC LIMIT 100`).all();
+  const purchases = await env.DB.prepare(`SELECT purchase_requests.id, purchase_requests.product_title,
+    purchase_requests.price, purchase_requests.payment_note, purchase_requests.created_at,
+    content_products.content_type FROM purchase_requests
+    LEFT JOIN content_products ON content_products.title = purchase_requests.product_title
+    WHERE purchase_requests.status = 'pending' ORDER BY purchase_requests.id ASC LIMIT 100`).all();
   const purchaseHistory = await env.DB.prepare(`SELECT id, product_title, price, payment_note,
     status, created_at, resolved_at FROM purchase_requests WHERE status != 'disputed_removed'
     ORDER BY id DESC LIMIT 200`).all();
@@ -1845,7 +2044,11 @@ async function handleAdminPending(request: Request, env: Env) {
     duration_minutes, stars, completed_at FROM sexting_sessions WHERE status = 'completed'
     ORDER BY completed_at DESC LIMIT 100`).all();
   const starsSummary = await env.DB.prepare(`SELECT COALESCE(SUM(stars), 0) AS total_stars,
-    COUNT(*) AS transaction_count FROM sexting_sessions WHERE stars > 0 AND status != 'disputed_removed'`).first<{ total_stars: number; transaction_count: number }>();
+    COUNT(*) AS transaction_count FROM (
+      SELECT stars FROM sexting_sessions WHERE stars > 0 AND status != 'disputed_removed'
+      UNION ALL
+      SELECT stars FROM rating_orders WHERE stars > 0
+    )`).first<{ total_stars: number; transaction_count: number }>();
   const sextingMedia = await env.DB.prepare(`SELECT id, label, media_type, file_name,
     mime_type, active, created_at FROM sexting_media ORDER BY id DESC LIMIT 100`).all();
   const contentProducts = await env.DB.prepare(`SELECT id, content_type, title, price_cents,
@@ -1856,6 +2059,19 @@ async function handleAdminPending(request: Request, env: Env) {
   const dailyTasks = await env.DB.prepare(`SELECT id, title, task_type, scheduled_at,
     fan_name, details, amount_cents, status, created_at, completed_at
     FROM daily_tasks ORDER BY datetime(scheduled_at) ASC, id ASC LIMIT 500`).all();
+  const physicalOrders = await env.DB.prepare(`SELECT id, product_title, customer_name,
+    shipping_address, tracking_number, amount_cents, status, created_at
+    FROM physical_orders WHERE status IN ('awaiting_name', 'awaiting_address', 'awaiting_shipment')
+    ORDER BY id ASC LIMIT 100`).all();
+  const physicalOrderHistory = await env.DB.prepare(`SELECT id, product_title, customer_name,
+    tracking_number, amount_cents, status, created_at, shipped_at
+    FROM physical_orders WHERE status = 'shipped' ORDER BY shipped_at DESC LIMIT 100`).all();
+  const ratingOrders = await env.DB.prepare(`SELECT id, telegram_name, amount_cents, stars, status, created_at
+    FROM rating_orders WHERE status IN ('awaiting_photo', 'awaiting_response')
+    ORDER BY id ASC LIMIT 100`).all();
+  const ratingOrderHistory = await env.DB.prepare(`SELECT id, telegram_name, amount_cents, stars, status,
+    created_at, completed_at FROM rating_orders WHERE status = 'completed'
+    ORDER BY completed_at DESC LIMIT 100`).all();
   const announcements = await env.DB.prepare(`SELECT id, platform, message, stream_url, status,
     recipient_count, delivered_count, failed_count, created_at, sent_at
     FROM announcements ORDER BY id DESC LIMIT 100`).all();
@@ -1891,9 +2107,12 @@ async function handleAdminPending(request: Request, env: Env) {
     current.items.push(row);
     dailyMap.set(date, current);
   }
-  const dailyStarRows = await env.DB.prepare(`SELECT id, package_title, stars, created_at FROM sexting_sessions
-    WHERE stars > 0 AND status != 'disputed_removed'
-    AND created_at >= datetime('now', '-13 days', 'start of day') ORDER BY created_at ASC`)
+  const dailyStarRows = await env.DB.prepare(`SELECT id, package_title, stars, created_at FROM (
+      SELECT id, package_title, stars, created_at FROM sexting_sessions
+      WHERE stars > 0 AND status != 'disputed_removed'
+      UNION ALL
+      SELECT -id AS id, 'Video rating' AS package_title, stars, created_at FROM rating_orders WHERE stars > 0
+    ) WHERE created_at >= datetime('now', '-13 days', 'start of day') ORDER BY created_at ASC`)
     .all<{ id: number; package_title: string; stars: number; created_at: string }>();
   const dailyStarsMap = new Map<string, { stars: number; star_transaction_count: number; star_items: typeof dailyStarRows.results }>();
   for (const row of dailyStarRows.results) {
@@ -1944,6 +2163,10 @@ async function handleAdminPending(request: Request, env: Env) {
     products: contentProducts.results,
     sexting_scripts: sextingScripts.results,
     daily_tasks: dailyTasks.results,
+    physical_orders: physicalOrders.results,
+    physical_order_history: physicalOrderHistory.results,
+    rating_orders: ratingOrders.results,
+    rating_order_history: ratingOrderHistory.results,
     announcements: announcements.results,
     social_links: socialLinks.results,
     training_suggestions: trainingSuggestions.results,
@@ -1961,7 +2184,7 @@ async function handleAdminPending(request: Request, env: Env) {
       creator_count: creatorAccounts.results.length,
       active_creator_count: creatorAccounts.results.filter((creator) => creator.status === "live").length,
       attention_count: pending.results.length + purchases.results.length + bookings.results.length +
-        customs.results.length + sextingSessions.results.length +
+        customs.results.length + sextingSessions.results.length + physicalOrders.results.length + ratingOrders.results.length +
         saleDisputes.results.filter((dispute) => dispute.status === "pending").length,
       creators: creatorAccounts.results.map((creator) => ({
         key: creator.creator_key,
@@ -2033,9 +2256,11 @@ async function handleAdminProducts(request: Request, env: Env, url: URL) {
     const priceCents = Math.round(Number(body.price || 0) * 100);
     const trailerUrl = String(body.trailer_url || "").trim();
     const deliveryUrl = String(body.delivery_url || "").trim();
-    if (!title || !["photo", "photo_package", "video", "video_bundle"].includes(contentType) ||
+    const allowedTypes = ["photo", "photo_package", "video", "video_bundle", "physical_item", "video_rating"];
+    const needsDeliveryLink = !["physical_item", "video_rating"].includes(contentType);
+    if (!title || !allowedTypes.includes(contentType) ||
       !Number.isFinite(priceCents) || priceCents < 100 || priceCents > 10000000 ||
-      !validHttpUrl(trailerUrl) || !validHttpUrl(deliveryUrl, true)) {
+      !validHttpUrl(trailerUrl) || !validHttpUrl(deliveryUrl, needsDeliveryLink)) {
       return json({ error: "Complete the title, type, price, and valid delivery link" }, 400);
     }
     try {
@@ -2066,9 +2291,11 @@ async function handleAdminProducts(request: Request, env: Env, url: URL) {
     const priceCents = Math.round(Number(body.price || 0) * 100);
     const trailerUrl = String(body.trailer_url || "").trim();
     const deliveryUrl = String(body.delivery_url || "").trim();
-    if (!title || !["photo", "photo_package", "video", "video_bundle"].includes(contentType) ||
+    const allowedTypes = ["photo", "photo_package", "video", "video_bundle", "physical_item", "video_rating"];
+    const needsDeliveryLink = !["physical_item", "video_rating"].includes(contentType);
+    if (!title || !allowedTypes.includes(contentType) ||
       !Number.isFinite(priceCents) || priceCents < 100 || priceCents > 10000000 ||
-      !validHttpUrl(trailerUrl) || !validHttpUrl(deliveryUrl, true)) {
+      !validHttpUrl(trailerUrl) || !validHttpUrl(deliveryUrl, needsDeliveryLink)) {
       return json({ error: "Complete the title, type, price, and valid delivery link" }, 400);
     }
     try {
@@ -2152,7 +2379,8 @@ async function handleAdminPurchase(request: Request, env: Env) {
   }
   const purchase = await env.DB.prepare(`SELECT purchase_requests.id, purchase_requests.chat_id,
     purchase_requests.business_connection_id, purchase_requests.product_title,
-    purchase_requests.price, content_products.delivery_url, content_products.price_cents
+    purchase_requests.price, content_products.delivery_url, content_products.price_cents,
+    content_products.content_type
     FROM purchase_requests LEFT JOIN content_products
       ON content_products.title = purchase_requests.product_title
     WHERE purchase_requests.id = ? AND purchase_requests.status = 'pending'`).bind(body.id).first<{
@@ -2163,15 +2391,23 @@ async function handleAdminPurchase(request: Request, env: Env) {
       price: string;
       delivery_url: string | null;
       price_cents: number | null;
+      content_type: string | null;
     }>();
   if (!purchase) return json({ error: "Purchase is no longer pending" }, 404);
 
   const approved = body.action === "approve";
-  if (approved && !purchase.delivery_url) return json({ error: "This product needs a delivery link" }, 409);
+  const fulfillmentType = purchase.content_type || "video";
+  if (approved && fulfillmentType === "video_rating") {
+    return json({ error: "Video ratings must be purchased through a Telegram Stars invoice in chat" }, 409);
+  }
+  const needsDeliveryLink = !["physical_item", "video_rating"].includes(fulfillmentType);
+  if (approved && needsDeliveryLink && !purchase.delivery_url) return json({ error: "This product needs a delivery link" }, 409);
   const responseText = body.action === "close_unpaid"
     ? `Hey babe, do you still want ${purchase.product_title}? I know you'll love it, but I still need you to send the payment so I can send it over. Lmk if you still want it.`
     : approved
-    ? `Payment approved. Here is ${purchase.product_title}:\n${purchase.delivery_url}`
+    ? fulfillmentType === "physical_item"
+      ? `Payment approved, babe. What's the full name you want me to use for shipping?`
+      : `Payment approved. Here is ${purchase.product_title}:\n${purchase.delivery_url}`
     : "I could not verify that payment yet. Please check the payment details and send me the method and sender name you used.";
   await sendTelegramMessage(env, {
     message_id: 0,
@@ -2179,7 +2415,7 @@ async function handleAdminPurchase(request: Request, env: Env) {
     business_connection_id: purchase.business_connection_id || undefined,
   }, responseText);
   await saveMessage(env.DB, purchase.chat_id, "assistant", responseText);
-  if (approved) {
+  if (approved && needsDeliveryLink) {
     const followUp = "I hope you enjoy it! Lmk what you think";
     await sendTelegramMessage(env, {
       message_id: 0,
@@ -2191,10 +2427,16 @@ async function handleAdminPurchase(request: Request, env: Env) {
   await env.DB.prepare(`UPDATE purchase_requests SET status = ?, resolved_at = CURRENT_TIMESTAMP
     WHERE id = ?`).bind(approved ? "approved" : body.action === "close_unpaid" ? "closed_unpaid" : "declined", purchase.id).run();
   if (approved) {
+    const amountCents = purchase.price_cents || Math.round(Number(purchase.price.replace(/[^0-9.]/g, "")) * 100);
+    if (fulfillmentType === "physical_item") {
+      await env.DB.prepare(`INSERT OR IGNORE INTO physical_orders
+        (purchase_request_id, chat_id, business_connection_id, product_title, amount_cents)
+        VALUES (?, ?, ?, ?, ?)`)
+        .bind(purchase.id, purchase.chat_id, purchase.business_connection_id, purchase.product_title, amountCents).run();
+    }
     await env.DB.prepare(`INSERT OR IGNORE INTO earnings_events
       (source_type, source_id, description, amount_cents) VALUES ('content', ?, ?, ?)`)
-      .bind(String(purchase.id), purchase.product_title, purchase.price_cents ||
-        Math.round(Number(purchase.price.replace(/[^0-9.]/g, "")) * 100))
+      .bind(String(purchase.id), purchase.product_title, amountCents)
       .run();
   }
   return json({ ok: true });
@@ -2331,6 +2573,32 @@ async function handleAdminCustom(request: Request, env: Env) {
   await saveMessage(env.DB, custom.chat_id, "assistant", followUp);
   await env.DB.prepare(`UPDATE custom_fulfillments SET delivery_url = ?, status = 'completed',
     completed_at = CURRENT_TIMESTAMP WHERE id = ?`).bind(deliveryUrl!, custom.id).run();
+  return json({ ok: true });
+}
+
+async function handleAdminPhysicalOrder(request: Request, env: Env) {
+  if (!await isAdminRequest(request, env)) return json({ error: "Sign in required" }, 401);
+  await prepareDatabase(env.DB);
+  const body = await request.json() as { id?: number; tracking_number?: string };
+  const trackingNumber = String(body.tracking_number || "").trim().slice(0, 180);
+  if (!body.id || trackingNumber.length < 3) return json({ error: "A tracking number is required" }, 400);
+  const order = await env.DB.prepare(`SELECT id, chat_id, business_connection_id, product_title
+    FROM physical_orders WHERE id = ? AND status = 'awaiting_shipment'`).bind(body.id).first<{
+      id: number;
+      chat_id: string;
+      business_connection_id: string | null;
+      product_title: string;
+    }>();
+  if (!order) return json({ error: "That order is not ready to ship" }, 404);
+  const shippedMessage = `Your ${order.product_title} has been sent, babe. Your tracking number is ${trackingNumber}.`;
+  await sendTelegramMessage(env, {
+    message_id: 0,
+    chat: { id: Number(order.chat_id) },
+    business_connection_id: order.business_connection_id || undefined,
+  }, shippedMessage);
+  await saveMessage(env.DB, order.chat_id, "assistant", shippedMessage);
+  await env.DB.prepare(`UPDATE physical_orders SET tracking_number = ?, status = 'shipped',
+    shipped_at = CURRENT_TIMESTAMP WHERE id = ?`).bind(trackingNumber, order.id).run();
   return json({ ok: true });
 }
 
@@ -2773,6 +3041,10 @@ const worker = {
 
     if (url.pathname === "/api/admin/custom" && request.method === "POST") {
       return handleAdminCustom(request, env);
+    }
+
+    if (url.pathname === "/api/admin/physical-order" && request.method === "POST") {
+      return handleAdminPhysicalOrder(request, env);
     }
 
     if (url.pathname === "/api/admin/tasks" && request.method === "POST") {

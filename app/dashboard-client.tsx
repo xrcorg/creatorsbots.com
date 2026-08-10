@@ -23,6 +23,7 @@ type LivePurchase = {
   created_at: string;
   status?: "pending" | "approved" | "declined" | "closed_unpaid";
   resolved_at?: string;
+  content_type?: ContentProduct["content_type"];
 };
 
 type LiveBooking = {
@@ -72,7 +73,7 @@ type SextingMedia = {
 
 type ContentProduct = {
   id: number;
-  content_type: "photo" | "photo_package" | "video" | "video_bundle";
+  content_type: "photo" | "photo_package" | "video" | "video_bundle" | "physical_item" | "video_rating";
   title: string;
   price_cents: number;
   genre: string;
@@ -81,6 +82,28 @@ type ContentProduct = {
   delivery_url: string;
   active: number;
   created_at: string;
+};
+
+type PhysicalOrder = {
+  id: number;
+  product_title: string;
+  customer_name: string;
+  shipping_address: string;
+  tracking_number: string;
+  amount_cents: number;
+  status: "awaiting_name" | "awaiting_address" | "awaiting_shipment" | "shipped";
+  created_at: string;
+  shipped_at?: string;
+};
+
+type RatingOrder = {
+  id: number;
+  telegram_name: string;
+  amount_cents: number;
+  stars: number;
+  status: "awaiting_photo" | "awaiting_response" | "completed";
+  created_at: string;
+  completed_at?: string;
 };
 
 type SextingScript = {
@@ -301,6 +324,11 @@ export default function Home() {
   const [contentProducts, setContentProducts] = useState<ContentProduct[]>([]);
   const [sextingScripts, setSextingScripts] = useState<SextingScript[]>([]);
   const [dailyTasks, setDailyTasks] = useState<DailyTask[]>([]);
+  const [physicalOrders, setPhysicalOrders] = useState<PhysicalOrder[]>([]);
+  const [physicalOrderHistory, setPhysicalOrderHistory] = useState<PhysicalOrder[]>([]);
+  const [ratingOrders, setRatingOrders] = useState<RatingOrder[]>([]);
+  const [ratingOrderHistory, setRatingOrderHistory] = useState<RatingOrder[]>([]);
+  const [trackingNumbers, setTrackingNumbers] = useState<Record<number, string>>({});
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [announcementForm, setAnnouncementForm] = useState({ platform: "Instagram", message: "", stream_url: "" });
   const [announcementPreview, setAnnouncementPreview] = useState(false);
@@ -341,7 +369,7 @@ export default function Home() {
       setLiveLoading(true);
       const response = await fetch("/api/admin/pending", { cache: "no-store" });
       if (!response.ok) throw new Error("Unable to load the creator inbox");
-      const data = await response.json() as { portal_user: PortalUser; platform_overview: PlatformOverview | null; pending: LivePendingReply[]; purchases: LivePurchase[]; purchase_history: LivePurchase[]; bookings: LiveBooking[]; customs: LiveCustom[]; custom_history: LiveCustom[]; sexting_sessions: LiveSextingSession[]; sexting_history: LiveSextingSession[]; sexting_media: SextingMedia[]; sexting_scripts: SextingScript[]; daily_tasks: DailyTask[]; announcements: Announcement[]; social_links: SocialLink[]; training_suggestions: TrainingSuggestion[]; sale_disputes: SaleDispute[]; products: ContentProduct[]; stars: { total: number; count: number }; learned_count: number; earnings: EarningsSummary; settings: CreatorSettings };
+      const data = await response.json() as { portal_user: PortalUser; platform_overview: PlatformOverview | null; pending: LivePendingReply[]; purchases: LivePurchase[]; purchase_history: LivePurchase[]; bookings: LiveBooking[]; customs: LiveCustom[]; custom_history: LiveCustom[]; sexting_sessions: LiveSextingSession[]; sexting_history: LiveSextingSession[]; sexting_media: SextingMedia[]; sexting_scripts: SextingScript[]; daily_tasks: DailyTask[]; physical_orders: PhysicalOrder[]; physical_order_history: PhysicalOrder[]; rating_orders: RatingOrder[]; rating_order_history: RatingOrder[]; announcements: Announcement[]; social_links: SocialLink[]; training_suggestions: TrainingSuggestion[]; sale_disputes: SaleDispute[]; products: ContentProduct[]; stars: { total: number; count: number }; learned_count: number; earnings: EarningsSummary; settings: CreatorSettings };
       setPortalUser(data.portal_user);
       setPlatformOverview(data.platform_overview);
       setLivePending(data.pending);
@@ -357,6 +385,10 @@ export default function Home() {
       setContentProducts(data.products || []);
       setSextingScripts(data.sexting_scripts || []);
       setDailyTasks(data.daily_tasks || []);
+      setPhysicalOrders(data.physical_orders || []);
+      setPhysicalOrderHistory(data.physical_order_history || []);
+      setRatingOrders(data.rating_orders || []);
+      setRatingOrderHistory(data.rating_order_history || []);
       setAnnouncements(data.announcements || []);
       setSocialLinks(data.social_links || []);
       setTrainingSuggestions(data.training_suggestions || []);
@@ -790,6 +822,26 @@ export default function Home() {
     }
   }
 
+  async function shipPhysicalOrder(id: number) {
+    const trackingNumber = trackingNumbers[id]?.trim();
+    if (!trackingNumber) return;
+    try {
+      setLiveLoading(true);
+      const response = await fetch("/api/admin/physical-order", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id, tracking_number: trackingNumber }),
+      });
+      if (!response.ok) throw new Error("Order could not be shipped");
+      setTrackingNumbers((current) => ({ ...current, [id]: "" }));
+      await loadLivePending();
+    } catch {
+      setLiveError("The tracking number was not sent. Please try again.");
+    } finally {
+      setLiveLoading(false);
+    }
+  }
+
   async function sendAnnouncement() {
     try {
       setLiveLoading(true);
@@ -972,8 +1024,8 @@ export default function Home() {
   }
 
   const selectedAgendaTasks = dailyTasks.filter((task) => task.scheduled_at.slice(0, 10) === agendaDate);
-  const openAgendaCount = selectedAgendaTasks.filter((task) => task.status === "open").length;
-  const unscheduledCount = liveBookings.length + liveCustoms.length + livePurchases.length + sextingSessions.length;
+  const openAgendaCount = selectedAgendaTasks.filter((task) => task.status === "open").length + physicalOrders.length + ratingOrders.length;
+  const unscheduledCount = liveBookings.length + liveCustoms.length + livePurchases.length + sextingSessions.length + physicalOrders.length + ratingOrders.length;
   const pendingSaleDisputes = saleDisputes.filter((dispute) => dispute.status === "pending");
   const reviewedSaleDisputes = saleDisputes.filter((dispute) => dispute.status !== "pending").slice(0, 20);
 
@@ -1191,7 +1243,7 @@ export default function Home() {
           <section className="starsOverview">
             <span>Telegram Stars earned</span>
             <strong>⭐ {starsSummary.total.toLocaleString()}</strong>
-            <small>{starsSummary.count} paid sexting sessions</small>
+            <small>{starsSummary.count} Star purchases</small>
           </section>
 
           <section className="announcementCenter dashboardSection dashboardToday">
@@ -1217,9 +1269,33 @@ export default function Home() {
             {unscheduledCount > 0 && (
               <div className="needsScheduling">
                 <strong>{unscheduledCount} items need attention</strong>
-                <small>{liveBookings.length} bookings · {liveCustoms.length} customs · {livePurchases.length} deliveries · {sextingSessions.length} sexting sessions</small>
+                <small>{liveBookings.length} bookings · {liveCustoms.length} customs · {livePurchases.length} deliveries · {physicalOrders.length} shipments · {ratingOrders.length} ratings · {sextingSessions.length} sexting sessions</small>
               </div>
             )}
+            {physicalOrders.length > 0 && <div className="fulfillmentTasks">
+              <strong>Physical orders</strong>
+              {physicalOrders.map((order) => <article key={order.id}>
+                <div>
+                  <span>{order.status.replaceAll("_", " ")}</span>
+                  <b>{order.product_title}</b>
+                  <small>{money(order.amount_cents)}</small>
+                </div>
+                {order.status === "awaiting_name" && <p>Waiting for the customer’s shipping name.</p>}
+                {order.status === "awaiting_address" && <p>{order.customer_name} · Waiting for their shipping address.</p>}
+                {order.status === "awaiting_shipment" && <>
+                  <p><b>{order.customer_name}</b><br />{order.shipping_address}</p>
+                  <label><span>Tracking number</span><input value={trackingNumbers[order.id] || ""} onChange={(event) => setTrackingNumbers((current) => ({ ...current, [order.id]: event.target.value }))} placeholder="Enter tracking number" /></label>
+                  <button className="primaryAction" disabled={liveLoading || !trackingNumbers[order.id]?.trim()} onClick={() => void shipPhysicalOrder(order.id)}>Confirm sent and send tracking</button>
+                </>}
+              </article>)}
+            </div>}
+            {ratingOrders.length > 0 && <div className="fulfillmentTasks">
+              <strong>Video ratings</strong>
+              {ratingOrders.map((order) => <article key={order.id}>
+                <div><span>{order.status.replaceAll("_", " ")}</span><b>{order.telegram_name}</b><small>⭐ {order.stars} · {money(order.amount_cents)} listed value</small></div>
+                <p>{order.status === "awaiting_photo" ? "Waiting for the client to send their photo." : "Photo received. Reply to the client with a short video clip in Telegram. The task completes automatically when the clip is sent."}</p>
+              </article>)}
+            </div>}
             <div className="agendaList">
               {selectedAgendaTasks.length ? selectedAgendaTasks.map((task) => (
                 <article className={task.status === "completed" ? "completed" : ""} key={task.id}>
@@ -1336,13 +1412,13 @@ export default function Home() {
             <div className="sectionHeading"><strong>Content catalog</strong><span>{contentProducts.length}</span></div>
             <p className="queueNote">The newest active item is what the bot offers first.</p>
             <form onSubmit={addContentProduct}>
-              <label><span>Content type</span><select value={productForm.content_type} onChange={(event) => setProductForm((current) => ({ ...current, content_type: event.target.value as ContentProduct["content_type"] }))}><option value="photo">Photo</option><option value="photo_package">Photo package</option><option value="video">Video</option><option value="video_bundle">Video bundle</option></select></label>
+              <label><span>Product type</span><select value={productForm.content_type} onChange={(event) => setProductForm((current) => ({ ...current, content_type: event.target.value as ContentProduct["content_type"] }))}><option value="photo">Photo</option><option value="photo_package">Photo package</option><option value="video">Video</option><option value="video_bundle">Video bundle</option><option value="physical_item">Panties or clothing item</option><option value="video_rating">Private video rating</option></select></label>
               <label><span>Title</span><input required value={productForm.title} onChange={(event) => setProductForm((current) => ({ ...current, title: event.target.value }))} placeholder="Content title" /></label>
               <label><span>Price</span><input inputMode="decimal" min="1" required type="number" step="0.01" value={productForm.price} onChange={(event) => setProductForm((current) => ({ ...current, price: event.target.value }))} placeholder="24.99" /></label>
               <label><span>Genre</span><input value={productForm.genre} onChange={(event) => setProductForm((current) => ({ ...current, genre: event.target.value }))} placeholder="Genre" /></label>
               <label><span>Actors</span><input value={productForm.actors} onChange={(event) => setProductForm((current) => ({ ...current, actors: event.target.value }))} placeholder="Names separated by commas" /></label>
               <label><span>Trailer or preview link</span><input type="url" value={productForm.trailer_url} onChange={(event) => setProductForm((current) => ({ ...current, trailer_url: event.target.value }))} placeholder="https://..." /></label>
-              <label><span>Full delivery link</span><input required type="url" value={productForm.delivery_url} onChange={(event) => setProductForm((current) => ({ ...current, delivery_url: event.target.value }))} placeholder="https://..." /></label>
+              <label><span>{["physical_item", "video_rating"].includes(productForm.content_type) ? "Delivery link not needed" : "Full delivery link"}</span><input required={!['physical_item', 'video_rating'].includes(productForm.content_type)} disabled={["physical_item", "video_rating"].includes(productForm.content_type)} type="url" value={productForm.delivery_url} onChange={(event) => setProductForm((current) => ({ ...current, delivery_url: event.target.value }))} placeholder="https://..." /></label>
               <button className="primaryAction" disabled={liveLoading}>{editingProductId ? "Save changes" : "Add content"}</button>
               {editingProductId && <button className="secondaryAction" type="button" onClick={cancelContentEdit}>Cancel editing</button>}
             </form>
@@ -1399,7 +1475,7 @@ export default function Home() {
               <small>Requested {new Date(`${livePurchases[0].created_at}Z`).toLocaleDateString()}</small>
               <div className="botPaused">Fan message: “{livePurchases[0].payment_note}”</div>
               <button className="primaryAction" disabled={liveLoading} onClick={() => void resolvePurchase("approve")}>
-                Approve and send full video
+                {livePurchases[0].content_type === "physical_item" ? "Approve payment and collect shipping" : livePurchases[0].content_type === "video_rating" ? "Approve payment and request photo" : "Approve and send content"}
               </button>
               <button className="secondaryAction" disabled={liveLoading} onClick={() => void resolvePurchase("decline")}>
                 Payment not verified
@@ -1572,6 +1648,26 @@ export default function Home() {
                 <time>{custom.status === "closed_unpaid" ? "Closed unpaid" : custom.completed_at ? new Date(`${custom.completed_at}Z`).toLocaleDateString() : "Completed"}</time>
               </div>
             )) : <p>No completed customs yet.</p>}
+          </section>
+
+          <section className="customHistory dashboardSection dashboardHistory">
+            <strong>Shipped merchandise</strong>
+            {physicalOrderHistory.length ? physicalOrderHistory.map((order) => (
+              <div key={order.id}>
+                <span><b>{order.product_title}</b><small>{order.customer_name} · Tracking {order.tracking_number}</small></span>
+                <time>{order.shipped_at ? new Date(`${order.shipped_at}Z`).toLocaleDateString() : money(order.amount_cents)}</time>
+              </div>
+            )) : <p>No shipped merchandise yet.</p>}
+          </section>
+
+          <section className="customHistory dashboardSection dashboardHistory">
+            <strong>Completed video ratings</strong>
+            {ratingOrderHistory.length ? ratingOrderHistory.map((order) => (
+              <div key={order.id}>
+                <span><b>{order.telegram_name}</b><small>⭐ {order.stars} · {money(order.amount_cents)} listed value</small></span>
+                <time>{order.completed_at ? new Date(`${order.completed_at}Z`).toLocaleDateString() : "Completed"}</time>
+              </div>
+            )) : <p>No completed video ratings yet.</p>}
           </section>
           <section className="customHistory dashboardSection dashboardHistory">
             <strong>Completed sexting sessions</strong>
