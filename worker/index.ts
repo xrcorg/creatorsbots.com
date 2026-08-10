@@ -846,13 +846,20 @@ async function queueCreatorReply(db: D1Database, message: TelegramMessage) {
     .run();
 }
 
-async function collectQuickMessages(db: D1Database, chatId: string, message: TelegramMessage) {
+function randomResponseDelayMs(activeSexting: boolean) {
+  const minimumSeconds = activeSexting ? 10 : 30;
+  const maximumSeconds = activeSexting ? 15 : 300;
+  return Math.floor((minimumSeconds + Math.random() * (maximumSeconds - minimumSeconds + 1)) * 1000);
+}
+
+async function collectQuickMessages(db: D1Database, chatId: string, message: TelegramMessage,
+  responseDelayMs: number) {
   await db.prepare(`INSERT OR IGNORE INTO inbound_message_buffer
     (chat_id, message_id, message_text) VALUES (?, ?, ?)`)
     .bind(chatId, message.message_id, message.text || "")
     .run();
 
-  await new Promise((resolve) => setTimeout(resolve, 10000));
+  await new Promise((resolve) => setTimeout(resolve, responseDelayMs));
 
   const latest = await db.prepare(`SELECT MAX(message_id) AS message_id
     FROM inbound_message_buffer WHERE chat_id = ?`)
@@ -1088,7 +1095,11 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     message.text = remainder;
   }
 
-  const collected = await collectQuickMessages(env.DB, chatId, message);
+  const activeSextingSession = await env.DB.prepare(`SELECT id FROM sexting_sessions
+    WHERE chat_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1`)
+    .bind(chatId).first<{ id: number }>();
+  const collected = await collectQuickMessages(env.DB, chatId, message,
+    randomResponseDelayMs(Boolean(activeSextingSession)));
   if (!collected) return json({ ok: true, combined_with_newer_message: true });
   message.text = collected.text;
 
@@ -1103,6 +1114,23 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     await saveMessage(env.DB, chatId, "assistant", redirect);
     await sendTelegramMessage(env, message, redirect);
     return json({ ok: true });
+  }
+
+  if (activeSextingSession) {
+    let sextingReply = CREATOR_TAKEOVER;
+    try {
+      sextingReply = await createAIReply(env, chatId, message.text);
+    } catch (error) {
+      console.error("Active sexting reply failed", error);
+    }
+    await saveMessage(env.DB, chatId, "user", message.text);
+    if (sextingReply === CREATOR_TAKEOVER) {
+      if (settings.human_takeover !== "off") await queueCreatorReply(env.DB, message);
+      return json({ ok: true, creator_reply_needed: true });
+    }
+    await saveMessage(env.DB, chatId, "assistant", sextingReply);
+    await sendTelegramMessage(env, message, sextingReply);
+    return json({ ok: true, active_sexting: true });
   }
 
   if (isMultiConversationalTurn(message.text, collected.count)) {
@@ -1165,26 +1193,6 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   if (isThanks(message.text)) {
     await sendSavedReply(env, message, chatId, "Of course, babe.");
     return json({ ok: true });
-  }
-
-  const activeSextingSession = await env.DB.prepare(`SELECT id FROM sexting_sessions
-    WHERE chat_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1`)
-    .bind(chatId).first<{ id: number }>();
-  if (activeSextingSession) {
-    let sextingReply = CREATOR_TAKEOVER;
-    try {
-      sextingReply = await createAIReply(env, chatId, message.text);
-    } catch (error) {
-      console.error("Active sexting reply failed", error);
-    }
-    await saveMessage(env.DB, chatId, "user", message.text);
-    if (sextingReply === CREATOR_TAKEOVER) {
-      if (settings.human_takeover !== "off") await queueCreatorReply(env.DB, message);
-      return json({ ok: true, creator_reply_needed: true });
-    }
-    await saveMessage(env.DB, chatId, "assistant", sextingReply);
-    await sendTelegramMessage(env, message, sextingReply);
-    return json({ ok: true, active_sexting: true });
   }
 
   const sextingDraft = await env.DB.prepare(`SELECT status FROM sexting_drafts WHERE chat_id = ?`)
