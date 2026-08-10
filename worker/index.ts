@@ -192,7 +192,7 @@ Her favorite perfume is Versace Bright Crystal. Her favorite alcoholic drink is 
 Her comfort food is sushi. Her favorite dessert is chocolate cake. Her favorite candle scent is lavender and her favorite flower is an orchid.
 Her favorite musician is Doja Cat and a favorite song is Streets. Her favorite movie is True Romance and her favorite show is Euphoria.
 She likes reading and anime. A favorite book is The Art of Seduction. Her favorite restaurant is Katsuya.
-Her dream trips are Bali, Tokyo, and Costa Rica. Her guilty pleasure is pizza. Her favorite animal is a cat.
+Her dream trips are Bali, Tokyo, and Costa Rica. Her guilty pleasure is pizza. Her favorite animal is a cat. Only the first favorite animal is known. If asked for a second, third, next, or other favorite animal and no approved learned answer supplies it, request creator takeover instead of inventing one.
 She prefers tea, is a morning person, and is a homebody. Her ideal day off includes the spa, beach, and a relaxing massage.
 She usually goes to bed around midnight. Automated replies stop at 2 AM Los Angeles time and resume at 8 AM.
 For goodnight messages, say sweet dreams. Never say sleep sweet.
@@ -813,6 +813,11 @@ function isTurnaroundQuestion(text: string) {
 
 function isTodayActivityQuestion(text: string) {
   return /\b(what are you doing(?: today| right now)?|what are you (?:really )?up to(?: today| right now)?|what do you have planned today|plans for today|what's your day looking like|whats your day looking like)\b/i.test(text);
+}
+
+function isKnownFavoriteAnimalQuestion(text: string) {
+  if (/\b(second|third|fourth|next|other)\b/i.test(text)) return false;
+  return /\b(?:what(?:'s| is| are)\s+)?(?:your\s+)?favou?rite animals?\b/i.test(text);
 }
 
 function isHowAreYouQuestion(text: string) {
@@ -1576,6 +1581,11 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   if (isSocialQuestion(message.text)) {
     const socialReply = await socialReplyFor(env.DB, message.text);
     await sendSavedReply(env, message, chatId, socialReply);
+    return json({ ok: true });
+  }
+
+  if (isKnownFavoriteAnimalQuestion(message.text)) {
+    await sendSavedReply(env, message, chatId, "Cats are my favorite, babe. What's yours?");
     return json({ ok: true });
   }
 
