@@ -160,11 +160,15 @@ type PlatformOverview = {
     telegram_connected: boolean;
     weekly_cents: number;
     all_time_cents: number;
+    all_time_stars: number;
     daily_earnings: Array<{
       date: string;
       amount_cents: number;
       transaction_count: number;
       items: Array<{ id: number; source_type: string; description: string; amount_cents: number; occurred_at: string }>;
+      stars: number;
+      star_transaction_count: number;
+      star_items: Array<{ id: number; package_title: string; stars: number; created_at: string }>;
     }>;
   }>;
 };
@@ -863,6 +867,7 @@ export default function Home() {
                   <span><b>{creator.name}</b><small>{creator.email || creator.template_name || "Login pending"}</small></span>
                   <span><b>{money(creator.weekly_cents)}</b><small>Past 7 days</small></span>
                   <span><b>{money(creator.all_time_cents)}</b><small>All time</small></span>
+                  <span><b>⭐ {creator.all_time_stars.toLocaleString()}</b><small>Sexting Stars</small></span>
                   <em className={creator.status === "live" ? "" : "draft"}>{creator.status === "live" ? "Live" : "Setup pending"}</em>
                 </div>
                 <div className="dailyReport" role="table" aria-label={`${creator.name} daily earnings`}>
@@ -871,10 +876,10 @@ export default function Home() {
                     const open = ownerDayView === dayKey;
                     return (
                       <div className={open ? "open" : ""} role="row" key={day.date}>
-                        <button disabled={!day.transaction_count} onClick={() => setOwnerDayView(open ? null : dayKey)} type="button">
+                        <button disabled={!day.transaction_count && !day.star_transaction_count} onClick={() => setOwnerDayView(open ? null : dayKey)} type="button">
                           <span role="cell">{new Date(`${day.date}T12:00:00`).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}</span>
-                          <span role="cell">{day.transaction_count} sale{day.transaction_count === 1 ? "" : "s"}</span>
-                          <strong role="cell">{money(day.amount_cents)}</strong>
+                          <span role="cell">{day.transaction_count} cash · {day.star_transaction_count} Stars</span>
+                          <strong role="cell">{money(day.amount_cents)} · ⭐ {day.stars.toLocaleString()}</strong>
                         </button>
                         {open && (
                           <div className="dailyItems">
@@ -882,6 +887,12 @@ export default function Home() {
                               <div key={item.id}>
                                 <span><b>{item.description}</b><small>{item.source_type.replaceAll("_", " ")} · {new Date(`${item.occurred_at.replace(" ", "T")}Z`).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</small></span>
                                 <strong>{money(item.amount_cents)}</strong>
+                              </div>
+                            ))}
+                            {day.star_items.map((item) => (
+                              <div key={`stars:${item.id}`}>
+                                <span><b>{item.package_title}</b><small>Sexting session · {new Date(`${item.created_at.replace(" ", "T")}Z`).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</small></span>
+                                <strong>⭐ {item.stars.toLocaleString()}</strong>
                               </div>
                             ))}
                           </div>

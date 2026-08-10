@@ -1736,13 +1736,32 @@ async function handleAdminPending(request: Request, env: Env) {
     current.items.push(row);
     dailyMap.set(date, current);
   }
+  const dailyStarRows = await env.DB.prepare(`SELECT id, package_title, stars, created_at FROM sexting_sessions
+    WHERE stars > 0 AND created_at >= datetime('now', '-13 days', 'start of day') ORDER BY created_at ASC`)
+    .all<{ id: number; package_title: string; stars: number; created_at: string }>();
+  const dailyStarsMap = new Map<string, { stars: number; star_transaction_count: number; star_items: typeof dailyStarRows.results }>();
+  for (const row of dailyStarRows.results) {
+    const timestamp = row.created_at.includes("T") ? row.created_at : `${row.created_at.replace(" ", "T")}Z`;
+    const date = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit",
+    }).format(new Date(timestamp));
+    const current = dailyStarsMap.get(date) || { stars: 0, star_transaction_count: 0, star_items: [] };
+    current.stars += row.stars;
+    current.star_transaction_count += 1;
+    current.star_items.push(row);
+    dailyStarsMap.set(date, current);
+  }
   const dailyEarnings = Array.from({ length: 14 }, (_, offset) => {
     const date = new Date();
     date.setDate(date.getDate() - (13 - offset));
     const key = new Intl.DateTimeFormat("en-CA", {
       timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit",
     }).format(date);
-    return { date: key, ...(dailyMap.get(key) || { amount_cents: 0, transaction_count: 0, items: [] }) };
+    return {
+      date: key,
+      ...(dailyMap.get(key) || { amount_cents: 0, transaction_count: 0, items: [] }),
+      ...(dailyStarsMap.get(key) || { stars: 0, star_transaction_count: 0, star_items: [] }),
+    };
   });
   const creatorAccounts = await env.DB.prepare(`SELECT creator_key, display_name, login_email,
     status, template_key, telegram_connected FROM creator_accounts ORDER BY created_at ASC`)
@@ -1752,7 +1771,8 @@ async function handleAdminPending(request: Request, env: Env) {
     await env.DB.prepare(`UPDATE creator_accounts SET login_email = ?, updated_at = CURRENT_TIMESTAMP
       WHERE creator_key = 'tiffani' AND login_email = ''`).bind(creatorEmail).run();
   }
-  const emptyDailyEarnings = dailyEarnings.map((day) => ({ ...day, amount_cents: 0, transaction_count: 0, items: [] }));
+  const emptyDailyEarnings = dailyEarnings.map((day) => ({ ...day, amount_cents: 0, transaction_count: 0,
+    items: [], stars: 0, star_transaction_count: 0, star_items: [] }));
   return json({
     portal_user: portalUser,
     pending: pending.results,
@@ -1794,6 +1814,7 @@ async function handleAdminPending(request: Request, env: Env) {
         telegram_connected: Boolean(creator.telegram_connected),
         weekly_cents: creator.creator_key === "tiffani" ? weekly?.total_cents || 0 : 0,
         all_time_cents: creator.creator_key === "tiffani" ? allTime?.total_cents || 0 : 0,
+        all_time_stars: creator.creator_key === "tiffani" ? starsSummary?.total_stars || 0 : 0,
         daily_earnings: creator.creator_key === "tiffani" ? dailyEarnings : emptyDailyEarnings,
       })),
     } : null,
