@@ -72,6 +72,8 @@ const INTRO = "Hey, it's Tiffany. What are you up to?";
 const NAME_PROMPT = "What's your name, babe?";
 const CLOSED = "I can only chat with adults who are 18 or older. This conversation is now closed.";
 const CREATOR_TAKEOVER = "__TIFFANI_TAKEOVER__";
+// Temporary launch testing switch. Restore to false when realistic reply timing is ready.
+const IMMEDIATE_TEST_RESPONSES = true;
 const CAPABILITIES = "I can help you book a private video chat with me here on Telegram or an in person fan meet and greet. You can also buy photo and video content, shop clothing or worn items, request custom content, get a private video rating, or have a private sexting session with me. What sounds fun?";
 const INSTAGRAM_URL = "https://www.instagram.com/tiffanimadisonvip/?hl=en";
 const PORNHUB_URL = "https://www.pornhub.com/pornstar/tiffani-madison";
@@ -1055,6 +1057,7 @@ async function queueCreatorReply(db: D1Database, message: TelegramMessage) {
 }
 
 function randomResponseDelayMs(activeSexting: boolean) {
+  if (IMMEDIATE_TEST_RESPONSES) return 0;
   const minimumSeconds = activeSexting ? 20 : 25;
   const maximumSeconds = activeSexting ? 25 : 420;
   return Math.floor((minimumSeconds + Math.random() * (maximumSeconds - minimumSeconds)) * 1000);
