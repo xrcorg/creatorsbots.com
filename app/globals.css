@@ -408,6 +408,7 @@ button { cursor: pointer; }
 .customHistory > div { display: flex; justify-content: space-between; gap: 10px; padding: 9px 0; border-top: 1px solid #f1e7ec; font-size: 10px; }
 .customHistory span { display: grid; gap: 3px; }
 .customHistory small, .customHistory time { color: var(--muted); font-size: 8px; }
+.customHistory > div > button { border: 1px solid #f0a9cc; border-radius: 8px; padding: 5px 8px; background: white; color: var(--deep-pink); font-size: 8px; }
 .customHistory p { margin: 0; color: var(--muted); font-size: 10px; }
 .footerNote { max-width: 1440px; margin: 10px auto 0; color: #91818a; font-size: 10px; text-align: center; }
 

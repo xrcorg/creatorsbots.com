@@ -148,6 +148,7 @@ type SaleDispute = {
   source_id: string;
   description: string;
   amount_cents: number;
+  stars: number;
   occurred_at: string;
   requester_email: string;
   reason: string;
@@ -317,6 +318,7 @@ export default function Home() {
   const [earnings, setEarnings] = useState<EarningsSummary>({ weekly_cents: 0, weekly_count: 0, all_time_cents: 0, all_time_count: 0, recent: [], history: [] });
   const [saleDisputes, setSaleDisputes] = useState<SaleDispute[]>([]);
   const [disputedSale, setDisputedSale] = useState<EarningsSummary["history"][number] | null>(null);
+  const [disputedStarsSession, setDisputedStarsSession] = useState<LiveSextingSession | null>(null);
   const [disputeForm, setDisputeForm] = useState({ reason: "", proof: "" });
   const [portalUser, setPortalUser] = useState<PortalUser | null>(null);
   const [platformOverview, setPlatformOverview] = useState<PlatformOverview | null>(null);
@@ -908,6 +910,30 @@ export default function Home() {
     }
   }
 
+  async function submitStarsDispute(event: FormEvent) {
+    event.preventDefault();
+    if (!disputedStarsSession) return;
+    try {
+      setLiveLoading(true);
+      const response = await fetch("/api/admin/sale-disputes", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sexting_session_id: disputedStarsSession.id, ...disputeForm }),
+      });
+      if (!response.ok) {
+        const data = await response.json() as { error?: string };
+        throw new Error(data.error || "Stars report could not be submitted");
+      }
+      setDisputedStarsSession(null);
+      setDisputeForm({ reason: "", proof: "" });
+      await loadLivePending();
+    } catch (error) {
+      setLiveError(error instanceof Error ? error.message : "The Stars report could not be submitted.");
+    } finally {
+      setLiveLoading(false);
+    }
+  }
+
   async function reviewSaleDispute(id: number, action: "approve" | "deny") {
     try {
       setLiveLoading(true);
@@ -982,7 +1008,7 @@ export default function Home() {
               <article key={dispute.id}>
                 <div>
                   <span>{dispute.creator_key}</span>
-                  <strong>{dispute.description} · {money(dispute.amount_cents)}</strong>
+                  <strong>{dispute.description} · {dispute.stars ? `⭐ ${dispute.stars.toLocaleString()}` : money(dispute.amount_cents)}</strong>
                   <p>{dispute.reason}</p>
                   {/^(?:https?:\/\/)/i.test(dispute.proof)
                     ? <a href={dispute.proof} rel="noreferrer" target="_blank">View proof</a>
@@ -999,7 +1025,7 @@ export default function Home() {
                 {reviewedSaleDisputes.map((dispute) => (
                   <div className="reviewedDispute" key={dispute.id}>
                     <span>{dispute.status}</span>
-                    <b>{dispute.description} · {money(dispute.amount_cents)}</b>
+                    <b>{dispute.description} · {dispute.stars ? `⭐ ${dispute.stars.toLocaleString()}` : money(dispute.amount_cents)}</b>
                     <small>{dispute.reason} · Reviewed by {dispute.reviewed_by}</small>
                   </div>
                 ))}
@@ -1519,8 +1545,20 @@ export default function Home() {
               <div key={session.id}>
                 <span><b>{session.telegram_name}</b><small>{session.package_title}</small></span>
                 <time>⭐ {session.stars.toLocaleString()}</time>
+                {saleDisputes.some((dispute) => dispute.source_type === "sexting_stars" && dispute.source_id === String(session.id) && dispute.status === "pending")
+                  ? <small>Report pending</small>
+                  : <button type="button" onClick={() => { setDisputedStarsSession(session); setDisputeForm({ reason: "", proof: "" }); }}>Report sale</button>}
               </div>
             )) : <p>No completed sexting sessions yet.</p>}
+            {disputedStarsSession && (
+              <form className="disputeForm" onSubmit={submitStarsDispute}>
+                <strong>Report {disputedStarsSession.package_title}</strong>
+                <label><span>What went wrong?</span><textarea required maxLength={1000} value={disputeForm.reason} onChange={(event) => setDisputeForm((current) => ({ ...current, reason: event.target.value }))} placeholder="Explain why these Stars should be removed from earnings." /></label>
+                <label><span>Proof link or details</span><input required maxLength={2000} value={disputeForm.proof} onChange={(event) => setDisputeForm((current) => ({ ...current, proof: event.target.value }))} placeholder="Paste a screenshot link, receipt link, or supporting details." /></label>
+                <button className="primaryAction" disabled={liveLoading}>Submit for owner review</button>
+                <button className="secondaryAction" type="button" onClick={() => setDisputedStarsSession(null)}>Cancel</button>
+              </form>
+            )}
           </section>
         </aside>
       </section>

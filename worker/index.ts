@@ -346,6 +346,7 @@ async function prepareDatabase(db: D1Database) {
       source_id TEXT NOT NULL,
       description TEXT NOT NULL,
       amount_cents INTEGER NOT NULL,
+      stars INTEGER NOT NULL DEFAULT 0,
       occurred_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(source_type, source_id)
     )`),
@@ -1781,7 +1782,7 @@ async function handleAdminPending(request: Request, env: Env) {
     duration_minutes, stars, completed_at FROM sexting_sessions WHERE status = 'completed'
     ORDER BY completed_at DESC LIMIT 100`).all();
   const starsSummary = await env.DB.prepare(`SELECT COALESCE(SUM(stars), 0) AS total_stars,
-    COUNT(*) AS transaction_count FROM sexting_sessions WHERE stars > 0`).first<{ total_stars: number; transaction_count: number }>();
+    COUNT(*) AS transaction_count FROM sexting_sessions WHERE stars > 0 AND status != 'disputed_removed'`).first<{ total_stars: number; transaction_count: number }>();
   const sextingMedia = await env.DB.prepare(`SELECT id, label, media_type, file_name,
     mime_type, active, created_at FROM sexting_media ORDER BY id DESC LIMIT 100`).all();
   const contentProducts = await env.DB.prepare(`SELECT id, content_type, title, price_cents,
@@ -1800,7 +1801,7 @@ async function handleAdminPending(request: Request, env: Env) {
   const trainingSuggestions = await env.DB.prepare(`SELECT id, category, suggestion, created_at
     FROM conversation_training ORDER BY category ASC, id ASC`).all();
   const saleDisputes = await env.DB.prepare(`SELECT id, creator_key, earnings_event_id, source_type,
-    source_id, description, amount_cents, occurred_at, requester_email, reason, proof, status,
+    source_id, description, amount_cents, stars, occurred_at, requester_email, reason, proof, status,
     reviewed_by, created_at, reviewed_at FROM sale_disputes
     WHERE ? = 'owner' OR creator_key = ? ORDER BY id DESC LIMIT 500`)
     .bind(portalUser.role, portalUser.creator_key).all();
@@ -1828,7 +1829,8 @@ async function handleAdminPending(request: Request, env: Env) {
     dailyMap.set(date, current);
   }
   const dailyStarRows = await env.DB.prepare(`SELECT id, package_title, stars, created_at FROM sexting_sessions
-    WHERE stars > 0 AND created_at >= datetime('now', '-13 days', 'start of day') ORDER BY created_at ASC`)
+    WHERE stars > 0 AND status != 'disputed_removed'
+    AND created_at >= datetime('now', '-13 days', 'start of day') ORDER BY created_at ASC`)
     .all<{ id: number; package_title: string; stars: number; created_at: string }>();
   const dailyStarsMap = new Map<string, { stars: number; star_transaction_count: number; star_items: typeof dailyStarRows.results }>();
   for (const row of dailyStarRows.results) {
@@ -2538,6 +2540,7 @@ async function handleSaleDisputes(request: Request, env: Env) {
   await prepareDatabase(env.DB);
   const body = await request.json() as {
     earnings_event_id?: number;
+    sexting_session_id?: number;
     reason?: string;
     proof?: string;
     id?: number;
@@ -2546,8 +2549,31 @@ async function handleSaleDisputes(request: Request, env: Env) {
   if (request.method === "POST") {
     const reason = body.reason?.trim().slice(0, 1000) || "";
     const proof = body.proof?.trim().slice(0, 2000) || "";
-    if (!body.earnings_event_id || !reason || !proof) {
+    if ((!body.earnings_event_id && !body.sexting_session_id) || !reason || !proof) {
       return json({ error: "Choose a sale and provide a reason and proof" }, 400);
+    }
+    if (body.sexting_session_id) {
+      const session = await env.DB.prepare(`SELECT id, package_title, telegram_name, stars, created_at
+        FROM sexting_sessions WHERE id = ? AND status = 'completed'`).bind(body.sexting_session_id).first<{
+          id: number;
+          package_title: string;
+          telegram_name: string;
+          stars: number;
+          created_at: string;
+        }>();
+      if (!session) return json({ error: "Completed Stars session was not found" }, 404);
+      const disputeKey = -session.id;
+      const pending = await env.DB.prepare(`SELECT id FROM sale_disputes
+        WHERE earnings_event_id = ? AND status = 'pending' LIMIT 1`).bind(disputeKey).first();
+      if (pending) return json({ error: "That Stars session already has a pending report" }, 409);
+      await env.DB.prepare(`INSERT INTO sale_disputes
+        (creator_key, earnings_event_id, source_type, source_id, description, amount_cents,
+         stars, occurred_at, requester_email, reason, proof)
+        VALUES (?, ?, 'sexting_stars', ?, ?, 0, ?, ?, ?, ?, ?)`)
+        .bind(portalUser.creator_key, disputeKey, String(session.id),
+          `${session.package_title} with ${session.telegram_name}`, session.stars, session.created_at,
+          portalUser.email, reason, proof).run();
+      return json({ ok: true });
     }
     const sale = await env.DB.prepare(`SELECT id, source_type, source_id, description, amount_cents, occurred_at
       FROM earnings_events WHERE id = ?`).bind(body.earnings_event_id).first<{
@@ -2564,8 +2590,8 @@ async function handleSaleDisputes(request: Request, env: Env) {
     if (pending) return json({ error: "That sale already has a pending report" }, 409);
     await env.DB.prepare(`INSERT INTO sale_disputes
       (creator_key, earnings_event_id, source_type, source_id, description, amount_cents,
-       occurred_at, requester_email, reason, proof)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+       stars, occurred_at, requester_email, reason, proof)
+      VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`)
       .bind(portalUser.creator_key, sale.id, sale.source_type, sale.source_id, sale.description,
         sale.amount_cents, sale.occurred_at, portalUser.email, reason, proof).run();
     return json({ ok: true });
@@ -2601,6 +2627,9 @@ async function handleSaleDisputes(request: Request, env: Env) {
         updates.push(env.DB.prepare(`UPDATE custom_fulfillments SET status = 'disputed_removed'
           WHERE booking_request_id = ?`).bind(Number(dispute.source_id)));
       }
+    } else if (dispute.source_type === "sexting_stars") {
+      updates.push(env.DB.prepare(`UPDATE sexting_sessions SET status = 'disputed_removed'
+        WHERE id = ?`).bind(Number(dispute.source_id)));
     }
     await env.DB.batch(updates);
     return json({ ok: true });
