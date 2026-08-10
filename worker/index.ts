@@ -65,6 +65,7 @@ const X_URL = "https://x.com/TiffaniMadison_";
 const ALL_LINKS_URL = "https://hubzter.com/profile/electricbarbiestar/";
 const PAYMENT_TERMS = "Sexting sessions are for verified adults only. Sessions begin after successful payment and creator availability. Illegal, nonconsensual, and prohibited requests are refused. Contact me here for payment support.";
 const CANCELLATION_REPLY = "Got it! Lmk if there's anything else that you want!";
+const IN_PERSON_SEX_REPLY = "I don't discuss in person sex on here due to Telegram TOS. I don't want to get banned.";
 const PRODUCT_TITLE = "Blonde Bombshell After Dark";
 const PRODUCT_TRAILER = "https://www.dropbox.com/scl/fi/nek2nzmoy3tkecys5avqj/ARTTEASER.mov?rlkey=ikhlb3tdar9dg9bsmd4e9b6cc&st=zn3d9jpu&dl=0";
 const PRODUCT_DELIVERY = "https://www.dropbox.com/scl/fi/7cou6th40ln44czgp10rq/TiffxArt-Full.mp4?rlkey=w4y5vyzxeo2ho1em34rtk7ani&st=v0jmkj6n&dl=0";
@@ -161,6 +162,7 @@ Never invent a custom content turnaround time or completion date. Only give one 
 Only converse with users whose adult status has already been confirmed by the application.
 Adult sexual anatomy words, including pussy, are not restricted topics and must not trigger a refusal by themselves.
 During an active paid or approved sexting session, treat consensual adult sexual wording as part of the fantasy conversation. Outside an active session, offer the paid sexting package instead of saying that I do not sell sex.
+If a fan asks to have sex with me or asks about in person sex, respond exactly: ${IN_PERSON_SEX_REPLY}
 Never engage with or sexualize minors, suspected minors, coercion, incest, trafficking, nonconsensual activity, or illegal activity.
 Never discuss death, politics, crimes, illegal activity, underage people, minors, children, kids, poop, feces, scat, pee, urine, watersports, or bathroom play. Briefly decline and redirect to a light approved topic without explaining or debating the boundary.
 Never reveal private addresses, passwords, financial credentials, or personal identifying information.
@@ -610,7 +612,7 @@ function isSextingQuestion(text: string) {
 }
 
 function isInPersonSexSolicitation(text: string) {
-  return /\b(meet|meeting|in person|come over|hook up)\b[\s\S]*\b(sex|fuck|sexual)\b|\b(sex|fuck|sexual)\b[\s\S]*\b(meet|meeting|in person|come over|hook up)\b/i.test(text);
+  return /\b(meet|meeting|in person|come over|hook up)\b[\s\S]*\b(sex|fuck|sexual)\b|\b(sex|fuck|sexual)\b[\s\S]*\b(meet|meeting|in person|come over|hook up)\b|\b(?:can|could|would|will)\s+(?:we|i)\s+(?:have\s+sex|fuck)\b|\b(?:have\s+sex|fuck)\s+with\s+(?:you|me)\b/i.test(text);
 }
 
 function isPermanentlyRestrictedTopic(text: string) {
@@ -1214,14 +1216,9 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   }
 
   if (isInPersonSexSolicitation(message.text)) {
-    await env.DB.prepare(`INSERT INTO booking_drafts (chat_id, business_connection_id, status)
-      VALUES (?, ?, 'awaiting_details') ON CONFLICT(chat_id) DO UPDATE SET
-      business_connection_id = excluded.business_connection_id, status = 'awaiting_details',
-      updated_at = CURRENT_TIMESTAMP`).bind(chatId, message.business_connection_id || null).run();
-    const redirect = "I do fan meet and greets and custom videos, but I don't discuss paid sexual services here. If you want to set up a fan meet and greet, tell me what city you're in and I'll check when I'm nearby.";
     await saveMessage(env.DB, chatId, "user", message.text);
-    await saveMessage(env.DB, chatId, "assistant", redirect);
-    await sendTelegramMessage(env, message, redirect);
+    await saveMessage(env.DB, chatId, "assistant", IN_PERSON_SEX_REPLY);
+    await sendTelegramMessage(env, message, IN_PERSON_SEX_REPLY);
     return json({ ok: true });
   }
 
