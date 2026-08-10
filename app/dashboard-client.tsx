@@ -21,7 +21,7 @@ type LivePurchase = {
   price: string;
   payment_note: string;
   created_at: string;
-  status?: "pending" | "approved" | "declined";
+  status?: "pending" | "approved" | "declined" | "closed_unpaid";
   resolved_at?: string;
 };
 
@@ -42,6 +42,7 @@ type LiveCustom = {
   created_at?: string;
   delivery_url?: string;
   completed_at?: string;
+  status?: "awaiting_fulfillment" | "completed" | "closed_unpaid";
 };
 
 type LiveSextingSession = {
@@ -510,7 +511,7 @@ export default function Home() {
     }
   }
 
-  async function resolvePurchase(action: "approve" | "decline") {
+  async function resolvePurchase(action: "approve" | "decline" | "close_unpaid") {
     const current = livePurchases[0];
     if (!current) return;
     try {
@@ -529,11 +530,11 @@ export default function Home() {
     }
   }
 
-  async function resolveBooking(action: "approve" | "decline" | "ignore") {
+  async function resolveBooking(action: "approve" | "decline" | "ignore" | "close_unpaid") {
     const current = liveBookings[0];
     if (!current) return;
     const answer = creatorReply.trim();
-    if (action !== "ignore" && !answer) return;
+    if (action !== "ignore" && action !== "close_unpaid" && !answer) return;
     if (action === "approve" && !bookingDuration.trim()) return;
     try {
       setLiveLoading(true);
@@ -568,6 +569,23 @@ export default function Home() {
       await loadLivePending();
     } catch {
       setLiveError("The custom link was not sent. Check the link and try again.");
+    } finally {
+      setLiveLoading(false);
+    }
+  }
+
+  async function closeCustomUnpaid(id: number) {
+    try {
+      setLiveLoading(true);
+      const response = await fetch("/api/admin/custom", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id, action: "close_unpaid" }),
+      });
+      if (!response.ok) throw new Error("Custom close failed");
+      await loadLivePending();
+    } catch {
+      setLiveError("The unpaid custom could not be closed. Please try again.");
     } finally {
       setLiveLoading(false);
     }
@@ -1366,6 +1384,9 @@ export default function Home() {
                 <button className="primaryAction" disabled={liveLoading || !customLinks[custom.id]?.trim()} onClick={() => void completeCustom(custom.id)}>
                   Send custom and complete
                 </button>
+                <button className="secondaryAction" disabled={liveLoading} onClick={() => void closeCustomUnpaid(custom.id)}>
+                  Close as unpaid and follow up
+                </button>
               </div>
             )) : <p className="queueNote">No customs waiting to be fulfilled.</p>}
           </section>
@@ -1375,6 +1396,7 @@ export default function Home() {
               <div className="alertTitle"><span>$</span> Payment approval</div>
               <p className="fanQuestion">{livePurchases[0].product_title}</p>
               <div className="purchasePrice">{livePurchases[0].price}</div>
+              <small>Requested {new Date(`${livePurchases[0].created_at}Z`).toLocaleDateString()}</small>
               <div className="botPaused">Fan message: “{livePurchases[0].payment_note}”</div>
               <button className="primaryAction" disabled={liveLoading} onClick={() => void resolvePurchase("approve")}>
                 Approve and send full video
@@ -1382,12 +1404,16 @@ export default function Home() {
               <button className="secondaryAction" disabled={liveLoading} onClick={() => void resolvePurchase("decline")}>
                 Payment not verified
               </button>
+              <button className="ignoreAction" disabled={liveLoading} onClick={() => void resolvePurchase("close_unpaid")}>
+                Close as unpaid and follow up
+              </button>
             </div>
           ) : liveBookings.length ? (
             <div className="takeoverCard bookingApproval dashboardSection dashboardToday">
               <div className="alertTitle"><span>□</span> {liveBookings[0].suggested_type === "custom_content" ? "Custom request" : "Booking request"}</div>
               <div className="requestOwner">{liveBookings[0].telegram_name}</div>
               <p className="fanQuestion">“{liveBookings[0].details}”</p>
+              <small>Requested {new Date(`${liveBookings[0].created_at}Z`).toLocaleDateString()}</small>
               <div className="botPaused">Check the date, time, service, city, and calendar before replying.</div>
               <textarea
                 aria-label="Booking reply"
@@ -1419,6 +1445,9 @@ export default function Home() {
               </button>
               <button className="ignoreAction" disabled={liveLoading} onClick={() => void resolveBooking("ignore")}>
                 Ignore
+              </button>
+              <button className="ignoreAction" disabled={liveLoading} onClick={() => void resolveBooking("close_unpaid")}>
+                Close as unpaid and follow up
               </button>
             </div>
           ) : livePending.length ? (
@@ -1519,7 +1548,7 @@ export default function Home() {
             <strong>Content order history</strong>
             {purchaseHistory.length ? purchaseHistory.map((purchase) => (
               <div key={purchase.id}>
-                <span><b>{purchase.product_title}</b><small>{new Date(`${purchase.created_at}Z`).toLocaleString()} · {purchase.status}</small></span>
+                <span><b>{purchase.product_title}</b><small>{new Date(`${purchase.created_at}Z`).toLocaleString()} · {purchase.status?.replaceAll("_", " ")}</small></span>
                 <time>{purchase.price}</time>
               </div>
             )) : <p>No content orders yet.</p>}
@@ -1536,11 +1565,11 @@ export default function Home() {
           </div>
 
           <section className="customHistory dashboardSection dashboardHistory">
-            <strong>Completed customs</strong>
+            <strong>Custom history</strong>
             {customHistory.length ? customHistory.map((custom) => (
               <div key={custom.id}>
                 <span><b>{custom.telegram_name}</b><small>{custom.duration_minutes} minutes · {money(custom.amount_cents)}</small></span>
-                <time>{custom.completed_at ? new Date(`${custom.completed_at}Z`).toLocaleDateString() : "Completed"}</time>
+                <time>{custom.status === "closed_unpaid" ? "Closed unpaid" : custom.completed_at ? new Date(`${custom.completed_at}Z`).toLocaleDateString() : "Completed"}</time>
               </div>
             )) : <p>No completed customs yet.</p>}
           </section>

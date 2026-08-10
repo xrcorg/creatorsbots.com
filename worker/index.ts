@@ -1823,8 +1823,9 @@ async function handleAdminPending(request: Request, env: Env) {
     amount_cents, created_at FROM custom_fulfillments WHERE status = 'awaiting_fulfillment'
     ORDER BY id ASC LIMIT 100`).all();
   const customHistory = await env.DB.prepare(`SELECT id, telegram_name, duration_minutes, description,
-    amount_cents, delivery_url, completed_at FROM custom_fulfillments WHERE status = 'completed'
-    ORDER BY completed_at DESC LIMIT 50`).all();
+    amount_cents, delivery_url, status, created_at, completed_at FROM custom_fulfillments
+    WHERE status IN ('completed', 'closed_unpaid')
+    ORDER BY COALESCE(completed_at, created_at) DESC LIMIT 100`).all();
   const sextingSessions = await env.DB.prepare(`SELECT id, telegram_name, package_title,
     duration_minutes, stars, status, control_mode, taken_over_at, created_at, started_at, ends_at
     FROM sexting_sessions WHERE status IN ('paid', 'active') ORDER BY id ASC LIMIT 100`).all();
@@ -2132,8 +2133,11 @@ async function handleAdminReply(request: Request, env: Env) {
 async function handleAdminPurchase(request: Request, env: Env) {
   if (!await isAdminRequest(request, env)) return json({ error: "Sign in required" }, 401);
   await prepareDatabase(env.DB);
-  const body = await request.json() as { id?: number; action?: "approve" | "decline" };
+  const body = await request.json() as { id?: number; action?: "approve" | "decline" | "close_unpaid" };
   if (!body.id || !body.action) return json({ error: "Purchase action is required" }, 400);
+  if (!["approve", "decline", "close_unpaid"].includes(body.action)) {
+    return json({ error: "That purchase action is not supported" }, 400);
+  }
   const purchase = await env.DB.prepare(`SELECT purchase_requests.id, purchase_requests.chat_id,
     purchase_requests.business_connection_id, purchase_requests.product_title,
     purchase_requests.price, content_products.delivery_url, content_products.price_cents
@@ -2152,7 +2156,9 @@ async function handleAdminPurchase(request: Request, env: Env) {
 
   const approved = body.action === "approve";
   if (approved && !purchase.delivery_url) return json({ error: "This product needs a delivery link" }, 409);
-  const responseText = approved
+  const responseText = body.action === "close_unpaid"
+    ? `Hey babe, do you still want ${purchase.product_title}? I know you'll love it, but I still need you to send the payment so I can send it over. Lmk if you still want it.`
+    : approved
     ? `Payment approved. Here is ${purchase.product_title}:\n${purchase.delivery_url}`
     : "I could not verify that payment yet. Please check the payment details and send me the method and sender name you used.";
   await sendTelegramMessage(env, {
@@ -2171,7 +2177,7 @@ async function handleAdminPurchase(request: Request, env: Env) {
     await saveMessage(env.DB, purchase.chat_id, "assistant", followUp);
   }
   await env.DB.prepare(`UPDATE purchase_requests SET status = ?, resolved_at = CURRENT_TIMESTAMP
-    WHERE id = ?`).bind(approved ? "approved" : "declined", purchase.id).run();
+    WHERE id = ?`).bind(approved ? "approved" : body.action === "close_unpaid" ? "closed_unpaid" : "declined", purchase.id).run();
   if (approved) {
     await env.DB.prepare(`INSERT OR IGNORE INTO earnings_events
       (source_type, source_id, description, amount_cents) VALUES ('content', ?, ?, ?)`)
@@ -2188,12 +2194,15 @@ async function handleAdminBooking(request: Request, env: Env) {
   const settings = await getSettings(env.DB);
   const body = await request.json() as {
     id?: number;
-    action?: "approve" | "decline" | "ignore";
+    action?: "approve" | "decline" | "ignore" | "close_unpaid";
     answer?: string;
     service_type?: "video_chat" | "custom_content" | "in_person";
     duration?: string;
   };
   if (!body.id || !body.action) return json({ error: "Booking action is required" }, 400);
+  if (!["approve", "decline", "ignore", "close_unpaid"].includes(body.action)) {
+    return json({ error: "That booking action is not supported" }, 400);
+  }
   const booking = await env.DB.prepare(`SELECT booking_requests.id, booking_requests.chat_id,
     booking_requests.business_connection_id, booking_requests.details,
     COALESCE(telegram_contacts.username, telegram_contacts.display_name, fan_profiles.name, 'Telegram fan') AS telegram_name
@@ -2210,6 +2219,21 @@ async function handleAdminBooking(request: Request, env: Env) {
   if (!booking) return json({ error: "Booking is no longer pending" }, 404);
   if (body.action === "ignore") {
     await env.DB.prepare(`UPDATE booking_requests SET status = 'ignored', resolved_at = CURRENT_TIMESTAMP
+      WHERE id = ?`).bind(booking.id).run();
+    return json({ ok: true });
+  }
+  if (body.action === "close_unpaid") {
+    const customRequest = /^Custom content request:/i.test(booking.details);
+    const reminder = customRequest
+      ? "Hey babe, do you still want this custom? I know you'll love it, but I still need you to send the payment so I can get it done. Lmk if you still want it."
+      : "Hey babe, do you still want to set this up? I know you'll love it, but I still need you to send the payment so I can confirm it. Lmk if you still want it.";
+    await sendTelegramMessage(env, {
+      message_id: 0,
+      chat: { id: Number(booking.chat_id) },
+      business_connection_id: booking.business_connection_id || undefined,
+    }, reminder);
+    await saveMessage(env.DB, booking.chat_id, "assistant", reminder);
+    await env.DB.prepare(`UPDATE booking_requests SET status = 'closed_unpaid', resolved_at = CURRENT_TIMESTAMP
       WHERE id = ?`).bind(booking.id).run();
     return json({ ok: true });
   }
@@ -2260,15 +2284,15 @@ async function handleAdminBooking(request: Request, env: Env) {
 async function handleAdminCustom(request: Request, env: Env) {
   if (!await isAdminRequest(request, env)) return json({ error: "Sign in required" }, 401);
   await prepareDatabase(env.DB);
-  const body = await request.json() as { id?: number; delivery_url?: string };
+  const body = await request.json() as { id?: number; delivery_url?: string; action?: "complete" | "close_unpaid" };
   const deliveryUrl = body.delivery_url?.trim();
-  if (!body.id || !deliveryUrl || !/^https?:\/\//i.test(deliveryUrl)) {
+  if (!body.id || (body.action !== "close_unpaid" && (!deliveryUrl || !/^https?:\/\//i.test(deliveryUrl)))) {
     return json({ error: "A valid delivery link is required" }, 400);
   }
-  const custom = await env.DB.prepare(`SELECT id, chat_id, business_connection_id
+  const custom = await env.DB.prepare(`SELECT id, booking_request_id, chat_id, business_connection_id
     FROM custom_fulfillments WHERE id = ? AND status = 'awaiting_fulfillment'`)
     .bind(body.id)
-    .first<{ id: number; chat_id: string; business_connection_id: string | null }>();
+    .first<{ id: number; booking_request_id: number; chat_id: string; business_connection_id: string | null }>();
   if (!custom) return json({ error: "Custom request is no longer awaiting fulfillment" }, 404);
 
   const deliveryMessage = `I made this for you! ${deliveryUrl}`;
@@ -2278,12 +2302,23 @@ async function handleAdminCustom(request: Request, env: Env) {
     chat: { id: Number(custom.chat_id) },
     business_connection_id: custom.business_connection_id || undefined,
   };
+  if (body.action === "close_unpaid") {
+    const reminder = "Hey babe, do you still want this custom? I know you'll love it, but I still need you to send the payment so I can get it done. Lmk if you still want it.";
+    await sendTelegramMessage(env, telegramMessage, reminder);
+    await saveMessage(env.DB, custom.chat_id, "assistant", reminder);
+    await env.DB.batch([
+      env.DB.prepare(`UPDATE custom_fulfillments SET status = 'closed_unpaid', completed_at = CURRENT_TIMESTAMP WHERE id = ?`).bind(custom.id),
+      env.DB.prepare(`UPDATE booking_requests SET status = 'closed_unpaid', resolved_at = CURRENT_TIMESTAMP WHERE id = ?`).bind(custom.booking_request_id),
+      env.DB.prepare(`DELETE FROM earnings_events WHERE source_type = 'custom_content' AND source_id = ?`).bind(String(custom.booking_request_id)),
+    ]);
+    return json({ ok: true });
+  }
   await sendTelegramMessage(env, telegramMessage, deliveryMessage);
   await sendTelegramMessage(env, telegramMessage, followUp);
   await saveMessage(env.DB, custom.chat_id, "assistant", deliveryMessage);
   await saveMessage(env.DB, custom.chat_id, "assistant", followUp);
   await env.DB.prepare(`UPDATE custom_fulfillments SET delivery_url = ?, status = 'completed',
-    completed_at = CURRENT_TIMESTAMP WHERE id = ?`).bind(deliveryUrl, custom.id).run();
+    completed_at = CURRENT_TIMESTAMP WHERE id = ?`).bind(deliveryUrl!, custom.id).run();
   return json({ ok: true });
 }
 
