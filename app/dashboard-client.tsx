@@ -287,6 +287,7 @@ export default function Home() {
   const [editingSocialId, setEditingSocialId] = useState<number | null>(null);
   const [trainingSuggestions, setTrainingSuggestions] = useState<TrainingSuggestion[]>([]);
   const [trainingForm, setTrainingForm] = useState({ category: "topic" as TrainingSuggestion["category"], suggestion: "" });
+  const [editingTrainingId, setEditingTrainingId] = useState<number | null>(null);
   const [agendaDate, setAgendaDate] = useState(() => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles" }).format(new Date()));
   const [taskForm, setTaskForm] = useState({ title: "", task_type: "video_chat" as DailyTask["task_type"], scheduled_at: "", fan_name: "", details: "", amount: "" });
   const [scriptForm, setScriptForm] = useState({ stage: "warmup" as SextingScript["stage"], title: "", script_text: "", media_label: "" });
@@ -818,8 +819,8 @@ export default function Home() {
     event.preventDefault();
     try {
       setLiveLoading(true);
-      const response = await fetch("/api/admin/training", {
-        method: "POST",
+      const response = await fetch(editingTrainingId ? `/api/admin/training/${editingTrainingId}` : "/api/admin/training", {
+        method: editingTrainingId ? "PATCH" : "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(trainingForm),
       });
@@ -828,6 +829,7 @@ export default function Home() {
         throw new Error(data.error || "Training suggestion could not be added");
       }
       setTrainingForm((current) => ({ ...current, suggestion: "" }));
+      setEditingTrainingId(null);
       await loadLivePending();
     } catch (error) {
       setLiveError(error instanceof Error ? error.message : "The training suggestion could not be added.");
@@ -836,11 +838,22 @@ export default function Home() {
     }
   }
 
+  function editTrainingSuggestion(item: TrainingSuggestion) {
+    setEditingTrainingId(item.id);
+    setTrainingForm({ category: item.category, suggestion: item.suggestion });
+  }
+
+  function cancelTrainingEdit() {
+    setEditingTrainingId(null);
+    setTrainingForm({ category: "topic", suggestion: "" });
+  }
+
   async function deleteTrainingSuggestion(id: number) {
     try {
       setLiveLoading(true);
       const response = await fetch(`/api/admin/training/${id}`, { method: "DELETE" });
       if (!response.ok) throw new Error("Training suggestion could not be removed");
+      if (editingTrainingId === id) cancelTrainingEdit();
       await loadLivePending();
     } catch {
       setLiveError("The training suggestion could not be removed. Please try again.");
@@ -1346,14 +1359,15 @@ export default function Home() {
 
           <section className="conversationTraining dashboardSection dashboardSettings">
             <div className="sectionHeading"><strong>Conversation training</strong><span>{trainingSuggestions.length}</span></div>
-            <p className="queueNote">Add or delete individual instructions. Changes affect future bot replies.</p>
+            <p className="queueNote">Add, edit, or delete instructions. Saved changes apply to the bot immediately.</p>
             <form onSubmit={addTrainingSuggestion}>
               <label><span>Training type</span><select value={trainingForm.category} onChange={(event) => setTrainingForm((current) => ({ ...current, category: event.target.value as TrainingSuggestion["category"] }))}><option value="topic">Topic to discuss</option><option value="avoid">Topic to avoid</option><option value="tone">Tone instruction</option><option value="feedback">Behavior feedback</option></select></label>
               <label><span>Suggestion</span><textarea required maxLength={1000} placeholder="Add one clear instruction..." value={trainingForm.suggestion} onChange={(event) => setTrainingForm((current) => ({ ...current, suggestion: event.target.value }))} /></label>
-              <button className="primaryAction" disabled={liveLoading}>Add training suggestion</button>
+              <button className="primaryAction" disabled={liveLoading}>{editingTrainingId ? "Save changes" : "Add training suggestion"}</button>
+              {editingTrainingId && <button className="secondaryAction" type="button" onClick={cancelTrainingEdit}>Cancel editing</button>}
             </form>
             <div className="trainingSuggestionList">
-              {trainingSuggestions.map((item) => <article key={item.id}><div><span>{item.category === "topic" ? "Talk about" : item.category === "avoid" ? "Avoid" : item.category === "tone" ? "Tone" : "Feedback"}</span><p>{item.suggestion}</p></div><button type="button" disabled={liveLoading} onClick={() => void deleteTrainingSuggestion(item.id)}>Delete</button></article>)}
+              {trainingSuggestions.map((item) => <article key={item.id}><div><span>{item.category === "topic" ? "Talk about" : item.category === "avoid" ? "Avoid" : item.category === "tone" ? "Tone" : "Feedback"}</span><p>{item.suggestion}</p></div><button type="button" disabled={liveLoading} onClick={() => editTrainingSuggestion(item)}>Edit</button><button type="button" disabled={liveLoading} onClick={() => void deleteTrainingSuggestion(item.id)}>Delete</button></article>)}
             </div>
             <div className="fixedBoundaries">
               <strong>Permanent boundaries</strong>

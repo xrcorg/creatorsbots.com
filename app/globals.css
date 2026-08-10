@@ -369,7 +369,7 @@ button { cursor: pointer; }
 .conversationTraining form > button { width: 100%; margin-top: 8px; }
 .conversationTraining label button { width: 100%; margin-top: 5px; border: 1px solid #f0a9cc; border-radius: 9px; padding: 8px; background: #fff0f7; color: var(--deep-pink); font-size: 9px; font-weight: 850; }
 .trainingSuggestionList { display: grid; gap: 8px; margin-top: 12px; }
-.trainingSuggestionList article { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 9px; align-items: center; padding: 10px; border: 1px solid #f1dbe6; border-radius: 11px; background: #fffafd; }
+.trainingSuggestionList article { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 9px; align-items: center; padding: 10px; border: 1px solid #f1dbe6; border-radius: 11px; background: #fffafd; }
 .trainingSuggestionList article div { display: grid; gap: 4px; }
 .trainingSuggestionList span { color: var(--deep-pink); font-size: 8px; font-weight: 850; text-transform: uppercase; }
 .trainingSuggestionList p { margin: 0; color: var(--ink); font-size: 9px; line-height: 1.45; }

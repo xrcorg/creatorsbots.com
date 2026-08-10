@@ -2354,6 +2354,23 @@ async function handleAdminTraining(request: Request, env: Env, url: URL) {
     return json({ ok: true });
   }
   const match = url.pathname.match(/^\/api\/admin\/training\/(\d+)$/);
+  if (request.method === "PATCH" && match) {
+    const body = await request.json() as { category?: string; suggestion?: string };
+    const allowedCategories = ["topic", "avoid", "tone", "feedback"];
+    const category = body.category?.trim() || "";
+    const suggestion = body.suggestion?.trim().slice(0, 1000) || "";
+    if (!allowedCategories.includes(category) || !suggestion) {
+      return json({ error: "Choose a training category and enter a suggestion" }, 400);
+    }
+    try {
+      const result = await env.DB.prepare(`UPDATE conversation_training SET category = ?, suggestion = ?
+        WHERE id = ?`).bind(category, suggestion, Number(match[1])).run();
+      if (!result.meta.changes) return json({ error: "Training suggestion was not found" }, 404);
+    } catch {
+      return json({ error: "That training suggestion is already added" }, 409);
+    }
+    return json({ ok: true });
+  }
   if (request.method === "DELETE" && match) {
     await env.DB.prepare(`DELETE FROM conversation_training WHERE id = ?`).bind(Number(match[1])).run();
     return json({ ok: true });
