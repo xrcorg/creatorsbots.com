@@ -839,7 +839,7 @@ async function collectQuickMessages(db: D1Database, chatId: string, message: Tel
     .bind(chatId, message.message_id, message.text || "")
     .run();
 
-  await new Promise((resolve) => setTimeout(resolve, 5000));
+  await new Promise((resolve) => setTimeout(resolve, 10000));
 
   const latest = await db.prepare(`SELECT MAX(message_id) AS message_id
     FROM inbound_message_buffer WHERE chat_id = ?`)
@@ -852,6 +852,7 @@ async function collectQuickMessages(db: D1Database, chatId: string, message: Tel
     ORDER BY message_id ASC LIMIT 10`)
     .bind(chatId)
     .all<{ message_id: number; message_text: string }>();
+  if (!buffered.results.length) return null;
   await db.prepare(`DELETE FROM inbound_message_buffer WHERE chat_id = ? AND message_id <= ?`)
     .bind(chatId, message.message_id)
     .run();
