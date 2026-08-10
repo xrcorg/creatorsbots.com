@@ -707,6 +707,13 @@ function sextingPackage(text: string, settings: Record<string, string>) {
   return null;
 }
 
+function sextingSessionMinutes(packageKey: string, purchasedMinutes: number) {
+  const [minimum, maximum] = packageKey === "text5" ? [6, 8]
+    : packageKey === "text10" ? [11, 13]
+      : [purchasedMinutes, purchasedMinutes];
+  return Math.floor(minimum + Math.random() * (maximum - minimum + 1));
+}
+
 function isSextingPaymentQuestion(text: string) {
   return /\b(how (?:do|can) i pay|how to pay|pay for it|send (?:me )?(?:the )?invoice|stars invoice|ready to pay)\b/i.test(text);
 }
@@ -1055,7 +1062,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   if (!message || message.from?.is_bot) return json({ ok: true });
   if (message.successful_payment?.currency === "XTR" && message.successful_payment.invoice_payload.startsWith("sexting:")) {
     const [, key, minutesText, title] = message.successful_payment.invoice_payload.split(":");
-    const minutes = Number(minutesText);
+    const minutes = sextingSessionMinutes(key, Number(minutesText));
     const contact = await env.DB.prepare(`SELECT COALESCE(telegram_contacts.username,
       telegram_contacts.display_name, fan_profiles.name, 'Telegram fan') AS telegram_name
       FROM fan_sessions
