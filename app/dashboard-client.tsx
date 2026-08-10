@@ -360,6 +360,10 @@ export default function Home() {
   }, [blocked, liveBookings.length, liveCustoms.length, livePending.length, livePurchases.length, sextingSessions.length, verified]);
 
   const attentionCount = livePending.length + livePurchases.length + liveBookings.length + liveCustoms.length + sextingSessions.length;
+  const onboardingPhotoCount = sextingMedia.filter((item) => item.media_type === "image").length;
+  const onboardingClipCount = sextingMedia.filter((item) => item.media_type === "video").length;
+  const onboardingSteps = [onboardingPhotoCount >= 20, onboardingClipCount >= 5, contentProducts.length > 0];
+  const onboardingProgress = Math.round((onboardingSteps.filter(Boolean).length / onboardingSteps.length) * 100);
 
   useEffect(() => {
     const previous = previousAttentionCount.current;
@@ -1054,6 +1058,29 @@ export default function Home() {
                 </button>
               </div>
             )) : <p className="queueNote">No paid sexting sessions waiting.</p>}
+          </section>
+
+          <section className="creatorOnboarding dashboardSection dashboardContent">
+            <div className="onboardingHeading">
+              <div><span>Creator onboarding</span><strong>Media readiness</strong></div>
+              <b>{onboardingProgress}%</b>
+            </div>
+            <div className="onboardingProgress"><i style={{ width: `${onboardingProgress}%` }} /></div>
+            <div className="onboardingChecklist">
+              <article className={onboardingPhotoCount >= 20 ? "complete" : ""}>
+                <span>{onboardingPhotoCount >= 20 ? "✓" : onboardingPhotoCount}</span>
+                <div><strong>20 sexting photos</strong><p>Include selfies, close ups, lingerie, implied nude, nude, and other approved intimate photos with a useful label for each image.</p><small>{onboardingPhotoCount} of 20 uploaded</small></div>
+              </article>
+              <article className={onboardingClipCount >= 5 ? "complete" : ""}>
+                <span>{onboardingClipCount >= 5 ? "✓" : onboardingClipCount}</span>
+                <div><strong>5 to 10 short clips</strong><p>Upload approved two to three second tease clips that can be used naturally during a paid sexting session.</p><small>{onboardingClipCount} uploaded · minimum 5</small></div>
+              </article>
+              <article className={contentProducts.length > 0 ? "complete" : ""}>
+                <span>{contentProducts.length > 0 ? "✓" : contentProducts.length}</span>
+                <div><strong>Sale catalog</strong><p>Add every photo set, video, or bundle being offered, including its title, price, genre, actors, preview link, and private Dropbox delivery link.</p><small>{contentProducts.length} product{contentProducts.length === 1 ? "" : "s"} added</small></div>
+              </article>
+            </div>
+            <p className="onboardingConsent">Only upload media the creator owns or is authorized to use. Every depicted participant must be an adult and have consented to the content and its distribution.</p>
           </section>
 
           <section className="mediaLibrary dashboardSection dashboardContent">
