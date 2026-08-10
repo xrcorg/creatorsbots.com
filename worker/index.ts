@@ -221,6 +221,7 @@ Never discuss politics, religion, underage people, minors, children, kids, rape,
 Never reveal private addresses, passwords, financial credentials, or personal identifying information.
 Do not promise a booking, custom request, discount, meeting, payment approval, or content delivery unless the application confirms it.
 When a request needs Tiffani's decision or you are unsure, respond with exactly: ${CREATOR_TAKEOVER}
+For personal favorite or preference questions, use only the approved performer profile or an approved learned answer. If the requested favorite, flavor, food, brand, ranking, or preference is not explicitly known, request creator takeover. Never invent a plausible favorite.
 Do not use hyphens, en dashes, or em dashes in responses.
 Keep most replies to one or two short sentences and end with a natural question when useful.`;
 
@@ -815,9 +816,31 @@ function isTodayActivityQuestion(text: string) {
   return /\b(what are you doing(?: today| right now)?|what are you (?:really )?up to(?: today| right now)?|what do you have planned today|plans for today|what's your day looking like|whats your day looking like)\b/i.test(text);
 }
 
-function isKnownFavoriteAnimalQuestion(text: string) {
-  if (/\b(second|third|fourth|next|other)\b/i.test(text)) return false;
-  return /\b(?:what(?:'s| is| are)\s+)?(?:your\s+)?favou?rite animals?\b/i.test(text);
+function knownProfilePreferenceReply(text: string) {
+  if (/\b(second|third|fourth|next|other)\b/i.test(text)) return null;
+  const normalized = text.toLowerCase();
+  const asksFavorite = /\b(favou?rite|prefer|like best|go to)\b/i.test(text);
+  if (!asksFavorite) return null;
+  if (/\bperfume|fragrance|scent to wear\b/.test(normalized)) return "Versace Bright Crystal is my favorite perfume. What do you wear?";
+  if (/\b(lingerie brand|lingerie)\b/.test(normalized)) return "Honey Birdette is my favorite lingerie brand, babe. Do you like it?";
+  if (/\b(ice cream|flavou?r|brand)\b/.test(normalized)) return null;
+  if (/\banimals?\b/.test(normalized)) return "Cats are my favorite, babe. What's yours?";
+  if (/\b(dessert|cake|sweet treat)\b/.test(normalized)) return "Chocolate cake is my favorite dessert, babe. What's yours?";
+  if (/\b(food|meal|comfort food|cuisine)\b/.test(normalized)) return "Sushi is my favorite, babe. I could eat it all the time. What's yours?";
+  if (/\bcolors?\b/.test(normalized)) return "Pink is my favorite color, babe. What's yours?";
+  if (/\bseasons?\b/.test(normalized)) return "Fall is my favorite season. I love the whole vibe. What's yours?";
+  if (/\bholidays?\b/.test(normalized)) return "Halloween is my favorite holiday, babe. What's yours?";
+  if (/\bnonalcoholic drink|non alcoholic drink|soft drink|drink without alcohol\b/.test(normalized)) return "Matcha is my favorite nonalcoholic drink. What's yours?";
+  if (/\b(alcohol|cocktail|drink)\b/.test(normalized)) return "Champagne is my favorite drink, babe. What's yours?";
+  if (/\bflowers?\b/.test(normalized)) return "Orchids are my favorite flowers. What's yours?";
+  if (/\bcandles?|candle scent\b/.test(normalized)) return "Lavender is my favorite candle scent. What's yours?";
+  if (/\b(musician|artist|singer)\b/.test(normalized)) return "Doja Cat is my favorite artist. Who do you listen to?";
+  if (/\bsongs?\b/.test(normalized)) return "Streets by Doja Cat is one of my favorite songs. What's yours?";
+  if (/\bmovies?|films?\b/.test(normalized)) return "True Romance is my favorite movie. Have you seen it?";
+  if (/\b(show|series|tv show)\b/.test(normalized)) return "Euphoria is my favorite show. What are you watching?";
+  if (/\bbooks?\b/.test(normalized)) return "The Art of Seduction is one of my favorite books. What do you like to read?";
+  if (/\brestaurants?\b/.test(normalized)) return "Katsuya is my favorite restaurant. What's yours?";
+  return null;
 }
 
 function isHowAreYouQuestion(text: string) {
@@ -1584,8 +1607,9 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     return json({ ok: true });
   }
 
-  if (isKnownFavoriteAnimalQuestion(message.text)) {
-    await sendSavedReply(env, message, chatId, "Cats are my favorite, babe. What's yours?");
+  const preferenceReply = knownProfilePreferenceReply(message.text);
+  if (preferenceReply) {
+    await sendSavedReply(env, message, chatId, preferenceReply);
     return json({ ok: true });
   }
 
