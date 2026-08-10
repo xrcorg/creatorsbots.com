@@ -1359,7 +1359,7 @@ export default function Home() {
 
           <section className="conversationTraining dashboardSection dashboardSettings">
             <div className="sectionHeading"><strong>Conversation training</strong><span>{trainingSuggestions.length}</span></div>
-            <p className="queueNote">Add, edit, or delete instructions. Saved changes apply to the bot immediately.</p>
+            <p className="queueNote">Add, edit, or delete instructions. Choose Topic to avoid for a removable creator boundary. Saved changes apply to the bot immediately.</p>
             <form onSubmit={addTrainingSuggestion}>
               <label><span>Training type</span><select value={trainingForm.category} onChange={(event) => setTrainingForm((current) => ({ ...current, category: event.target.value as TrainingSuggestion["category"] }))}><option value="topic">Topic to discuss</option><option value="avoid">Topic to avoid</option><option value="tone">Tone instruction</option><option value="feedback">Behavior feedback</option></select></label>
               <label><span>Suggestion</span><textarea required maxLength={1000} placeholder="Add one clear instruction..." value={trainingForm.suggestion} onChange={(event) => setTrainingForm((current) => ({ ...current, suggestion: event.target.value }))} /></label>
@@ -1370,8 +1370,8 @@ export default function Home() {
               {trainingSuggestions.map((item) => <article key={item.id}><div><span>{item.category === "topic" ? "Talk about" : item.category === "avoid" ? "Avoid" : item.category === "tone" ? "Tone" : "Feedback"}</span><p>{item.suggestion}</p></div><button type="button" disabled={liveLoading} onClick={() => editTrainingSuggestion(item)}>Edit</button><button type="button" disabled={liveLoading} onClick={() => void deleteTrainingSuggestion(item.id)}>Delete</button></article>)}
             </div>
             <div className="fixedBoundaries">
-              <strong>Permanent boundaries</strong>
-              <p>Death, politics, crimes, illegal activity, underage people, minors, children, kids, poop, pee, scat, urine, watersports, and bathroom play. These cannot be removed by creator feedback or scripts.</p>
+              <strong>Fixed safety boundaries</strong>
+              <p>Politics, religion, underage people, minors, kids, children, rape and nonconsensual activity, scat, pee, poop, urine, watersports, and bathroom play. These cannot be edited or deleted.</p>
             </div>
           </section>
 
