@@ -301,6 +301,14 @@ button { cursor: pointer; }
 .creatorProfileLinks a { display: flex; justify-content: space-between; gap: 10px; padding-top: 9px; border-top: 1px solid #f1e7ec; color: inherit; font-size: 10px; text-decoration: none; }
 .creatorProfileLinks a span { color: var(--muted); }
 .creatorProfileLinks a b { color: var(--deep-pink); }
+.creatorProfileLinks form { display: grid; gap: 8px; margin-top: 12px; }
+.creatorProfileLinks form label > span { display: block; margin-bottom: 4px; color: var(--muted); font-size: 9px; }
+.creatorProfileLinks form input, .creatorProfileLinks form select { width: 100%; border: 1px solid var(--line); border-radius: 9px; padding: 9px; background: #fffafd; color: var(--ink); font-size: 10px; }
+.socialLinkList { display: grid; gap: 8px; margin-top: 12px; }
+.socialLinkList article { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px; padding: 9px; border: 1px solid #f1dbe6; border-radius: 10px; }
+.socialLinkList article a { min-width: 0; display: grid; gap: 3px; padding: 0; border: 0; }
+.socialLinkList article a b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.socialLinkList article button { border: 1px solid #f0a9cc; border-radius: 8px; padding: 7px 9px; background: white; color: var(--deep-pink); font-size: 8px; }
 .conversationTraining { margin-top: 16px; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: white; }
 .conversationTraining label { display: block; margin-top: 12px; }
 .conversationTraining label > span { display: block; margin-bottom: 5px; color: var(--muted); font-size: 9px; font-weight: 750; }

@@ -66,3 +66,11 @@ export const announcements = sqliteTable("announcements", {
 }, (table) => [
   index("idx_announcements_created").on(table.createdAt),
 ]);
+
+export const creatorSocialLinks = sqliteTable("creator_social_links", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  platform: text("platform").notNull(),
+  label: text("label").notNull(),
+  url: text("url").notNull().unique(),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});

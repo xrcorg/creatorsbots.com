@@ -116,6 +116,14 @@ type Announcement = {
   sent_at?: string;
 };
 
+type SocialLink = {
+  id: number;
+  platform: string;
+  label: string;
+  url: string;
+  created_at: string;
+};
+
 type EarningsSummary = {
   weekly_cents: number;
   weekly_count: number;
@@ -230,6 +238,8 @@ export default function Home() {
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [announcementForm, setAnnouncementForm] = useState({ platform: "Instagram", message: "", stream_url: "" });
   const [announcementPreview, setAnnouncementPreview] = useState(false);
+  const [socialLinks, setSocialLinks] = useState<SocialLink[]>([]);
+  const [socialForm, setSocialForm] = useState({ platform: "Instagram", label: "", url: "" });
   const [agendaDate, setAgendaDate] = useState(() => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles" }).format(new Date()));
   const [taskForm, setTaskForm] = useState({ title: "", task_type: "video_chat" as DailyTask["task_type"], scheduled_at: "", fan_name: "", details: "", amount: "" });
   const [scriptForm, setScriptForm] = useState({ stage: "warmup" as SextingScript["stage"], title: "", script_text: "", media_label: "" });
@@ -252,7 +262,7 @@ export default function Home() {
       setLiveLoading(true);
       const response = await fetch("/api/admin/pending", { cache: "no-store" });
       if (!response.ok) throw new Error("Unable to load the creator inbox");
-      const data = await response.json() as { pending: LivePendingReply[]; purchases: LivePurchase[]; purchase_history: LivePurchase[]; bookings: LiveBooking[]; customs: LiveCustom[]; custom_history: LiveCustom[]; sexting_sessions: LiveSextingSession[]; sexting_history: LiveSextingSession[]; sexting_media: SextingMedia[]; sexting_scripts: SextingScript[]; daily_tasks: DailyTask[]; announcements: Announcement[]; products: ContentProduct[]; stars: { total: number; count: number }; learned_count: number; earnings: EarningsSummary; settings: CreatorSettings };
+      const data = await response.json() as { pending: LivePendingReply[]; purchases: LivePurchase[]; purchase_history: LivePurchase[]; bookings: LiveBooking[]; customs: LiveCustom[]; custom_history: LiveCustom[]; sexting_sessions: LiveSextingSession[]; sexting_history: LiveSextingSession[]; sexting_media: SextingMedia[]; sexting_scripts: SextingScript[]; daily_tasks: DailyTask[]; announcements: Announcement[]; social_links: SocialLink[]; products: ContentProduct[]; stars: { total: number; count: number }; learned_count: number; earnings: EarningsSummary; settings: CreatorSettings };
       setLivePending(data.pending);
       setLivePurchases(data.purchases);
       setPurchaseHistory(data.purchase_history || []);
@@ -267,6 +277,7 @@ export default function Home() {
       setSextingScripts(data.sexting_scripts || []);
       setDailyTasks(data.daily_tasks || []);
       setAnnouncements(data.announcements || []);
+      setSocialLinks(data.social_links || []);
       if (data.bookings[0]?.suggested_type) setBookingType(data.bookings[0].suggested_type);
       setEarnings(data.earnings);
       setSettings(data.settings);
@@ -678,6 +689,41 @@ export default function Home() {
     }
   }
 
+  async function addSocialLink(event: FormEvent) {
+    event.preventDefault();
+    try {
+      setLiveLoading(true);
+      const response = await fetch("/api/admin/social-links", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(socialForm),
+      });
+      if (!response.ok) {
+        const data = await response.json() as { error?: string };
+        throw new Error(data.error || "Social link could not be added");
+      }
+      setSocialForm({ platform: "Instagram", label: "", url: "" });
+      await loadLivePending();
+    } catch (error) {
+      setLiveError(error instanceof Error ? error.message : "The social link could not be added.");
+    } finally {
+      setLiveLoading(false);
+    }
+  }
+
+  async function deleteSocialLink(id: number) {
+    try {
+      setLiveLoading(true);
+      const response = await fetch(`/api/admin/social-links/${id}`, { method: "DELETE" });
+      if (!response.ok) throw new Error("Social link could not be removed");
+      await loadLivePending();
+    } catch {
+      setLiveError("The social link could not be removed. Please try again.");
+    } finally {
+      setLiveLoading(false);
+    }
+  }
+
   const selectedAgendaTasks = dailyTasks.filter((task) => task.scheduled_at.slice(0, 10) === agendaDate);
   const openAgendaCount = selectedAgendaTasks.filter((task) => task.status === "open").length;
   const unscheduledCount = liveBookings.length + liveCustoms.length + livePurchases.length + sextingSessions.length;
@@ -1067,23 +1113,17 @@ export default function Home() {
           </div>
 
           <div className="creatorProfileLinks">
-            <strong>Approved social links</strong>
-            <a href="https://www.instagram.com/tiffanimadisonvip/?hl=en" rel="noreferrer" target="_blank">
-              <span>Instagram</span>
-              <b>@tiffanimadisonvip</b>
-            </a>
-            <a href="https://www.pornhub.com/pornstar/tiffani-madison" rel="noreferrer" target="_blank">
-              <span>Pornhub</span>
-              <b>Tiffani Madison</b>
-            </a>
-            <a href="https://x.com/TiffaniMadison_" rel="noreferrer" target="_blank">
-              <span>X</span>
-              <b>@TiffaniMadison_</b>
-            </a>
-            <a href="https://hubzter.com/profile/electricbarbiestar/" rel="noreferrer" target="_blank">
-              <span>All links</span>
-              <b>Hubzter</b>
-            </a>
+            <div className="sectionHeading"><strong>Approved social links</strong><span>{socialLinks.length}</span></div>
+            <p className="queueNote">The bot shares only links shown here.</p>
+            <form onSubmit={addSocialLink}>
+              <label><span>Platform</span><select value={socialForm.platform} onChange={(event) => setSocialForm((current) => ({ ...current, platform: event.target.value }))}><option>Instagram</option><option>TikTok</option><option>YouTube</option><option>Twitch</option><option>X</option><option>Pornhub</option><option>OnlyFans</option><option>All links</option><option>Other</option></select></label>
+              <label><span>Display name</span><input required placeholder="@username or profile name" value={socialForm.label} onChange={(event) => setSocialForm((current) => ({ ...current, label: event.target.value }))} /></label>
+              <label><span>Profile link</span><input required type="url" placeholder="https://..." value={socialForm.url} onChange={(event) => setSocialForm((current) => ({ ...current, url: event.target.value }))} /></label>
+              <button className="primaryAction" disabled={liveLoading}>Add social link</button>
+            </form>
+            <div className="socialLinkList">
+              {socialLinks.map((link) => <article key={link.id}><a href={link.url} rel="noreferrer" target="_blank"><span>{link.platform}</span><b>{link.label}</b></a><button type="button" disabled={liveLoading} onClick={() => void deleteSocialLink(link.id)}>Delete</button></article>)}
+            </div>
           </div>
 
           <section className="conversationTraining">

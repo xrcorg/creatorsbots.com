@@ -63,10 +63,6 @@ const INSTAGRAM_URL = "https://www.instagram.com/tiffanimadisonvip/?hl=en";
 const PORNHUB_URL = "https://www.pornhub.com/pornstar/tiffani-madison";
 const X_URL = "https://x.com/TiffaniMadison_";
 const ALL_LINKS_URL = "https://hubzter.com/profile/electricbarbiestar/";
-const INSTAGRAM_REPLY = `You can follow me on Instagram here, babe: ${INSTAGRAM_URL}`;
-const PORNHUB_REPLY = `You can find my Pornhub here, babe: ${PORNHUB_URL}`;
-const X_REPLY = `You can follow me on X here, babe: ${X_URL}`;
-const SOCIALS_REPLY = `You can find all my links here, babe: ${ALL_LINKS_URL}`;
 const PAYMENT_TERMS = "Sexting sessions are for verified adults only. Sessions begin after successful payment and creator availability. Illegal, nonconsensual, and prohibited requests are refused. Contact me here for payment support.";
 const PRODUCT_TITLE = "Blonde Bombshell After Dark";
 const PRODUCT_TRAILER = "https://www.dropbox.com/scl/fi/nek2nzmoy3tkecys5avqj/ARTTEASER.mov?rlkey=ikhlb3tdar9dg9bsmd4e9b6cc&st=zn3d9jpu&dl=0";
@@ -375,6 +371,13 @@ async function prepareDatabase(db: D1Database) {
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_announcements_created
       ON announcements(created_at)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS creator_social_links (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      platform TEXT NOT NULL,
+      label TEXT NOT NULL,
+      url TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('flirty_level', 'very')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('human_takeover', 'on')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('learning', 'approval')"),
@@ -394,6 +397,14 @@ async function prepareDatabase(db: D1Database) {
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_15_stars', '6000')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_30_stars', '10000')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_media_stars', '10000')"),
+    db.prepare(`INSERT OR IGNORE INTO creator_social_links (platform, label, url)
+      VALUES ('Instagram', '@tiffanimadisonvip', ?)`).bind(INSTAGRAM_URL),
+    db.prepare(`INSERT OR IGNORE INTO creator_social_links (platform, label, url)
+      VALUES ('Pornhub', 'Tiffani Madison', ?)`).bind(PORNHUB_URL),
+    db.prepare(`INSERT OR IGNORE INTO creator_social_links (platform, label, url)
+      VALUES ('X', '@TiffaniMadison_', ?)`).bind(X_URL),
+    db.prepare(`INSERT OR IGNORE INTO creator_social_links (platform, label, url)
+      VALUES ('All links', 'Hubzter', ?)`).bind(ALL_LINKS_URL),
     db.prepare(`INSERT OR IGNORE INTO content_products
       (content_type, title, price_cents, genre, actors, trailer_url, delivery_url)
       VALUES ('video', ?, 2499, 'BBC', 'Tiffani Madison and Mauvius Garcon', ?, ?)`)
@@ -487,19 +498,28 @@ function isPriceQuestion(text: string) {
 }
 
 function isSocialQuestion(text: string) {
-  return /\b(instagram|insta|ig|pornhub|porn hub|twitter|x account|linktree|link tree|all links|social|socials|social media|where can i follow you|follow you)\b/i.test(text);
+  return /\b(instagram|insta|ig|pornhub|porn hub|twitter|x account|tiktok|tik tok|youtube|twitch|onlyfans|only fans|linktree|link tree|hubzter|all links|social|socials|social media|where can i follow you|follow you)\b/i.test(text);
 }
 
-function isPornhubQuestion(text: string) {
-  return /\b(pornhub|porn hub)\b/i.test(text);
-}
-
-function isAllSocialsQuestion(text: string) {
-  return /\b(socials|social media|where can i follow you)\b/i.test(text);
-}
-
-function isXQuestion(text: string) {
-  return /\b(twitter|x account)\b/i.test(text);
+async function socialReplyFor(db: D1Database, text: string) {
+  const links = await db.prepare(`SELECT platform, label, url FROM creator_social_links
+    ORDER BY id ASC`).all<{ platform: string; label: string; url: string }>();
+  if (!links.results.length) return "I don't have that social link added right now, babe.";
+  const normalized = text.toLowerCase();
+  const requestedPlatform = normalized.includes("instagram") || /\b(insta|ig)\b/.test(normalized) ? "instagram"
+    : normalized.includes("pornhub") || normalized.includes("porn hub") ? "pornhub"
+      : normalized.includes("twitter") || normalized.includes("x account") ? "x"
+        : normalized.includes("tiktok") || normalized.includes("tik tok") ? "tiktok"
+          : normalized.includes("youtube") ? "youtube"
+            : normalized.includes("twitch") ? "twitch"
+              : normalized.includes("onlyfans") || normalized.includes("only fans") ? "onlyfans"
+                : normalized.includes("linktree") || normalized.includes("link tree") || normalized.includes("hubzter") ? "all links"
+                  : null;
+  if (requestedPlatform) {
+    const match = links.results.find((link) => link.platform.toLowerCase().replaceAll(" ", "") === requestedPlatform.replaceAll(" ", ""));
+    return match ? `You can find my ${match.platform} here, babe: ${match.url}` : `I don't have my ${requestedPlatform} link added right now, babe.`;
+  }
+  return `You can find my socials here, babe:\n${links.results.map((link) => `${link.platform}: ${link.url}`).join("\n")}`;
 }
 
 function isProductQuestion(text: string) {
@@ -990,13 +1010,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   }
 
   if (isSocialQuestion(message.text)) {
-    const socialReply = isPornhubQuestion(message.text)
-      ? PORNHUB_REPLY
-      : isXQuestion(message.text)
-        ? X_REPLY
-        : isAllSocialsQuestion(message.text)
-          ? SOCIALS_REPLY
-          : INSTAGRAM_REPLY;
+    const socialReply = await socialReplyFor(env.DB, message.text);
     await sendSavedReply(env, message, chatId, socialReply);
     return json({ ok: true });
   }
@@ -1252,13 +1266,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   }
 
   if (isSocialQuestion(message.text)) {
-    const socialReply = isPornhubQuestion(message.text)
-      ? PORNHUB_REPLY
-      : isXQuestion(message.text)
-        ? X_REPLY
-      : isAllSocialsQuestion(message.text)
-        ? SOCIALS_REPLY
-        : INSTAGRAM_REPLY;
+    const socialReply = await socialReplyFor(env.DB, message.text);
     await saveMessage(env.DB, chatId, "user", message.text);
     await saveMessage(env.DB, chatId, "assistant", socialReply);
     await sendTelegramMessage(env, message, socialReply);
@@ -1463,6 +1471,8 @@ async function handleAdminPending(request: Request, env: Env) {
   const announcements = await env.DB.prepare(`SELECT id, platform, message, stream_url, status,
     recipient_count, delivered_count, failed_count, created_at, sent_at
     FROM announcements ORDER BY id DESC LIMIT 100`).all();
+  const socialLinks = await env.DB.prepare(`SELECT id, platform, label, url, created_at
+    FROM creator_social_links ORDER BY id ASC`).all();
   const learned = await env.DB.prepare("SELECT COUNT(*) AS count FROM learned_answers").first<{ count: number }>();
   const weekly = await env.DB.prepare(`SELECT COALESCE(SUM(amount_cents), 0) AS total_cents,
     COUNT(*) AS transaction_count FROM earnings_events
@@ -1486,6 +1496,7 @@ async function handleAdminPending(request: Request, env: Env) {
     sexting_scripts: sextingScripts.results,
     daily_tasks: dailyTasks.results,
     announcements: announcements.results,
+    social_links: socialLinks.results,
     learned_count: learned?.count || 0,
     earnings: {
       weekly_cents: weekly?.total_cents || 0,
@@ -1871,6 +1882,33 @@ async function handleAdminAnnouncements(request: Request, env: Env, ctx: Executi
   return json({ ok: true, id: announcementId });
 }
 
+async function handleAdminSocialLinks(request: Request, env: Env, url: URL) {
+  if (!isAdminRequest(request)) return json({ error: "Sign in required" }, 401);
+  await prepareDatabase(env.DB);
+  if (request.method === "POST" && url.pathname === "/api/admin/social-links") {
+    const body = await request.json() as { platform?: string; label?: string; url?: string };
+    const platform = body.platform?.trim().slice(0, 50) || "";
+    const label = body.label?.trim().slice(0, 100) || "";
+    const linkUrl = body.url?.trim() || "";
+    if (!platform || !label || !validHttpUrl(linkUrl) || !linkUrl.startsWith("https://")) {
+      return json({ error: "Platform, label, and a secure link are required" }, 400);
+    }
+    try {
+      await env.DB.prepare(`INSERT INTO creator_social_links (platform, label, url)
+        VALUES (?, ?, ?)`).bind(platform, label, linkUrl).run();
+    } catch {
+      return json({ error: "That social link is already added" }, 409);
+    }
+    return json({ ok: true });
+  }
+  const match = url.pathname.match(/^\/api\/admin\/social-links\/(\d+)$/);
+  if (request.method === "DELETE" && match) {
+    await env.DB.prepare(`DELETE FROM creator_social_links WHERE id = ?`).bind(Number(match[1])).run();
+    return json({ ok: true });
+  }
+  return json({ error: "Social link request not found" }, 404);
+}
+
 async function handleAdminSexting(request: Request, env: Env) {
   if (!isAdminRequest(request)) return json({ error: "Sign in required" }, 401);
   await prepareDatabase(env.DB);
@@ -2015,6 +2053,10 @@ const worker = {
 
     if (url.pathname === "/api/admin/announcements" && request.method === "POST") {
       return handleAdminAnnouncements(request, env, ctx);
+    }
+
+    if (url.pathname.startsWith("/api/admin/social-links")) {
+      return handleAdminSocialLinks(request, env, url);
     }
 
     if (url.pathname === "/api/admin/sexting" && request.method === "POST") {
