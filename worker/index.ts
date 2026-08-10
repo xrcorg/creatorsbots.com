@@ -64,7 +64,9 @@ const PORNHUB_URL = "https://www.pornhub.com/pornstar/tiffani-madison";
 const X_URL = "https://x.com/TiffaniMadison_";
 const ALL_LINKS_URL = "https://hubzter.com/profile/electricbarbiestar/";
 const PAYMENT_TERMS = "Sexting sessions are for verified adults only. Sessions begin after successful payment and creator availability. Illegal, nonconsensual, and prohibited requests are refused. Contact me here for payment support.";
-const CANCELLATION_REPLY = "Got it! Lmk if there's anything else that you want!";
+const BOOKING_CANCELLATION_REPLY = "No problem, lmk if you want to video chat!";
+const CUSTOM_CANCELLATION_REPLY = "No problem, lmk if you want a custom!";
+const SEXTING_CANCELLATION_REPLY = "No problem, lmk if you want to sext later!";
 const IN_PERSON_SEX_REPLY = "I don't discuss in person sex on here due to Telegram TOS. I don't want to get banned.";
 const PRODUCT_TITLE = "Blonde Bombshell After Dark";
 const PRODUCT_TRAILER = "https://www.dropbox.com/scl/fi/nek2nzmoy3tkecys5avqj/ARTTEASER.mov?rlkey=ikhlb3tdar9dg9bsmd4e9b6cc&st=zn3d9jpu&dl=0";
@@ -1192,8 +1194,8 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       await env.DB.prepare(`UPDATE sexting_drafts SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
         WHERE chat_id = ?`).bind(chatId).run();
       await saveMessage(env.DB, chatId, "user", message.text);
-      await saveMessage(env.DB, chatId, "assistant", CANCELLATION_REPLY);
-      await sendTelegramMessage(env, message, CANCELLATION_REPLY);
+      await saveMessage(env.DB, chatId, "assistant", SEXTING_CANCELLATION_REPLY);
+      await sendTelegramMessage(env, message, SEXTING_CANCELLATION_REPLY);
       return json({ ok: true });
     }
     const selected = sextingPackage(message.text, settings) ||
@@ -1247,8 +1249,8 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       await env.DB.prepare(`UPDATE custom_drafts SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
         WHERE chat_id = ?`).bind(chatId).run();
       await saveMessage(env.DB, chatId, "user", message.text);
-      await saveMessage(env.DB, chatId, "assistant", CANCELLATION_REPLY);
-      await sendTelegramMessage(env, message, CANCELLATION_REPLY);
+      await saveMessage(env.DB, chatId, "assistant", CUSTOM_CANCELLATION_REPLY);
+      await sendTelegramMessage(env, message, CUSTOM_CANCELLATION_REPLY);
       return json({ ok: true });
     }
     if (isManualPaymentQuestion(message.text)) {
@@ -1321,8 +1323,8 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       await env.DB.prepare(`UPDATE booking_drafts SET status = 'cancelled',
         updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?`).bind(chatId).run();
       await saveMessage(env.DB, chatId, "user", message.text);
-      await saveMessage(env.DB, chatId, "assistant", CANCELLATION_REPLY);
-      await sendTelegramMessage(env, message, CANCELLATION_REPLY);
+      await saveMessage(env.DB, chatId, "assistant", BOOKING_CANCELLATION_REPLY);
+      await sendTelegramMessage(env, message, BOOKING_CANCELLATION_REPLY);
       return json({ ok: true });
     }
     if (isManualPaymentQuestion(message.text)) {
