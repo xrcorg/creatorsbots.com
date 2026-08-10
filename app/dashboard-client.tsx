@@ -158,6 +158,7 @@ type PlatformOverview = {
     status: string;
     weekly_cents: number;
     all_time_cents: number;
+    daily_earnings: Array<{ date: string; amount_cents: number; transaction_count: number }>;
   }>;
 };
 
@@ -849,11 +850,23 @@ export default function Home() {
           </div>
           <div className="creatorSwitcher">
             {platformOverview.creators.map((creator) => (
-              <button className="active" key={creator.key} type="button">
-                <span><b>{creator.name}</b><small>{creator.email}</small></span>
-                <span><b>{money(creator.weekly_cents)}</b><small>Past 7 days</small></span>
-                <em>{creator.status}</em>
-              </button>
+              <div className="creatorReport" key={creator.key}>
+                <div className="creatorReportSummary">
+                  <span><b>{creator.name}</b><small>{creator.email}</small></span>
+                  <span><b>{money(creator.weekly_cents)}</b><small>Past 7 days</small></span>
+                  <span><b>{money(creator.all_time_cents)}</b><small>All time</small></span>
+                  <em>{creator.status}</em>
+                </div>
+                <div className="dailyReport" role="table" aria-label={`${creator.name} daily earnings`}>
+                  {creator.daily_earnings.slice().reverse().map((day) => (
+                    <div role="row" key={day.date}>
+                      <span role="cell">{new Date(`${day.date}T12:00:00`).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}</span>
+                      <span role="cell">{day.transaction_count} sale{day.transaction_count === 1 ? "" : "s"}</span>
+                      <strong role="cell">{money(day.amount_cents)}</strong>
+                    </div>
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
         </section>

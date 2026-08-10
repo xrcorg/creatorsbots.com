@@ -1705,6 +1705,28 @@ async function handleAdminPending(request: Request, env: Env) {
     COUNT(*) AS transaction_count FROM earnings_events`).first<{ total_cents: number; transaction_count: number }>();
   const earningsHistory = await env.DB.prepare(`SELECT id, source_type, description, amount_cents, occurred_at
     FROM earnings_events ORDER BY id DESC LIMIT 1000`).all();
+  const dailyRows = await env.DB.prepare(`SELECT amount_cents, occurred_at FROM earnings_events
+    WHERE occurred_at >= datetime('now', '-13 days', 'start of day') ORDER BY occurred_at ASC`)
+    .all<{ amount_cents: number; occurred_at: string }>();
+  const dailyMap = new Map<string, { amount_cents: number; transaction_count: number }>();
+  for (const row of dailyRows.results) {
+    const timestamp = row.occurred_at.includes("T") ? row.occurred_at : `${row.occurred_at.replace(" ", "T")}Z`;
+    const date = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit",
+    }).format(new Date(timestamp));
+    const current = dailyMap.get(date) || { amount_cents: 0, transaction_count: 0 };
+    current.amount_cents += row.amount_cents;
+    current.transaction_count += 1;
+    dailyMap.set(date, current);
+  }
+  const dailyEarnings = Array.from({ length: 14 }, (_, offset) => {
+    const date = new Date();
+    date.setDate(date.getDate() - (13 - offset));
+    const key = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit",
+    }).format(date);
+    return { date: key, ...(dailyMap.get(key) || { amount_cents: 0, transaction_count: 0 }) };
+  });
   return json({
     portal_user: portalUser,
     pending: pending.results,
@@ -1744,6 +1766,7 @@ async function handleAdminPending(request: Request, env: Env) {
         status: "live",
         weekly_cents: weekly?.total_cents || 0,
         all_time_cents: allTime?.total_cents || 0,
+        daily_earnings: dailyEarnings,
       }],
     } : null,
     settings,

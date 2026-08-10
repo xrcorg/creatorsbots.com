@@ -77,10 +77,15 @@ button { cursor: pointer; }
 .ownerMetrics span, .ownerMetrics small { color: var(--muted); font-size: 10px; }
 .ownerMetrics strong { color: var(--deep-pink); font-size: 20px; }
 .creatorSwitcher { margin-top: 10px; }
-.creatorSwitcher button { width: 100%; display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 18px; padding: 13px; border: 1px solid #edcadb; border-radius: 14px; background: white; color: var(--ink); text-align: left; }
-.creatorSwitcher button > span { display: grid; gap: 3px; }
+.creatorReport { overflow: hidden; border: 1px solid #edcadb; border-radius: 14px; background: white; }
+.creatorReportSummary { display: grid; grid-template-columns: minmax(180px, 1fr) auto auto auto; align-items: center; gap: 18px; padding: 13px; }
+.creatorReportSummary > span { display: grid; gap: 3px; }
 .creatorSwitcher small { color: var(--muted); font-size: 9px; }
 .creatorSwitcher em { padding: 5px 8px; border-radius: 999px; background: #effbf4; color: #267047; font-size: 9px; font-style: normal; font-weight: 800; text-transform: uppercase; }
+.dailyReport { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; border-top: 1px solid #f0dce6; background: #f0dce6; }
+.dailyReport > div { display: grid; grid-template-columns: 1fr auto auto; gap: 14px; padding: 10px 12px; background: #fffafb; font-size: 10px; }
+.dailyReport > div span:nth-child(2) { color: var(--muted); }
+.dailyReport strong { color: var(--deep-pink); text-align: right; }
 
 .workspace {
   max-width: 1440px; min-height: calc(100vh - 112px); margin: auto; display: grid;
@@ -374,8 +379,9 @@ button { cursor: pointer; }
   .ownerOverview { padding: 16px; border-radius: 18px; }
   .ownerHeading { display: grid; }
   .ownerMetrics { grid-template-columns: 1fr 1fr; }
-  .creatorSwitcher button { grid-template-columns: 1fr auto; }
-  .creatorSwitcher button > span:nth-child(2) { display: none; }
+  .creatorReportSummary { grid-template-columns: 1fr auto; }
+  .creatorReportSummary > span:nth-child(2), .creatorReportSummary > span:nth-child(3) { display: none; }
+  .dailyReport { grid-template-columns: 1fr; }
   .modeButton { padding: 9px 10px; }
   .workspace { display: block; min-height: auto; border-radius: 22px; }
   .sidePanel { display: none; }
