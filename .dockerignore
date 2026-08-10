@@ -1,0 +1,10 @@
+.git
+.env*
+!.env.production.example
+node_modules
+dist
+.wrangler
+.vinext
+work
+outputs
+*.log

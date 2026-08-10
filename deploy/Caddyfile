@@ -1,0 +1,22 @@
+{$APP_DOMAIN} {
+  encode zstd gzip
+
+  @telegram path /api/telegram/webhook
+  handle @telegram {
+    reverse_proxy app:3000
+  }
+
+  @health path /api/health
+  handle @health {
+    reverse_proxy app:3000
+  }
+
+  handle {
+    basic_auth {
+      creator {$DASHBOARD_PASSWORD_HASH}
+    }
+    reverse_proxy app:3000 {
+      header_up oai-authenticated-user-id creator
+    }
+  }
+}
