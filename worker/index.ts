@@ -234,6 +234,16 @@ async function getPortalUser(request: Request, env: Env): Promise<PortalUser | n
 
 async function prepareDatabase(db: D1Database) {
   await db.batch([
+    db.prepare(`CREATE TABLE IF NOT EXISTS creator_accounts (
+      creator_key TEXT PRIMARY KEY,
+      display_name TEXT NOT NULL,
+      login_email TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'draft',
+      template_key TEXT,
+      telegram_connected INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS fan_sessions (
       chat_id TEXT PRIMARY KEY,
       telegram_user_id TEXT,
@@ -461,6 +471,12 @@ async function prepareDatabase(db: D1Database) {
       update_id INTEGER PRIMARY KEY,
       received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`),
+    db.prepare(`INSERT OR IGNORE INTO creator_accounts
+      (creator_key, display_name, login_email, status, telegram_connected)
+      VALUES ('tiffani', 'Tiffani Madison', '', 'live', 1)`),
+    db.prepare(`INSERT OR IGNORE INTO creator_accounts
+      (creator_key, display_name, login_email, status, template_key, telegram_connected)
+      VALUES ('madison', 'Madison Morgan', '', 'draft', 'tiffani', 0)`),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('flirty_level', 'very')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('human_takeover', 'on')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('learning', 'approval')"),
@@ -1727,6 +1743,15 @@ async function handleAdminPending(request: Request, env: Env) {
     }).format(date);
     return { date: key, ...(dailyMap.get(key) || { amount_cents: 0, transaction_count: 0 }) };
   });
+  const creatorAccounts = await env.DB.prepare(`SELECT creator_key, display_name, login_email,
+    status, template_key, telegram_connected FROM creator_accounts ORDER BY created_at ASC`)
+    .all<{ creator_key: string; display_name: string; login_email: string; status: string; template_key: string | null; telegram_connected: number }>();
+  const creatorEmail = Array.from(emailList(env.PORTAL_CREATOR_EMAILS))[0] || "";
+  if (creatorEmail) {
+    await env.DB.prepare(`UPDATE creator_accounts SET login_email = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE creator_key = 'tiffani' AND login_email = ''`).bind(creatorEmail).run();
+  }
+  const emptyDailyEarnings = dailyEarnings.map((day) => ({ ...day, amount_cents: 0, transaction_count: 0 }));
   return json({
     portal_user: portalUser,
     pending: pending.results,
@@ -1755,19 +1780,21 @@ async function handleAdminPending(request: Request, env: Env) {
       history: earningsHistory.results,
     },
     platform_overview: portalUser.role === "owner" ? {
-      creator_count: 1,
-      active_creator_count: 1,
+      creator_count: creatorAccounts.results.length,
+      active_creator_count: creatorAccounts.results.filter((creator) => creator.status === "live").length,
       attention_count: pending.results.length + purchases.results.length + bookings.results.length +
         customs.results.length + sextingSessions.results.length,
-      creators: [{
-        key: "tiffani",
-        name: "Tiffani Madison",
-        email: Array.from(emailList(env.PORTAL_CREATOR_EMAILS))[0] || "",
-        status: "live",
-        weekly_cents: weekly?.total_cents || 0,
-        all_time_cents: allTime?.total_cents || 0,
-        daily_earnings: dailyEarnings,
-      }],
+      creators: creatorAccounts.results.map((creator) => ({
+        key: creator.creator_key,
+        name: creator.display_name,
+        email: creator.creator_key === "tiffani" ? creatorEmail : creator.login_email,
+        status: creator.status,
+        template_name: creator.template_key === "tiffani" ? "Tiffani template" : "",
+        telegram_connected: Boolean(creator.telegram_connected),
+        weekly_cents: creator.creator_key === "tiffani" ? weekly?.total_cents || 0 : 0,
+        all_time_cents: creator.creator_key === "tiffani" ? allTime?.total_cents || 0 : 0,
+        daily_earnings: creator.creator_key === "tiffani" ? dailyEarnings : emptyDailyEarnings,
+      })),
     } : null,
     settings,
   });

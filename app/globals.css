@@ -82,6 +82,7 @@ button { cursor: pointer; }
 .creatorReportSummary > span { display: grid; gap: 3px; }
 .creatorSwitcher small { color: var(--muted); font-size: 9px; }
 .creatorSwitcher em { padding: 5px 8px; border-radius: 999px; background: #effbf4; color: #267047; font-size: 9px; font-style: normal; font-weight: 800; text-transform: uppercase; }
+.creatorSwitcher em.draft { background: #fff4df; color: #8a5b10; }
 .dailyReport { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; border-top: 1px solid #f0dce6; background: #f0dce6; }
 .dailyReport > div { display: grid; grid-template-columns: 1fr auto auto; gap: 14px; padding: 10px 12px; background: #fffafb; font-size: 10px; }
 .dailyReport > div span:nth-child(2) { color: var(--muted); }

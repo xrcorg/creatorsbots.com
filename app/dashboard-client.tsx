@@ -156,6 +156,8 @@ type PlatformOverview = {
     name: string;
     email: string;
     status: string;
+    template_name: string;
+    telegram_connected: boolean;
     weekly_cents: number;
     all_time_cents: number;
     daily_earnings: Array<{ date: string; amount_cents: number; transaction_count: number }>;
@@ -852,10 +854,10 @@ export default function Home() {
             {platformOverview.creators.map((creator) => (
               <div className="creatorReport" key={creator.key}>
                 <div className="creatorReportSummary">
-                  <span><b>{creator.name}</b><small>{creator.email}</small></span>
+                  <span><b>{creator.name}</b><small>{creator.email || creator.template_name || "Login pending"}</small></span>
                   <span><b>{money(creator.weekly_cents)}</b><small>Past 7 days</small></span>
                   <span><b>{money(creator.all_time_cents)}</b><small>All time</small></span>
-                  <em>{creator.status}</em>
+                  <em className={creator.status === "live" ? "" : "draft"}>{creator.status === "live" ? "Live" : "Setup pending"}</em>
                 </div>
                 <div className="dailyReport" role="table" aria-label={`${creator.name} daily earnings`}>
                   {creator.daily_earnings.slice().reverse().map((day) => (
