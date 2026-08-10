@@ -489,16 +489,19 @@ async function prepareDatabase(db: D1Database) {
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('tone_guidance', 'Short, blunt, warm, confident, flirty, and natural')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('creator_feedback', '')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_enabled', 'on')"),
-    db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_test_mode', 'on')"),
+    db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_test_mode', 'off')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_intensity', 'soft')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_rate', '10')"),
-    db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_5_stars', '3850')"),
+    db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_5_stars', '500')"),
+    db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_10_stars', '1000')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_15_stars', '6000')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_30_stars', '10000')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_media_stars', '10000')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sleep_hours_enabled', 'on')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sleep_start', '02:00')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sleep_end', '08:00')"),
+    db.prepare("UPDATE app_settings SET value = 'off', updated_at = CURRENT_TIMESTAMP WHERE key = 'sexting_test_mode'"),
+    db.prepare("UPDATE app_settings SET value = '500', updated_at = CURRENT_TIMESTAMP WHERE key = 'sexting_5_stars' AND value = '3850'"),
     db.prepare(`INSERT OR IGNORE INTO creator_social_links (platform, label, url)
       VALUES ('Instagram', '@tiffanimadisonvip', ?)`).bind(INSTAGRAM_URL),
     db.prepare(`INSERT OR IGNORE INTO creator_social_links (platform, label, url)
@@ -699,7 +702,8 @@ function isPermanentlyRestrictedTopic(text: string) {
 }
 
 function sextingPackage(text: string, settings: Record<string, string>) {
-  if (/\b(5|five)\b/.test(text)) return { key: "text5", title: "5 minute sexting session", minutes: 5, stars: Number(settings.sexting_5_stars || 3850) };
+  if (/\b(10|ten)\b/.test(text)) return { key: "text10", title: "10 minute sexting session", minutes: 10, stars: Number(settings.sexting_10_stars || 1000) };
+  if (/\b(5|five)\b/.test(text)) return { key: "text5", title: "5 minute sexting session", minutes: 5, stars: Number(settings.sexting_5_stars || 500) };
   return null;
 }
 
@@ -708,34 +712,15 @@ function isSextingPaymentQuestion(text: string) {
 }
 
 function sextingMenu(settings: Record<string, string>) {
-  if (settings.sexting_test_mode === "on") {
-    return "Sexting is in free test mode right now, babe. Tell me if you want to test a 5 minute session.";
-  }
-  return `Sexting is ${dollars(settings.sexting_rate, 10)} per minute with a 5 minute minimum, babe. A 5 minute session is ${settings.sexting_5_stars || "3850"} Stars. You can add another 5 minutes whenever you want. Tell me if you want 5 minutes.`;
+  return `Sexting is ${settings.sexting_5_stars || "500"} Stars for 5 minutes or ${settings.sexting_10_stars || "1000"} Stars for 10 minutes, babe. Which one do you want?`;
 }
 
-async function createSextingCheckout(env: Env, message: TelegramMessage, chatId: string,
-  selected: { key: string; title: string; minutes: number; stars: number }, settings: Record<string, string>) {
-  if (settings.sexting_test_mode !== "on") {
-    await sendStarsInvoice(env, message, selected.title,
-      `${selected.minutes} minute private sexting session.`,
-      `sexting:${selected.key}:${selected.minutes}:${selected.title}`, selected.stars);
-    return "invoice_sent";
-  }
-  const contact = await env.DB.prepare(`SELECT COALESCE(telegram_contacts.username,
-    telegram_contacts.display_name, fan_profiles.name, 'Telegram fan') AS telegram_name
-    FROM fan_sessions
-    LEFT JOIN telegram_contacts ON telegram_contacts.chat_id = fan_sessions.chat_id
-    LEFT JOIN fan_profiles ON fan_profiles.chat_id = fan_sessions.chat_id
-    WHERE fan_sessions.chat_id = ?`).bind(chatId).first<{ telegram_name: string }>();
-  await env.DB.prepare(`INSERT INTO sexting_sessions
-    (chat_id, business_connection_id, telegram_name, package_key, package_title,
-    duration_minutes, stars, telegram_charge_id, status, started_at, ends_at)
-    VALUES (?, ?, ?, ?, ?, ?, 0, ?, 'active', CURRENT_TIMESTAMP, datetime(CURRENT_TIMESTAMP, '+5 minutes'))`)
-    .bind(chatId, message.business_connection_id || null, contact?.telegram_name || "Telegram fan",
-      selected.key, `TEST: ${selected.title}`, selected.minutes, `test:${crypto.randomUUID()}`).run();
-  await sendTelegramMessage(env, message, "Yes babe. Your free 5 minute test starts now. Tell me what you're in the mood for.");
-  return "active";
+async function createSextingCheckout(env: Env, message: TelegramMessage,
+  selected: { key: string; title: string; minutes: number; stars: number }) {
+  await sendStarsInvoice(env, message, selected.title,
+    `${selected.minutes} minute private sexting session.`,
+    `sexting:${selected.key}:${selected.minutes}:${selected.title}`, selected.stars);
+  return "invoice_sent";
 }
 
 function randomTodayActivity(chatId: string, date = new Date()) {
@@ -924,8 +909,8 @@ async function queueCreatorReply(db: D1Database, message: TelegramMessage) {
 }
 
 function randomResponseDelayMs(activeSexting: boolean) {
-  const minimumSeconds = activeSexting ? 10 : 30;
-  const maximumSeconds = activeSexting ? 10 : 300;
+  const minimumSeconds = activeSexting ? 20 : 25;
+  const maximumSeconds = activeSexting ? 25 : 420;
   return Math.floor((minimumSeconds + Math.random() * (maximumSeconds - minimumSeconds)) * 1000);
 }
 
@@ -944,15 +929,6 @@ async function collectQuickMessages(db: D1Database, chatId: string, message: Tel
     .bind(chatId)
     .first<{ message_id: number | null }>();
   if (latest?.message_id !== message.message_id) return null;
-
-  if (activeSexting) {
-    await new Promise((resolve) => setTimeout(resolve, 5000));
-    const settledLatest = await db.prepare(`SELECT MAX(message_id) AS message_id
-      FROM inbound_message_buffer WHERE chat_id = ?`)
-      .bind(chatId)
-      .first<{ message_id: number | null }>();
-    if (settledLatest?.message_id !== message.message_id) return null;
-  }
 
   const buffered = await db.prepare(`SELECT message_id, message_text
     FROM inbound_message_buffer WHERE chat_id = ? AND created_at >= datetime('now', '-10 minutes')
@@ -1066,7 +1042,8 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   if (update.pre_checkout_query) {
     const settings = await getSettings(env.DB);
     const [, key] = update.pre_checkout_query.invoice_payload.split(":");
-    const expectedStars = key === "text5" ? Number(settings.sexting_5_stars || 3850) : 0;
+    const expectedStars = key === "text5" ? Number(settings.sexting_5_stars || 500)
+      : key === "text10" ? Number(settings.sexting_10_stars || 1000) : 0;
     const valid = settings.sexting_enabled !== "off" && update.pre_checkout_query.currency === "XTR" &&
       update.pre_checkout_query.invoice_payload.startsWith("sexting:") &&
       update.pre_checkout_query.total_amount === expectedStars;
@@ -1304,18 +1281,16 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     }
     const selected = sextingPackage(message.text, settings) ||
       (isSextingPaymentQuestion(message.text) || isAffirmativeReply(message.text)
-        ? { key: "text5", title: "5 minute sexting session", minutes: 5, stars: Number(settings.sexting_5_stars || 3850) }
+        ? { key: "text5", title: "5 minute sexting session", minutes: 5, stars: Number(settings.sexting_5_stars || 500) }
         : null);
     if (!selected) {
       await sendTelegramMessage(env, message, sextingMenu(settings));
       return json({ ok: true });
     }
     if (isSextingPaymentQuestion(message.text)) {
-      await sendTelegramMessage(env, message, settings.sexting_test_mode === "on"
-        ? "It's free while I'm testing it, babe. I'll create your test session now."
-        : "You can pay with Telegram Stars, babe. Tap the Pay button on the invoice below.");
+      await sendTelegramMessage(env, message, "You can pay with Telegram Stars, babe. Tap the Pay button on the invoice below.");
     }
-    const checkoutStatus = await createSextingCheckout(env, message, chatId, selected, settings);
+    const checkoutStatus = await createSextingCheckout(env, message, selected);
     await env.DB.prepare(`UPDATE sexting_drafts SET status = ?, updated_at = CURRENT_TIMESTAMP
       WHERE chat_id = ?`).bind(checkoutStatus, chatId).run();
     return json({ ok: true });
@@ -1335,7 +1310,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     }
     const selected = sextingPackage(message.text, settings);
     if (selected) {
-      await createSextingCheckout(env, message, chatId, selected, settings);
+      await createSextingCheckout(env, message, selected);
       return json({ ok: true });
     }
     await env.DB.prepare(`INSERT INTO sexting_drafts (chat_id, business_connection_id, status)
@@ -2343,7 +2318,7 @@ async function handleAdminSettings(request: Request, env: Env) {
     sleep_hours_enabled: ["on", "off"],
   };
   const rateKeys = ["video_chat_rate", "custom_content_rate", "in_person_rate", "sexting_rate"];
-  const starKeys = ["sexting_5_stars"];
+  const starKeys = ["sexting_5_stars", "sexting_10_stars"];
   const textKeys = ["preferred_topics", "avoid_topics", "tone_guidance", "creator_feedback"];
   const timeKeys = ["sleep_start", "sleep_end"];
   const validRate = body.key && rateKeys.includes(body.key) && body.value &&
@@ -2367,7 +2342,10 @@ const worker = {
     const url = new URL(request.url);
 
     if (url.pathname === "/api/telegram/webhook" && request.method === "POST") {
-      return handleTelegramWebhook(request, env);
+      ctx.waitUntil(handleTelegramWebhook(request.clone(), env).catch((error) => {
+        console.error("Telegram webhook background task failed", error);
+      }));
+      return json({ ok: true, queued: true });
     }
 
     if (url.pathname === "/api/admin/pending" && request.method === "GET") {
