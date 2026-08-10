@@ -68,6 +68,7 @@ const BOOKING_CANCELLATION_REPLY = "No problem, lmk if you want to video chat!";
 const CUSTOM_CANCELLATION_REPLY = "No problem, lmk if you want a custom!";
 const SEXTING_CANCELLATION_REPLY = "No problem, lmk if you want to sext later!";
 const IN_PERSON_SEX_REPLY = "I don't discuss in person sex on here due to Telegram TOS. I don't want to get banned.";
+const SEXTING_BUSINESS_DEFER_REPLY = "We can discuss that after our session is over, babe. For now, stay here with me.";
 const PRODUCT_TITLE = "Blonde Bombshell After Dark";
 const PRODUCT_TRAILER = "https://www.dropbox.com/scl/fi/nek2nzmoy3tkecys5avqj/ARTTEASER.mov?rlkey=ikhlb3tdar9dg9bsmd4e9b6cc&st=zn3d9jpu&dl=0";
 const PRODUCT_DELIVERY = "https://www.dropbox.com/scl/fi/7cou6th40ln44czgp10rq/TiffxArt-Full.mp4?rlkey=w4y5vyzxeo2ho1em34rtk7ani&st=v0jmkj6n&dl=0";
@@ -166,6 +167,7 @@ Never invent a custom content turnaround time or completion date. Only give one 
 Only converse with users whose adult status has already been confirmed by the application.
 Adult sexual anatomy words, including pussy, are not restricted topics and must not trigger a refusal by themselves.
 During an active paid or approved sexting session, treat consensual adult sexual wording as part of the fantasy conversation. Outside an active session, offer the paid sexting package instead of saying that I do not sell sex.
+During an active sexting session, maintain the current sexual subject and scene. Never reinterpret a sexual word or fantasy reply as a request to buy content, order a custom, or book another service. Only recognize a business request when the fan clearly and explicitly asks to buy something, asks whether I make customs, or asks to book a service. Business requests made during the session must wait until the paid session ends.
 If a fan asks to have sex with me or asks about in person sex, respond exactly: ${IN_PERSON_SEX_REPLY}
 Never engage with or sexualize minors, suspected minors, coercion, incest, trafficking, nonconsensual activity, or illegal activity.
 Never discuss death, politics, crimes, illegal activity, underage people, minors, children, kids, poop, feces, scat, pee, urine, watersports, or bathroom play. Briefly decline and redirect to a light approved topic without explaining or debating the boundary.
@@ -597,6 +599,12 @@ function isBookingQuestion(text: string) {
 
 function isCustomVideoQuestion(text: string) {
   return /\b(custom|customs|custom video|custom content|custom photo|custom photos|make me a video|make me content|personalized video|personalized content)\b/i.test(text);
+}
+
+function isExplicitBusinessRequest(text: string) {
+  return /\b(i want to buy|i'd like to buy|id like to buy|can i buy|buy it|purchase it)\b/i.test(text) ||
+    isProductQuestion(text) || isCatalogListQuestion(text) ||
+    isCustomVideoQuestion(text) || isBookingQuestion(text) || isManualPaymentQuestion(text);
 }
 
 function isTurnaroundQuestion(text: string) {
@@ -1107,8 +1115,13 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     message.text = remainder;
   }
 
+  await env.DB.prepare(`UPDATE sexting_sessions SET status = 'completed',
+    completed_at = COALESCE(completed_at, CURRENT_TIMESTAMP)
+    WHERE chat_id = ? AND status = 'active' AND ends_at IS NOT NULL AND ends_at <= CURRENT_TIMESTAMP`)
+    .bind(chatId).run();
   const activeSextingSession = await env.DB.prepare(`SELECT id FROM sexting_sessions
-    WHERE chat_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1`)
+    WHERE chat_id = ? AND status = 'active' AND (ends_at IS NULL OR ends_at > CURRENT_TIMESTAMP)
+    ORDER BY id DESC LIMIT 1`)
     .bind(chatId).first<{ id: number }>();
   const collected = await collectQuickMessages(env.DB, chatId, message,
     Boolean(activeSextingSession));
@@ -1129,6 +1142,10 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   }
 
   if (activeSextingSession) {
+    if (isExplicitBusinessRequest(message.text)) {
+      await sendSavedReply(env, message, chatId, SEXTING_BUSINESS_DEFER_REPLY);
+      return json({ ok: true, active_sexting: true, business_deferred: true });
+    }
     let sextingReply = CREATOR_TAKEOVER;
     try {
       sextingReply = await createAIReply(env, chatId, message.text);
