@@ -878,12 +878,12 @@ export default function Home() {
                   {creator.daily_earnings.slice().reverse().map((day) => {
                     const dayKey = `${creator.key}:${day.date}`;
                     const open = ownerDayView === dayKey;
+                    const saleCount = day.transaction_count + day.star_transaction_count;
                     return (
                       <div className={open ? "open" : ""} role="row" key={day.date}>
                         <button disabled={!day.transaction_count && !day.star_transaction_count} onClick={() => setOwnerDayView(open ? null : dayKey)} type="button">
                           <span role="cell">{new Date(`${day.date}T12:00:00`).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}</span>
-                          <span role="cell">{day.transaction_count} cash · {day.star_transaction_count} Stars</span>
-                          <strong role="cell">{money(day.amount_cents)} · ⭐ {day.stars.toLocaleString()}</strong>
+                          <strong role="cell">{saleCount} {saleCount === 1 ? "sale" : "sales"} · {money(day.amount_cents)} cash · ⭐ {day.stars.toLocaleString()} Stars</strong>
                         </button>
                         {open && (
                           <div className="dailyItems">
