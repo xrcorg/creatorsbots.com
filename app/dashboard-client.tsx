@@ -900,14 +900,6 @@ export default function Home() {
         </aside>
 
         <aside className="creatorPanel visible" data-dashboard-view={dashboardView}>
-          <div className="creatorHeader">
-            <div>
-              <p className="eyebrow">Creator inbox</p>
-              <h2>Tiffani control room</h2>
-            </div>
-            <span className="liveBadge">Live</span>
-          </div>
-
           <nav className="controlRoomNav" aria-label="Control room sections">
             {(["today", "content", "settings", "history"] as const).map((view) => (
               <button className={dashboardView === view ? "active" : ""} key={view} onClick={() => setDashboardView(view)} type="button">
