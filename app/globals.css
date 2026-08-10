@@ -273,6 +273,7 @@ button { cursor: pointer; }
 .sessionCard { margin-top: 10px; padding: 12px; border: 1px solid #f1d3e2; border-radius: 14px; background: #fff8fb; }
 .sessionCard p { margin: 9px 0 4px; font-size: 11px; font-weight: 750; }
 .sessionCard > small { color: var(--muted); font-size: 9px; }
+.sessionCard .sessionControl { width: 100%; margin-top: 7px; border: 1px solid #e8bfd3; border-radius: 10px; padding: 8px; background: #fff; color: var(--deep-pink); font-size: 9px; font-weight: 800; }
 .mediaLibrary { margin-bottom: 16px; padding: 14px; border: 1px solid var(--line); border-radius: 16px; background: #fff; }
 .mediaLibrary form { display: grid; gap: 8px; }
 .mediaLibrary form label > span { display: block; margin-bottom: 4px; color: var(--muted); font-size: 9px; }

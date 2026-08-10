@@ -51,6 +51,8 @@ type LiveSextingSession = {
   duration_minutes: number;
   stars: number;
   status: "paid" | "active" | "completed";
+  control_mode?: "bot" | "human";
+  taken_over_at?: string;
   created_at?: string;
   started_at?: string;
   ends_at?: string;
@@ -571,7 +573,7 @@ export default function Home() {
     }
   }
 
-  async function updateSextingSession(id: number, action: "start" | "complete") {
+  async function updateSextingSession(id: number, action: "start" | "complete" | "takeover" | "resume") {
     try {
       setLiveLoading(true);
       const response = await fetch("/api/admin/sexting", {
@@ -1234,10 +1236,13 @@ export default function Home() {
               <div className="sessionCard" key={session.id}>
                 <div className="customMeta"><strong>{session.telegram_name}</strong><span>⭐ {session.stars.toLocaleString()}</span></div>
                 <p>{session.package_title}</p>
-                <small>{session.status === "paid" ? "Paid and waiting to start" : `Active until ${session.ends_at ? new Date(`${session.ends_at}Z`).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "complete"}`}</small>
+                <small>{session.status === "paid" ? "Paid and waiting to start" : `${session.control_mode === "human" ? "Creator responding personally" : "Bot responding"} until ${session.ends_at ? new Date(`${session.ends_at}Z`).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "complete"}`}</small>
                 <button className="primaryAction" disabled={liveLoading} onClick={() => void updateSextingSession(session.id, session.status === "paid" ? "start" : "complete")}>
                   {session.status === "paid" ? "Start session" : "Complete session"}
                 </button>
+                {session.status === "active" && <button className="sessionControl" disabled={liveLoading} onClick={() => void updateSextingSession(session.id, session.control_mode === "human" ? "resume" : "takeover")}>
+                  {session.control_mode === "human" ? "Return replies to bot" : "Take over in Telegram"}
+                </button>}
               </div>
             )) : <p className="queueNote">No paid sexting sessions waiting.</p>}
           </section>

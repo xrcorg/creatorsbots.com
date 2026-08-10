@@ -32,6 +32,7 @@ interface ExecutionContext {
 type TelegramMessage = {
   message_id: number;
   business_connection_id?: string;
+  sender_business_bot?: { id: number; is_bot?: boolean };
   chat: { id: number };
   from?: { id: number; is_bot?: boolean; username?: string; first_name?: string; last_name?: string };
   text?: string;
@@ -408,7 +409,9 @@ async function prepareDatabase(db: D1Database) {
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       started_at TEXT,
       ends_at TEXT,
-      completed_at TEXT
+      completed_at TEXT,
+      control_mode TEXT NOT NULL DEFAULT 'bot',
+      taken_over_at TEXT
     )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS sexting_drafts (
       chat_id TEXT PRIMARY KEY,
@@ -559,6 +562,13 @@ async function prepareDatabase(db: D1Database) {
   const disputeColumns = await db.prepare("PRAGMA table_info(sale_disputes)").all<{ name: string }>();
   if (!disputeColumns.results.some((column) => column.name === "stars")) {
     await db.prepare("ALTER TABLE sale_disputes ADD COLUMN stars INTEGER NOT NULL DEFAULT 0").run();
+  }
+  const sextingColumns = await db.prepare("PRAGMA table_info(sexting_sessions)").all<{ name: string }>();
+  if (!sextingColumns.results.some((column) => column.name === "control_mode")) {
+    await db.prepare("ALTER TABLE sexting_sessions ADD COLUMN control_mode TEXT NOT NULL DEFAULT 'bot'").run();
+  }
+  if (!sextingColumns.results.some((column) => column.name === "taken_over_at")) {
+    await db.prepare("ALTER TABLE sexting_sessions ADD COLUMN taken_over_at TEXT").run();
   }
 }
 
@@ -1137,6 +1147,24 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   const userId = message.from?.id ? String(message.from.id) : null;
   const connectionId = message.business_connection_id || null;
 
+  // A Telegram Business owner's outgoing message has the fan's chat id but the
+  // owner's sender id. Bot-authored business messages carry sender_business_bot.
+  // Treat a personal creator reply as an immediate handoff for an active session.
+  const isCreatorBusinessReply = Boolean(message.business_connection_id && message.from?.id !== message.chat.id &&
+    !message.sender_business_bot);
+  if (isCreatorBusinessReply) {
+    const takeover = await env.DB.prepare(`UPDATE sexting_sessions
+      SET control_mode = 'human', taken_over_at = CURRENT_TIMESTAMP
+      WHERE id = (SELECT id FROM sexting_sessions WHERE chat_id = ? AND status = 'active'
+        AND (ends_at IS NULL OR ends_at > CURRENT_TIMESTAMP) ORDER BY id DESC LIMIT 1)`)
+      .bind(chatId).run();
+    if (takeover.meta.changes) {
+      await saveMessage(env.DB, chatId, "assistant", message.text);
+      return json({ ok: true, creator_takeover: true });
+    }
+    return json({ ok: true, creator_message: true });
+  }
+
   await env.DB.prepare(`INSERT INTO fan_sessions
     (chat_id, telegram_user_id, business_connection_id)
     VALUES (?, ?, ?)
@@ -1242,9 +1270,16 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     message.text = remainder;
   }
 
-  const latestSextingSession = await env.DB.prepare(`SELECT id, status, ends_at FROM sexting_sessions
+  const latestSextingSession = await env.DB.prepare(`SELECT id, status, ends_at, control_mode FROM sexting_sessions
     WHERE chat_id = ? ORDER BY id DESC LIMIT 1`).bind(chatId)
-    .first<{ id: number; status: string; ends_at: string | null }>();
+    .first<{ id: number; status: string; ends_at: string | null; control_mode: string }>();
+  const activeHumanTakeover = latestSextingSession?.status === "active" &&
+    latestSextingSession.control_mode === "human" && (!latestSextingSession.ends_at ||
+      Date.parse(`${latestSextingSession.ends_at.replace(" ", "T")}Z`) > Date.now());
+  if (activeHumanTakeover) {
+    await saveMessage(env.DB, chatId, "user", message.text);
+    return json({ ok: true, creator_controlling_session: true });
+  }
   if (isSextingTimeQuestion(message.text) && latestSextingSession?.ends_at) {
     await new Promise((resolve) => setTimeout(resolve, randomResponseDelayMs(true)));
     const endTime = Date.parse(`${latestSextingSession.ends_at.replace(" ", "T")}Z`);
@@ -1260,10 +1295,10 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     completed_at = COALESCE(completed_at, CURRENT_TIMESTAMP)
     WHERE chat_id = ? AND status = 'active' AND ends_at IS NOT NULL AND ends_at <= CURRENT_TIMESTAMP`)
     .bind(chatId).run();
-  const activeSextingSession = await env.DB.prepare(`SELECT id FROM sexting_sessions
+  const activeSextingSession = await env.DB.prepare(`SELECT id, control_mode FROM sexting_sessions
     WHERE chat_id = ? AND status = 'active' AND (ends_at IS NULL OR ends_at > CURRENT_TIMESTAMP)
     ORDER BY id DESC LIMIT 1`)
-    .bind(chatId).first<{ id: number }>();
+    .bind(chatId).first<{ id: number; control_mode: string }>();
   const collected = await collectQuickMessages(env.DB, chatId, message,
     Boolean(activeSextingSession));
   if (!collected) return json({ ok: true, combined_with_newer_message: true });
@@ -1283,6 +1318,12 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   }
 
   if (activeSextingSession) {
+    const currentControl = await env.DB.prepare(`SELECT control_mode FROM sexting_sessions WHERE id = ?`)
+      .bind(activeSextingSession.id).first<{ control_mode: string }>();
+    if (currentControl?.control_mode === "human") {
+      await saveMessage(env.DB, chatId, "user", message.text);
+      return json({ ok: true, creator_controlling_session: true });
+    }
     if (isExplicitBusinessRequest(message.text)) {
       await sendSavedReply(env, message, chatId, SEXTING_BUSINESS_DEFER_REPLY);
       return json({ ok: true, active_sexting: true, business_deferred: true });
@@ -1296,7 +1337,12 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     if (await hasNewerBufferedMessage(env.DB, chatId, message.message_id)) {
       return json({ ok: true, combined_with_newer_message: true });
     }
+    const controlBeforeSend = await env.DB.prepare(`SELECT control_mode FROM sexting_sessions WHERE id = ?`)
+      .bind(activeSextingSession.id).first<{ control_mode: string }>();
     await saveMessage(env.DB, chatId, "user", message.text);
+    if (controlBeforeSend?.control_mode === "human") {
+      return json({ ok: true, creator_controlling_session: true });
+    }
     if (sextingReply === CREATOR_TAKEOVER) {
       if (settings.human_takeover !== "off") await queueCreatorReply(env.DB, message);
       return json({ ok: true, creator_reply_needed: true });
@@ -1780,7 +1826,7 @@ async function handleAdminPending(request: Request, env: Env) {
     amount_cents, delivery_url, completed_at FROM custom_fulfillments WHERE status = 'completed'
     ORDER BY completed_at DESC LIMIT 50`).all();
   const sextingSessions = await env.DB.prepare(`SELECT id, telegram_name, package_title,
-    duration_minutes, stars, status, created_at, started_at, ends_at
+    duration_minutes, stars, status, control_mode, taken_over_at, created_at, started_at, ends_at
     FROM sexting_sessions WHERE status IN ('paid', 'active') ORDER BY id ASC LIMIT 100`).all();
   const sextingHistory = await env.DB.prepare(`SELECT id, telegram_name, package_title,
     duration_minutes, stars, completed_at FROM sexting_sessions WHERE status = 'completed'
@@ -2414,15 +2460,19 @@ async function handleAdminTraining(request: Request, env: Env, url: URL) {
 async function handleAdminSexting(request: Request, env: Env) {
   if (!await isAdminRequest(request, env)) return json({ error: "Sign in required" }, 401);
   await prepareDatabase(env.DB);
-  const body = await request.json() as { id?: number; action?: "start" | "complete" };
+  const body = await request.json() as { id?: number; action?: "start" | "complete" | "takeover" | "resume" };
   if (!body.id || !body.action) return json({ error: "A session action is required" }, 400);
+  if (!["start", "complete", "takeover", "resume"].includes(body.action)) {
+    return json({ error: "That session action is not supported" }, 400);
+  }
   const session = await env.DB.prepare(`SELECT id, chat_id, business_connection_id,
-    duration_minutes, status, started_at, ends_at FROM sexting_sessions WHERE id = ?`).bind(body.id).first<{
+    duration_minutes, status, control_mode, started_at, ends_at FROM sexting_sessions WHERE id = ?`).bind(body.id).first<{
       id: number;
       chat_id: string;
       business_connection_id: string | null;
       duration_minutes: number;
       status: string;
+      control_mode: string;
       started_at: string | null;
       ends_at: string | null;
     }>();
@@ -2437,8 +2487,14 @@ async function handleAdminSexting(request: Request, env: Env) {
     const reply = `I'm ready, babe. Our ${session.duration_minutes} minute session starts now.`;
     await sendTelegramMessage(env, telegramMessage, reply);
     await saveMessage(env.DB, session.chat_id, "assistant", reply);
-    await env.DB.prepare(`UPDATE sexting_sessions SET status = 'active', started_at = CURRENT_TIMESTAMP,
+    await env.DB.prepare(`UPDATE sexting_sessions SET status = 'active', control_mode = 'bot',
+      taken_over_at = NULL, started_at = CURRENT_TIMESTAMP,
       ends_at = datetime('now', '+' || ? || ' minutes') WHERE id = ?`).bind(session.duration_minutes, session.id).run();
+  } else if (body.action === "takeover" || body.action === "resume") {
+    if (session.status !== "active") return json({ error: "Session is not active" }, 409);
+    await env.DB.prepare(`UPDATE sexting_sessions SET control_mode = ?, taken_over_at = ? WHERE id = ?`)
+      .bind(body.action === "takeover" ? "human" : "bot",
+        body.action === "takeover" ? new Date().toISOString() : null, session.id).run();
   } else {
     if (session.status !== "active") return json({ error: "Session is not active" }, 409);
     const latestUserMessage = await env.DB.prepare(`SELECT content FROM chat_messages
