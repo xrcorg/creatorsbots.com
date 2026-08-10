@@ -496,6 +496,7 @@ async function prepareDatabase(db: D1Database) {
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_test_mode', 'off')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_intensity', 'soft')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_rate', '10')"),
+    db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_min_minutes', '5')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_5_stars', '500')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_10_stars', '1000')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_15_stars', '6000')"),
@@ -505,6 +506,7 @@ async function prepareDatabase(db: D1Database) {
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sleep_start', '02:00')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sleep_end', '08:00')"),
     db.prepare("UPDATE app_settings SET value = 'off', updated_at = CURRENT_TIMESTAMP WHERE key = 'sexting_test_mode'"),
+    db.prepare("UPDATE app_settings SET value = 'on', updated_at = CURRENT_TIMESTAMP WHERE key = 'human_takeover'"),
     db.prepare("UPDATE app_settings SET value = '500', updated_at = CURRENT_TIMESTAMP WHERE key = 'sexting_5_stars' AND value = '3850'"),
     db.prepare(`INSERT OR IGNORE INTO creator_social_links (platform, label, url)
       VALUES ('Instagram', '@tiffanimadisonvip', ?)`).bind(INSTAGRAM_URL),
@@ -710,15 +712,19 @@ function isPermanentlyRestrictedTopic(text: string) {
 }
 
 function sextingPackage(text: string, settings: Record<string, string>) {
+  const minimumMinutes = Math.max(1, Math.min(9, Number(settings.sexting_min_minutes || 5)));
+  const numberWords = ["", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
   if (/\b(10|ten)\b/.test(text)) return { key: "text10", title: "10 minute sexting session", minutes: 10, stars: Number(settings.sexting_10_stars || 1000) };
-  if (/\b(5|five)\b/.test(text)) return { key: "text5", title: "5 minute sexting session", minutes: 5, stars: Number(settings.sexting_5_stars || 500) };
+  if (new RegExp(`\\b(?:${minimumMinutes}|${numberWords[minimumMinutes]}|minimum|short)\\b`, "i").test(text)) {
+    return { key: "text5", title: `${minimumMinutes} minute sexting session`, minutes: minimumMinutes, stars: Number(settings.sexting_5_stars || 500) };
+  }
   return null;
 }
 
 function sextingSessionMinutes(packageKey: string, purchasedMinutes: number) {
-  const [minimum, maximum] = packageKey === "text5" ? [6, 8]
-    : packageKey === "text10" ? [11, 13]
-      : [purchasedMinutes, purchasedMinutes];
+  const [minimum, maximum] = packageKey === "text5" || packageKey === "text10"
+    ? [purchasedMinutes + 1, purchasedMinutes + 3]
+    : [purchasedMinutes, purchasedMinutes];
   return Math.floor(minimum + Math.random() * (maximum - minimum + 1));
 }
 
@@ -731,7 +737,8 @@ function isSextingTimeQuestion(text: string) {
 }
 
 function sextingMenu(settings: Record<string, string>) {
-  return `Sexting is ${settings.sexting_5_stars || "500"} Stars for 5 minutes or ${settings.sexting_10_stars || "1000"} Stars for 10 minutes, babe. Which one do you want?`;
+  const minimumMinutes = Math.max(1, Math.min(9, Number(settings.sexting_min_minutes || 5)));
+  return `Sexting is ${settings.sexting_5_stars || "500"} Stars for ${minimumMinutes} minutes or ${settings.sexting_10_stars || "1000"} Stars for 10 minutes, babe. Which one do you want?`;
 }
 
 async function createSextingCheckout(env: Env, message: TelegramMessage,
@@ -1353,7 +1360,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     }
     const selected = sextingPackage(message.text, settings) ||
       (isSextingPaymentQuestion(message.text) || isAffirmativeReply(message.text)
-        ? { key: "text5", title: "5 minute sexting session", minutes: 5, stars: Number(settings.sexting_5_stars || 500) }
+        ? { key: "text5", title: `${Math.max(1, Math.min(9, Number(settings.sexting_min_minutes || 5)))} minute sexting session`, minutes: Math.max(1, Math.min(9, Number(settings.sexting_min_minutes || 5))), stars: Number(settings.sexting_5_stars || 500) }
         : null);
     if (!selected) {
       await sendTelegramMessage(env, message, sextingMenu(settings));
@@ -2434,7 +2441,6 @@ async function handleAdminSettings(request: Request, env: Env) {
   const body = await request.json() as { key?: string; value?: string };
   const allowed: Record<string, string[]> = {
     flirty_level: ["soft", "flirty", "very"],
-    human_takeover: ["on", "off"],
     learning: ["approval", "off"],
     custom_approval: ["required", "off"],
     sexting_enabled: ["on", "off"],
@@ -2444,16 +2450,19 @@ async function handleAdminSettings(request: Request, env: Env) {
   };
   const rateKeys = ["video_chat_rate", "custom_content_rate", "in_person_rate", "sexting_rate"];
   const starKeys = ["sexting_5_stars", "sexting_10_stars"];
+  const minuteKeys = ["sexting_min_minutes"];
   const textKeys = ["preferred_topics", "avoid_topics", "tone_guidance", "creator_feedback"];
   const timeKeys = ["sleep_start", "sleep_end"];
   const validRate = body.key && rateKeys.includes(body.key) && body.value &&
     Number.isFinite(Number(body.value)) && Number(body.value) > 0 && Number(body.value) <= 100000;
   const validStars = body.key && starKeys.includes(body.key) && body.value &&
     Number.isInteger(Number(body.value)) && Number(body.value) > 0 && Number(body.value) <= 10000;
+  const validMinutes = body.key && minuteKeys.includes(body.key) && body.value &&
+    Number.isInteger(Number(body.value)) && Number(body.value) >= 1 && Number(body.value) <= 9;
   const validText = body.key && textKeys.includes(body.key) && typeof body.value === "string" && body.value.length <= 4000;
   const validTime = body.key && timeKeys.includes(body.key) && typeof body.value === "string" &&
     /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(body.value);
-  if (!body.key || typeof body.value !== "string" || (!allowed[body.key]?.includes(body.value) && !validRate && !validStars && !validText && !validTime)) {
+  if (!body.key || typeof body.value !== "string" || (!allowed[body.key]?.includes(body.value) && !validRate && !validStars && !validMinutes && !validText && !validTime)) {
     return json({ error: "Invalid setting" }, 400);
   }
   await env.DB.prepare(`INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
