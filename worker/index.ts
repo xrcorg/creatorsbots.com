@@ -1211,7 +1211,11 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   }
 
   if (isInPersonSexSolicitation(message.text)) {
-    const redirect = "I don't arrange sex in person. We can do a paid sexting session or private video chat instead.";
+    await env.DB.prepare(`INSERT INTO booking_drafts (chat_id, business_connection_id, status)
+      VALUES (?, ?, 'awaiting_details') ON CONFLICT(chat_id) DO UPDATE SET
+      business_connection_id = excluded.business_connection_id, status = 'awaiting_details',
+      updated_at = CURRENT_TIMESTAMP`).bind(chatId, message.business_connection_id || null).run();
+    const redirect = "I do fan meet and greets and custom videos, but I don't discuss paid sexual services here. If you want to set up a fan meet and greet, tell me what city you're in and I'll check when I'm nearby.";
     await saveMessage(env.DB, chatId, "user", message.text);
     await saveMessage(env.DB, chatId, "assistant", redirect);
     await sendTelegramMessage(env, message, redirect);
