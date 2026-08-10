@@ -848,18 +848,19 @@ async function queueCreatorReply(db: D1Database, message: TelegramMessage) {
 
 function randomResponseDelayMs(activeSexting: boolean) {
   const minimumSeconds = activeSexting ? 10 : 30;
-  const maximumSeconds = activeSexting ? 15 : 300;
-  return Math.floor((minimumSeconds + Math.random() * (maximumSeconds - minimumSeconds + 1)) * 1000);
+  const maximumSeconds = activeSexting ? 10 : 300;
+  return Math.floor((minimumSeconds + Math.random() * (maximumSeconds - minimumSeconds)) * 1000);
 }
 
 async function collectQuickMessages(db: D1Database, chatId: string, message: TelegramMessage,
-  responseDelayMs: number) {
-  await db.prepare(`INSERT OR IGNORE INTO inbound_message_buffer
+  activeSexting: boolean) {
+  const inserted = await db.prepare(`INSERT OR IGNORE INTO inbound_message_buffer
     (chat_id, message_id, message_text) VALUES (?, ?, ?)`)
     .bind(chatId, message.message_id, message.text || "")
     .run();
+  if (!inserted.meta.changes) return null;
 
-  await new Promise((resolve) => setTimeout(resolve, responseDelayMs));
+  await new Promise((resolve) => setTimeout(resolve, randomResponseDelayMs(activeSexting)));
 
   const latest = await db.prepare(`SELECT MAX(message_id) AS message_id
     FROM inbound_message_buffer WHERE chat_id = ?`)
@@ -867,8 +868,17 @@ async function collectQuickMessages(db: D1Database, chatId: string, message: Tel
     .first<{ message_id: number | null }>();
   if (latest?.message_id !== message.message_id) return null;
 
+  if (activeSexting) {
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+    const settledLatest = await db.prepare(`SELECT MAX(message_id) AS message_id
+      FROM inbound_message_buffer WHERE chat_id = ?`)
+      .bind(chatId)
+      .first<{ message_id: number | null }>();
+    if (settledLatest?.message_id !== message.message_id) return null;
+  }
+
   const buffered = await db.prepare(`SELECT message_id, message_text
-    FROM inbound_message_buffer WHERE chat_id = ? AND created_at >= datetime('now', '-30 seconds')
+    FROM inbound_message_buffer WHERE chat_id = ? AND created_at >= datetime('now', '-10 minutes')
     ORDER BY message_id ASC LIMIT 10`)
     .bind(chatId)
     .all<{ message_id: number; message_text: string }>();
@@ -1099,7 +1109,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     WHERE chat_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1`)
     .bind(chatId).first<{ id: number }>();
   const collected = await collectQuickMessages(env.DB, chatId, message,
-    randomResponseDelayMs(Boolean(activeSextingSession)));
+    Boolean(activeSextingSession));
   if (!collected) return json({ ok: true, combined_with_newer_message: true });
   message.text = collected.text;
 
