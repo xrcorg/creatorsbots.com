@@ -265,6 +265,16 @@ button { cursor: pointer; }
 .voiceReviewFlag { display: block; margin-top: 5px; color: #a02c4d; font-size: 7px; font-weight: 800; }
 .conversationPlaceholder { margin: auto; padding: 24px; color: var(--muted); font-size: 10px; line-height: 1.5; text-align: center; }
 .conversationNotice { margin: 0; padding: 9px 12px; border-top: 1px solid #eddde5; background: #f5fff8; color: #28744a; font-size: 8px; }
+.quickReplies { display: grid; gap: 8px; padding: 11px 12px; border-top: 1px solid #eddde5; background: #fff9fc; }
+.quickReplyHeading { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.quickReplyHeading strong { font-size: 10px; }
+.quickReplyHeading small { color: var(--muted); font-size: 7px; }
+.quickReplyCategories, .quickReplyOptions { display: flex; flex-wrap: wrap; gap: 6px; }
+.quickReplyCategories button, .quickReplyOptions button { border: 1px solid #e8c8d7; border-radius: 999px; padding: 6px 9px; background: white; color: #75465c; font-size: 8px; font-weight: 800; }
+.quickReplyCategories button.selected { border-color: var(--pink); background: var(--pink); color: white; }
+.quickReplyOptions button:hover { border-color: var(--pink); background: #fff0f7; }
+.quickReplyProduct { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px; color: var(--muted); font-size: 8px; font-weight: 800; }
+.quickReplyProduct select { min-width: 0; border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; background: white; color: var(--ink); font: inherit; font-size: 8px; }
 .conversationReplyForm { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding: 12px; border-top: 1px solid #eddde5; background: white; }
 .conversationReplyForm textarea { min-height: 64px; resize: vertical; border: 1px solid var(--line); border-radius: 10px; padding: 10px; color: var(--ink); font: inherit; font-size: 10px; }
 .conversationReplyForm .primaryAction { align-self: stretch; margin: 0; padding-inline: 18px; }

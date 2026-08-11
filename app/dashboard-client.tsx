@@ -218,6 +218,8 @@ type ConversationMessage = {
   voice_status?: "creator_review";
 };
 
+type QuickReplyCategory = "general" | "content" | "custom" | "video_chat" | "payment" | "boundaries";
+
 type PlatformOverview = {
   creator_count: number;
   active_creator_count: number;
@@ -344,6 +346,8 @@ export default function Home() {
   const [conversationSearch, setConversationSearch] = useState("");
   const [conversationStatus, setConversationStatus] = useState("");
   const [conversationReply, setConversationReply] = useState("");
+  const [quickReplyCategory, setQuickReplyCategory] = useState<QuickReplyCategory>("content");
+  const [quickReplyProductId, setQuickReplyProductId] = useState(0);
   const [livePurchases, setLivePurchases] = useState<LivePurchase[]>([]);
   const [purchaseHistory, setPurchaseHistory] = useState<LivePurchase[]>([]);
   const [liveBookings, setLiveBookings] = useState<LiveBooking[]>([]);
@@ -639,6 +643,34 @@ export default function Home() {
     } finally {
       setLiveLoading(false);
     }
+  }
+
+  function fillQuickReply(template: string) {
+    const products = contentProducts.filter((product) => product.active && !["physical_item", "video_rating"].includes(product.content_type));
+    const product = products.find((item) => item.id === quickReplyProductId) || products[0];
+    const productPrice = product ? money(product.price_cents) : "";
+    const catalog = products.slice(0, 8).map((item) => `${item.title} · ${money(item.price_cents)}`).join("\n");
+    const replies: Record<string, string> = {
+      saw_message: "Hey babe, I saw your message. What did you want to know?",
+      busy: "Hey babe, I'm busy right now, but I'll reply as soon as I can. Please be patient with me.",
+      anything_else: "Got it! Lmk if there's anything else you want!",
+      catalog: catalog ? `Here's what I have available right now:\n\n${catalog}\n\nTell me which one you want and I'll send you the details.` : "I'm adding new content soon, babe. What kind of content do you want to see?",
+      trailer: product?.trailer_url ? `Here's the trailer for ${product.title}, babe:\n${product.trailer_url}\n\nThe full video is ${productPrice}. Do you want to buy it?` : product ? `I have ${product.title}, babe. I don't have a trailer link ready here, but the full video is ${productPrice}. Do you want the details?` : "Which video did you want the trailer for, babe?",
+      product_details: product ? `I have ${product.title}${product.actors ? ` starring ${product.actors}` : ""}.${product.genre ? ` It's ${product.genre}.` : ""} It's ${productPrice}. Do you want to buy it?` : "Which video did you want more details about, babe?",
+      product_payment: product ? `Please send ${productPrice} and put your Telegram username in the notes. Send me a screenshot after you send it and I'll verify it before I send you ${product.title}.` : "Tell me which video you want and I'll send you the payment details.",
+      custom_start: "Yeah babe, I make customs. Tell me what you want and how long you want it to be.",
+      custom_more: "Anything else you want me to add?",
+      custom_review: "Got it! I'll review everything and let you know what it will cost.",
+      custom_quote: "I can't quote you until I know what you want and for how long. Can you send me your idea?",
+      video_chat: `Video chats happen right here on Telegram and are $${settings.video_chat_rate} per minute with a 5 minute minimum. What date and time works for you?`,
+      video_chat_schedule: "Send me your preferred date, time, and how many minutes you want. I'll check my schedule and get back to you.",
+      payment_options: "I accept Cash App, Venmo, and Zelle. Tell me what you're buying and I'll send you the payment information.",
+      payment_screenshot: "Please put your Telegram username in the payment notes and send me a screenshot after you send it.",
+      payment_received: "Ok, thanks babe. Let me check when I get the chance and I'll send you the link!",
+      telegram_tos: "I don't discuss in person sex on here due to Telegram TOS. I don't want to get banned.",
+      unavailable: "I can't help with that, babe. We can talk about something else if you want.",
+    };
+    setConversationReply(replies[template] || "");
   }
 
   async function setConversationBotMode(chatId: string, botEnabled: boolean) {
@@ -1267,6 +1299,7 @@ export default function Home() {
       conversation.last_message.toLowerCase().includes(search);
   });
   const selectedConversation = conversations.find((conversation) => conversation.chat_id === selectedConversationId) || null;
+  const quickReplyProducts = contentProducts.filter((product) => product.active && !["physical_item", "video_rating"].includes(product.content_type));
   const openAgendaCount = selectedAgendaTasks.filter((task) => task.status === "open").length + physicalOrders.length + ratingOrders.length;
   const unscheduledCount = liveBookings.length + liveCustoms.length + livePurchases.length + sextingSessions.length + physicalOrders.length + ratingOrders.length;
   const pendingSaleDisputes = saleDisputes.filter((dispute) => dispute.status === "pending");
@@ -1571,6 +1604,21 @@ export default function Home() {
                     )) : <p className="conversationPlaceholder">{conversationStatus || "No saved messages in this conversation."}</p>}
                   </div>
                   {conversationStatus && conversationMessages.length > 0 && <p className="conversationNotice">{conversationStatus}</p>}
+                  <div className="quickReplies">
+                    <div className="quickReplyHeading"><strong>Quick replies</strong><small>Choose one to fill the message, then edit or send it.</small></div>
+                    <div className="quickReplyCategories">
+                      {(["general", "content", "custom", "video_chat", "payment", "boundaries"] as QuickReplyCategory[]).map((category) => <button className={quickReplyCategory === category ? "selected" : ""} key={category} onClick={() => setQuickReplyCategory(category)} type="button">{category === "video_chat" ? "Video chat" : category}</button>)}
+                    </div>
+                    {quickReplyCategory === "content" && <label className="quickReplyProduct"><span>Video or content</span><select value={quickReplyProductId || quickReplyProducts[0]?.id || 0} onChange={(event) => setQuickReplyProductId(Number(event.target.value))}>{quickReplyProducts.length ? quickReplyProducts.map((product) => <option key={product.id} value={product.id}>{product.title}</option>) : <option value={0}>No active content</option>}</select></label>}
+                    <div className="quickReplyOptions">
+                      {quickReplyCategory === "general" && <><button onClick={() => fillQuickReply("saw_message")} type="button">Saw your message</button><button onClick={() => fillQuickReply("busy")} type="button">Busy right now</button><button onClick={() => fillQuickReply("anything_else")} type="button">Anything else</button></>}
+                      {quickReplyCategory === "content" && <><button onClick={() => fillQuickReply("catalog")} type="button">Show catalog</button><button onClick={() => fillQuickReply("trailer")} type="button">Send trailer for</button><button onClick={() => fillQuickReply("product_details")} type="button">Send details</button><button onClick={() => fillQuickReply("product_payment")} type="button">Payment instructions</button></>}
+                      {quickReplyCategory === "custom" && <><button onClick={() => fillQuickReply("custom_start")} type="button">Ask for idea</button><button onClick={() => fillQuickReply("custom_more")} type="button">Anything else</button><button onClick={() => fillQuickReply("custom_review")} type="button">Review request</button><button onClick={() => fillQuickReply("custom_quote")} type="button">Need details first</button></>}
+                      {quickReplyCategory === "video_chat" && <><button onClick={() => fillQuickReply("video_chat")} type="button">Rate and minimum</button><button onClick={() => fillQuickReply("video_chat_schedule")} type="button">Ask for schedule</button></>}
+                      {quickReplyCategory === "payment" && <><button onClick={() => fillQuickReply("payment_options")} type="button">Payment options</button><button onClick={() => fillQuickReply("payment_screenshot")} type="button">Request screenshot</button><button onClick={() => fillQuickReply("payment_received")} type="button">Payment received</button></>}
+                      {quickReplyCategory === "boundaries" && <><button onClick={() => fillQuickReply("telegram_tos")} type="button">Telegram TOS</button><button onClick={() => fillQuickReply("unavailable")} type="button">Cannot help</button></>}
+                    </div>
+                  </div>
                   <form className="conversationReplyForm" onSubmit={sendConversationReply}>
                     <textarea maxLength={4000} value={conversationReply} onChange={(event) => setConversationReply(event.target.value)} placeholder={`Reply to ${selectedConversation.telegram_name}`} />
                     <button className="primaryAction" disabled={liveLoading || !conversationReply.trim()}>Send reply</button>
