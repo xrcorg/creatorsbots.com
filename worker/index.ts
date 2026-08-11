@@ -1825,7 +1825,8 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       WHERE chat_id = ?`).bind(chatId).run();
     customDraft.status = "cancelled";
   }
-  const cancelCustomDraft = isGenericCancelReply(message.text) || isCustomDecline(message.text);
+  const continueCustomDraft = /^(?:no|nope|not yet|i(?:'m| am) not done|i have more|let me add more|one more thing)[.! ]*$/i.test(message.text.trim());
+  const cancelCustomDraft = !continueCustomDraft && (isGenericCancelReply(message.text) || isCustomDecline(message.text));
   if (customDraft?.status === "awaiting_details") {
     if (cancelCustomDraft) {
       await env.DB.prepare(`UPDATE custom_drafts SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
@@ -1833,6 +1834,11 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       await saveMessage(env.DB, chatId, "user", message.text);
       await saveMessage(env.DB, chatId, "assistant", CUSTOM_CANCELLATION_REPLY);
       await sendTelegramMessage(env, message, CUSTOM_CANCELLATION_REPLY);
+      return json({ ok: true });
+    }
+    if (continueCustomDraft) {
+      const continueReply = "Okay babe, keep going. Send me everything you want, then tell me when that's everything.";
+      await sendSavedReply(env, message, chatId, continueReply);
       return json({ ok: true });
     }
     if (isManualPaymentQuestion(message.text)) {
@@ -1876,7 +1882,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     await env.DB.prepare(`UPDATE custom_drafts
       SET details = ?, updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?`)
       .bind(combinedCustomDetails, chatId).run();
-    const acknowledgement = "Got it. Keep going, babe, and say done when you're finished.";
+    const acknowledgement = "Got it, babe. Is that everything, or do you want to add more?";
     await saveMessage(env.DB, chatId, "user", message.text);
     await saveMessage(env.DB, chatId, "assistant", acknowledgement);
     await sendTelegramMessage(env, message, acknowledgement);
