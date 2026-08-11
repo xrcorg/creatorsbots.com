@@ -1938,26 +1938,22 @@ export default function Home() {
               </button>
             </div>
           ) : livePending.length ? (
-            <div className="takeoverCard dashboardSection dashboardToday">
-              <div className="alertTitle"><span>!</span> Reply requested</div>
-              <p className="fanQuestion">“{livePending[0].question}”</p>
-              <div className="botPaused">The bot stayed silent so you can answer personally.</div>
-              <textarea
-                aria-label="Creator reply"
-                onChange={(event) => setCreatorReply(event.target.value)}
-                placeholder="Type as Tiffani..."
-                value={creatorReply}
-              />
-              {settings.learning === "approval" && (
-                <button className="primaryAction" disabled={liveLoading} onClick={() => void sendLiveCreatorReply(true)}>
-                  Send and save for later
-                </button>
-              )}
-              <button className="secondaryAction" disabled={liveLoading} onClick={() => void sendLiveCreatorReply(false)}>
-                Send once
-              </button>
-              <button className="ignoreAction" disabled={liveLoading} onClick={() => void ignoreLiveQuestion()}>
-                Ignore
+            <div className="inboxQueueNotice dashboardSection dashboardToday">
+              <span className="inboxQueueIcon">!</span>
+              <div>
+                <strong>{livePending.length} {livePending.length === 1 ? "chat needs" : "chats need"} your reply</strong>
+                <small>Open the Inbox to review the conversation and respond.</small>
+              </div>
+              <button
+                className="primaryAction"
+                onClick={() => {
+                  const conversation = conversations.find((item) => Number(item.pending_count) > 0);
+                  if (conversation) openConversationFromAdmin(conversation.chat_id);
+                  else setDashboardView("inbox");
+                }}
+                type="button"
+              >
+                Open inbox
               </button>
             </div>
           ) : (
