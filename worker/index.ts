@@ -1273,7 +1273,7 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
   }
 
   if (request.method === "POST" && url.pathname === "/api/admin/conversations/reply") {
-    const body = await request.json<{ chat_id?: string; text?: string; action?: "send" | "resume" }>();
+    const body = await request.json<{ chat_id?: string; text?: string; action?: "send" | "pause" | "resume" }>();
     const chatId = String(body.chat_id || "").trim();
     if (!chatId) return json({ error: "A conversation is required" }, 400);
     const conversation = await env.DB.prepare(`SELECT fan_sessions.chat_id,
@@ -1292,6 +1292,19 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
           AND ends_at > CURRENT_TIMESTAMP`).bind(chatId),
       ]);
       return json({ ok: true, control_mode: "bot" });
+    }
+
+    if (body.action === "pause") {
+      await env.DB.batch([
+        env.DB.prepare(`INSERT INTO conversation_controls (chat_id, control_mode, taken_over_by, updated_at)
+          VALUES (?, 'human', ?, CURRENT_TIMESTAMP)
+          ON CONFLICT(chat_id) DO UPDATE SET control_mode = 'human', taken_over_by = excluded.taken_over_by,
+          updated_at = CURRENT_TIMESTAMP`).bind(chatId, portalUser.email),
+        env.DB.prepare(`UPDATE sexting_sessions SET control_mode = 'human', taken_over_at = CURRENT_TIMESTAMP
+          WHERE chat_id = ? AND status = 'active' AND ends_at IS NOT NULL
+          AND ends_at > CURRENT_TIMESTAMP`).bind(chatId),
+      ]);
+      return json({ ok: true, control_mode: "human" });
     }
 
     const reply = String(body.text || "").trim();

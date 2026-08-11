@@ -248,7 +248,13 @@ button { cursor: pointer; }
 .conversationDetail > header small { color: var(--muted); font-size: 8px; }
 .conversationHeaderActions { display: flex !important; grid-auto-flow: column; align-items: center; gap: 7px; }
 .resetConversation { border: 1px solid #e1a6b7; border-radius: 9px; padding: 7px 9px; background: #fff7f8; color: #a02c4d; font-size: 8px; font-weight: 850; }
-.resumeConversation { border: 1px solid #9ed8b4; border-radius: 9px; padding: 7px 9px; background: #f1fff6; color: #28744a; font-size: 8px; font-weight: 850; }
+.botReplySwitch { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 8px; font-weight: 850; cursor: pointer; }
+.botReplySwitch input { position: absolute; opacity: 0; pointer-events: none; }
+.botReplySwitch i { position: relative; width: 29px; height: 17px; border-radius: 999px; background: #d8cdd2; transition: background 150ms ease; }
+.botReplySwitch i::after { content: ""; position: absolute; width: 13px; height: 13px; top: 2px; left: 2px; border-radius: 50%; background: white; box-shadow: 0 1px 3px #0003; transition: transform 150ms ease; }
+.botReplySwitch input:checked + i { background: #40b978; }
+.botReplySwitch input:checked + i::after { transform: translateX(12px); }
+.botReplySwitch input:disabled + i { opacity: .55; }
 .conversationTranscript { flex: 1; max-height: 560px; overflow: auto; display: flex; flex-direction: column; gap: 9px; padding: 14px; background: #fcfafb; }
 .conversationTranscript article { max-width: 82%; padding: 9px 11px; border-radius: 12px; }
 .conversationTranscript article.user { align-self: flex-start; background: white; border: 1px solid #eadfe4; }
