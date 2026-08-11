@@ -9,6 +9,7 @@ import {
   isBotQuestion,
   isCancelReply,
   isCatalogContentRequest,
+  isCatalogFollowUpQuestion,
   isConversationReset,
   isConversationQuestion,
   isCustomDecline,
@@ -52,6 +53,13 @@ test("specific catalog searches win over stray sexting words", () => {
     assert.equal(isCatalogContentRequest(message), true, message);
   }
   assert.equal(isCatalogContentRequest("Sext"), false);
+});
+
+test("catalog follow ups stay in the active shopping flow", () => {
+  for (const message of ["What else do you have?", "Anything else?", "Something else available?"]) {
+    assert.equal(isCatalogFollowUpQuestion(message), true, message);
+  }
+  assert.equal(isCatalogFollowUpQuestion("What else do you like?"), false);
 });
 
 test("a fan can explicitly reset a stuck conversation", () => {

@@ -66,6 +66,12 @@ export function isCatalogContentRequest(text: string) {
     /\b(?:any|some)\s+(?:[a-z0-9&/]+\s+){1,5}(?:videos?|photos?|content|sets?|bundles?)\b/i.test(text);
 }
 
+export function isCatalogFollowUpQuestion(text: string) {
+  const value = text.trim();
+  return /^(?:what|anything|something)\s+else\s+(?:(?:do|have)\s+)?you\s+(?:have|got)(?:\s+(?:for sale|available))?[?!. ]*$/i.test(value) ||
+    /^(?:what|anything|something)\s+else(?:\s+(?:(?:is|do you have)\s+)?available)?[?!. ]*$/i.test(value);
+}
+
 export function isConversationReset(text: string) {
   return /^(?:\/reset|reset(?: the)? chat|reset conversation|start over|start fresh|normal chat|exit sexting|leave sexting)[?!. ]*$/i.test(text.trim());
 }
