@@ -81,9 +81,6 @@ const INTRO = "Hey, it's Tiffany. What are you up to?";
 const NAME_PROMPT = "What's your name, babe?";
 const CLOSED = "I can only chat with adults who are 18 or older. This conversation is now closed.";
 const CREATOR_TAKEOVER = "__TIFFANI_TAKEOVER__";
-// Fast testing bypasses creator sleep hours and keeps only a short batching window.
-// Set this back to false before production launch to restore natural response timing.
-const IMMEDIATE_TEST_RESPONSES = true;
 const CAPABILITIES = "I can help you book a private video chat with me here on Telegram or an in person fan meet and greet. You can also buy photo and video content, shop clothing or worn items, request custom content, get a private video rating, or have a private sexting session with me. What sounds fun?";
 const INSTAGRAM_URL = "https://www.instagram.com/tiffanimadisonvip/?hl=en";
 const PORNHUB_URL = "https://www.pornhub.com/pornstar/tiffani-madison";
@@ -686,6 +683,7 @@ async function prepareDatabase(db: D1Database) {
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_30_stars', '10000')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_media_stars', '10000')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sleep_hours_enabled', 'on')"),
+    db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('response_test_mode', 'off')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sleep_start', '02:00')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sleep_end', '08:00')"),
     db.prepare("UPDATE app_settings SET value = 'off', updated_at = CURRENT_TIMESTAMP WHERE key = 'sexting_test_mode'"),
@@ -1520,8 +1518,8 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
   return json({ error: "Conversation request not found" }, 404);
 }
 
-function randomResponseDelayMs(activeSexting: boolean) {
-  if (IMMEDIATE_TEST_RESPONSES) return 3000;
+function randomResponseDelayMs(activeSexting: boolean, fastTesting = false) {
+  if (fastTesting) return 3000;
   const minimumSeconds = activeSexting ? 20 : 30;
   const maximumSeconds = activeSexting ? 25 : 180;
   return Math.floor((minimumSeconds + Math.random() * (maximumSeconds - minimumSeconds)) * 1000);
@@ -1543,14 +1541,14 @@ function presenceReply(messageId: number, activeSexting: boolean) {
 }
 
 async function collectQuickMessages(db: D1Database, chatId: string, message: TelegramMessage,
-  activeSexting: boolean) {
+  activeSexting: boolean, fastTesting: boolean) {
   const inserted = await db.prepare(`INSERT OR IGNORE INTO inbound_message_buffer
     (chat_id, message_id, message_text) VALUES (?, ?, ?)`)
     .bind(chatId, message.message_id, message.text || "")
     .run();
   if (!inserted.meta.changes) return null;
 
-  await new Promise((resolve) => setTimeout(resolve, randomResponseDelayMs(activeSexting)));
+  await new Promise((resolve) => setTimeout(resolve, randomResponseDelayMs(activeSexting, fastTesting)));
 
   const latest = await db.prepare(`SELECT MAX(message_id) AS message_id
     FROM inbound_message_buffer WHERE chat_id = ?`)
@@ -1847,7 +1845,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   if (session?.age_status === "blocked") return json({ ok: true });
 
   const settings = await getSettings(env.DB);
-  if (!IMMEDIATE_TEST_RESPONSES && isTiffaniSleeping(settings)) {
+  if (settings.response_test_mode !== "on" && isTiffaniSleeping(settings)) {
     await saveMessage(env.DB, chatId, "user", message.text);
     await queueCreatorReply(env.DB, message);
     return json({ ok: true });
@@ -2009,7 +2007,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     return json({ ok: true, creator_controlling_session: true });
   }
   if (isSextingTimeQuestion(message.text) && latestSextingSession?.ends_at) {
-    await new Promise((resolve) => setTimeout(resolve, randomResponseDelayMs(true)));
+    await new Promise((resolve) => setTimeout(resolve, randomResponseDelayMs(true, settings.response_test_mode === "on")));
     const endTime = Date.parse(`${latestSextingSession.ends_at.replace(" ", "T")}Z`);
     const secondsLeft = Math.max(0, Math.ceil((endTime - Date.now()) / 1000));
     const timeReply = secondsLeft > 0
@@ -2038,7 +2036,8 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   }
   const collected = await collectQuickMessages(env.DB, chatId, message,
     Boolean(activeSextingSession || pendingSextingDraft?.status === "awaiting_package" ||
-      (pendingSextingDraft && isSextingPaymentQuestion(message.text))));
+      (pendingSextingDraft && isSextingPaymentQuestion(message.text))),
+    settings.response_test_mode === "on");
   if (!collected) return json({ ok: true, combined_with_newer_message: true });
   message.text = collected.text;
   const requestedFlow = requestedConversationFlow(message.text);
@@ -3835,6 +3834,7 @@ async function handleAdminSettings(request: Request, env: Env) {
     sexting_test_mode: ["on", "off"],
     sexting_intensity: ["soft", "hard", "hot"],
     sleep_hours_enabled: ["on", "off"],
+    response_test_mode: ["on", "off"],
   };
   const rateKeys = ["video_chat_rate", "custom_content_rate", "in_person_rate", "video_rating_rate", "sexting_rate"];
   const starKeys = ["video_rating_stars", "sexting_5_stars", "sexting_10_stars"];
