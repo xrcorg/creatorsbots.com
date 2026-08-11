@@ -22,6 +22,7 @@ import {
   isRatingDecline,
   isSextingDecline,
   isSextingPackageFollowUp,
+  isTrailerOfferAwaitingConfirmation,
   parseNameIntroduction,
 } from "../worker/conversation-rules.ts";
 
@@ -29,6 +30,18 @@ test("natural confirmations are accepted", () => {
   for (const reply of ["yes", "Yes I do", "yeah i do", "let's do it", "ok", "alright", "I guess"]) {
     assert.equal(isAffirmativeReply(reply), true, reply);
   }
+});
+
+test("natural trailer offers preserve the next affirmative reply", () => {
+  for (const offer of [
+    "Do you want to see my BBC video and the trailer?",
+    "Would you like me to send you the trailer?",
+    "I have a preview if you're interested, babe. Want to see it?",
+  ]) {
+    assert.equal(isTrailerOfferAwaitingConfirmation(offer), true, offer);
+  }
+  assert.equal(isTrailerOfferAwaitingConfirmation("Do you want to buy it? Here's a trailer: https://example.com/trailer"), false);
+  assert.equal(isTrailerOfferAwaitingConfirmation("Do you want to book a video chat?"), false);
 });
 
 test("natural cancellations leave unfinished flows", () => {

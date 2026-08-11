@@ -1,7 +1,7 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { bookingDetailsMissing, customDetailsMissing, isAffirmativeReply, isBookingDecline, isBotQuestion, isCancelReply, isCustomDecline, isCustomDetailsFinished, isGenericCancelReply, isLikelyBookingDetailReply, isLikelyCityReply, isLikelyShippingAddress, isLikelyShippingName, isMessageBurst, isPhysicalOrderDecline, isRatingDecline, isSextingDecline, isSextingPackageFollowUp, parseNameIntroduction } from "./conversation-rules";
+import { bookingDetailsMissing, customDetailsMissing, isAffirmativeReply, isBookingDecline, isBotQuestion, isCancelReply, isCustomDecline, isCustomDetailsFinished, isGenericCancelReply, isLikelyBookingDetailReply, isLikelyCityReply, isLikelyShippingAddress, isLikelyShippingName, isMessageBurst, isPhysicalOrderDecline, isRatingDecline, isSextingDecline, isSextingPackageFollowUp, isTrailerOfferAwaitingConfirmation, parseNameIntroduction } from "./conversation-rules";
 
 interface Env {
   ASSETS: Fetcher;
@@ -2140,15 +2140,23 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     const lastAssistantMessage = await env.DB.prepare(`SELECT content FROM chat_messages
       WHERE chat_id = ? AND role = 'assistant' ORDER BY id DESC LIMIT 1`)
       .bind(chatId).first<{ content: string }>();
-    if (lastAssistantMessage && askedToShowTrailer(lastAssistantMessage.content)) {
-      const product = await getInterestedProduct(env.DB, chatId) || await getNewestProduct(env.DB);
-      if (product?.trailer_url) {
+    if (lastAssistantMessage &&
+        (askedToShowTrailer(lastAssistantMessage.content) ||
+          isTrailerOfferAwaitingConfirmation(lastAssistantMessage.content))) {
+      const trailerContext = await getTrailerFollowUpProduct(env.DB, chatId);
+      if (trailerContext.ambiguous) {
+        const clarification = "Which video did you want the trailer for, babe?";
+        await sendSavedReply(env, message, chatId, clarification);
+        return json({ ok: true, trailer_needs_title: true });
+      }
+      const product = trailerContext.product;
+      if (product) {
         await rememberProductInterest(env.DB, chatId, connectionId, product.id);
-        const trailerReply = `Here you go, babe. This is the trailer for ${product.title}:\n${product.trailer_url}\n\nDo you want to buy the full video for ${productPrice(product)}?`;
-        await saveMessage(env.DB, chatId, "user", message.text);
-        await saveMessage(env.DB, chatId, "assistant", trailerReply);
-        await sendTelegramMessage(env, message, trailerReply);
-        return json({ ok: true });
+        const trailerReply = product.trailer_url
+          ? `Here you go, babe. This is the trailer for ${product.title}:\n${product.trailer_url}\n\nDo you want to buy the full video for ${productPrice(product)}?`
+          : `I don't have a trailer added for ${product.title} right now, babe. Do you still want the full video for ${productPrice(product)}?`;
+        await sendSavedReply(env, message, chatId, trailerReply);
+        return json({ ok: true, trailer_follow_up: true });
       }
     }
     if (lastAssistantMessage && askedToBuyProduct(lastAssistantMessage.content)) {

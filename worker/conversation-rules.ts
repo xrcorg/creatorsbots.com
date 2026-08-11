@@ -45,6 +45,13 @@ export function isAffirmativeReply(text: string) {
   return /^(yes|yes i do|yes i want to|yes please|yes babe|yeah|yeah i do|yep|sure|okay|ok|alright|i guess|okay i guess|ok i guess|let's do it|lets do it|i do|i want to|i'd love to|id love to)[.! ]*$/i.test(text.trim());
 }
 
+export function isTrailerOfferAwaitingConfirmation(text: string) {
+  const value = text.trim();
+  if (!/\b(trailer|preview)\b/i.test(value) || /https?:\/\//i.test(value)) return false;
+  return /\b(?:want|wanna|like|interested)\b[^?!.]{0,180}\b(?:trailer|preview)\b/i.test(value) ||
+    /\b(?:trailer|preview)\b[^?!.]{0,180}\b(?:want|wanna|like|interested)\b/i.test(value);
+}
+
 export function isGenericCancelReply(text: string) {
   return /\b(cancel|cancel that|cancel this|never mind|nevermind|not now|maybe later|no thanks|no thank you|forget it|not interested|changed my mind|don't want it|dont want it|do not want it|not anymore|stop this)\b/i.test(text) ||
     /^(?:no|nope|neither)(?:\s+(?:thanks|thank you|sorry))?[.! ]*$/i.test(text.trim());
