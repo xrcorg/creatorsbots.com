@@ -81,8 +81,9 @@ const INTRO = "Hey, it's Tiffany. What are you up to?";
 const NAME_PROMPT = "What's your name, babe?";
 const CLOSED = "I can only chat with adults who are 18 or older. This conversation is now closed.";
 const CREATOR_TAKEOVER = "__TIFFANI_TAKEOVER__";
-// Production timing is active. Keep false outside explicit internal testing.
-const IMMEDIATE_TEST_RESPONSES = false;
+// Fast testing bypasses creator sleep hours and keeps only a short batching window.
+// Set this back to false before production launch to restore natural response timing.
+const IMMEDIATE_TEST_RESPONSES = true;
 const CAPABILITIES = "I can help you book a private video chat with me here on Telegram or an in person fan meet and greet. You can also buy photo and video content, shop clothing or worn items, request custom content, get a private video rating, or have a private sexting session with me. What sounds fun?";
 const INSTAGRAM_URL = "https://www.instagram.com/tiffanimadisonvip/?hl=en";
 const PORNHUB_URL = "https://www.pornhub.com/pornstar/tiffani-madison";
@@ -1520,7 +1521,7 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
 }
 
 function randomResponseDelayMs(activeSexting: boolean) {
-  if (IMMEDIATE_TEST_RESPONSES) return 0;
+  if (IMMEDIATE_TEST_RESPONSES) return 3000;
   const minimumSeconds = activeSexting ? 20 : 30;
   const maximumSeconds = activeSexting ? 25 : 180;
   return Math.floor((minimumSeconds + Math.random() * (maximumSeconds - minimumSeconds)) * 1000);
@@ -1846,7 +1847,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   if (session?.age_status === "blocked") return json({ ok: true });
 
   const settings = await getSettings(env.DB);
-  if (isTiffaniSleeping(settings)) {
+  if (!IMMEDIATE_TEST_RESPONSES && isTiffaniSleeping(settings)) {
     await saveMessage(env.DB, chatId, "user", message.text);
     await queueCreatorReply(env.DB, message);
     return json({ ok: true });
