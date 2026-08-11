@@ -67,7 +67,15 @@ type PortalUser = {
   creator_name: "Tiffani Madison";
 };
 
-const AGE_PROMPT = "Are you 18? I just have to make sure I'm texting an adult.";
+const AGE_PROMPTS = [
+  "Hey, before we text I need to make sure you're 18+ so we can talk about everything. Are you 18+?",
+  "Before we start texting, I just need to make sure you're 18+ so we can talk openly. Are you 18+?",
+  "Hey, I need to make sure you're 18+ before we talk about everything. Are you 18+?",
+];
+
+function agePrompt() {
+  return AGE_PROMPTS[Math.floor(Math.random() * AGE_PROMPTS.length)];
+}
 const INTRO = "Hey, it's Tiffany. What are you up to?";
 const NAME_PROMPT = "What's your name, babe?";
 const CLOSED = "I can only chat with adults who are 18 or older. This conversation is now closed.";
@@ -1515,7 +1523,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
         .run();
       await sendTelegramMessage(env, message, CLOSED);
     } else {
-      await sendTelegramMessage(env, message, AGE_PROMPT);
+      await sendTelegramMessage(env, message, agePrompt());
     }
     return json({ ok: true });
   }

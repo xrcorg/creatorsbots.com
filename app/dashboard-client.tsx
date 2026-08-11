@@ -252,7 +252,7 @@ const initialMessages: Message[] = [
   {
     id: 1,
     role: "bot",
-    text: "Before you join, I have to make sure you're 18+. Can you say yes or no?",
+    text: "Hey, before we text I need to make sure you're 18+ so we can talk about everything. Are you 18+?",
     time: "Now",
   },
 ];
