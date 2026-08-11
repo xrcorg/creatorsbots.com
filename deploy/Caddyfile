@@ -15,3 +15,21 @@
     reverse_proxy app:3000
   }
 }
+
+{$MADISON_APP_DOMAIN} {
+  encode zstd gzip
+
+  @telegram path /api/telegram/webhook
+  handle @telegram {
+    reverse_proxy madison:3000
+  }
+
+  @health path /api/health
+  handle @health {
+    reverse_proxy madison:3000
+  }
+
+  handle {
+    reverse_proxy madison:3000
+  }
+}

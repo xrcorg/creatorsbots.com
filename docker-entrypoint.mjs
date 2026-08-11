@@ -17,6 +17,13 @@ const workerSettings = {
   CLOUDFLARE_ACCESS_AUD: process.env.CLOUDFLARE_ACCESS_AUD || "",
   PORTAL_OWNER_EMAILS: process.env.PORTAL_OWNER_EMAILS || "",
   PORTAL_CREATOR_EMAILS: process.env.PORTAL_CREATOR_EMAILS || "",
+  CREATOR_KEY: process.env.CREATOR_KEY || "tiffani",
+  CREATOR_DISPLAY_NAME: process.env.CREATOR_DISPLAY_NAME || "Tiffani Madison",
+  CREATOR_CHAT_NAME: process.env.CREATOR_CHAT_NAME || "Tiffany",
+  CREATOR_PROFILE_SEED: process.env.CREATOR_PROFILE_SEED || "tiffani",
+  CREATOR_CASHAPP: process.env.CREATOR_CASHAPP || "",
+  CREATOR_VENMO: process.env.CREATOR_VENMO || "",
+  CREATOR_ZELLE: process.env.CREATOR_ZELLE || "",
 };
 writeFileSync("/app/dist/server/.dev.vars", Object.entries(workerSettings)
   .map(([key, value]) => `${key}=${JSON.stringify(value)}`)

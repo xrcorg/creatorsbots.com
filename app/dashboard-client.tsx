@@ -499,7 +499,7 @@ export default function Home() {
     const previous = previousAttentionCount.current;
     previousAttentionCount.current = attentionCount;
     if (!notificationsEnabled || previous === null || attentionCount <= previous || typeof Notification === "undefined") return;
-    new Notification("Tiffani creator inbox", {
+    new Notification(`${portalUser?.creator_name || "Creator"} inbox`, {
       body: statusText,
       icon: "/favicon.svg",
     });
@@ -539,7 +539,7 @@ export default function Home() {
       () =>
         addMessage(
           "bot",
-          "Hey, it's Tiffany. What are you up to?",
+          `Hey, it's ${portalUser?.creator_name.split(/\s+/)[0] || "me"}. What are you up to?`,
         ),
       250,
     );
@@ -1383,9 +1383,9 @@ export default function Home() {
     <main className="appShell">
       <header className="topbar">
         <div className="brand">
-          <span className="brandMark">TM</span>
+          <span className="brandMark">{(portalUser?.creator_name || "Creator").split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase()}</span>
           <div>
-            <strong>Tiffani Madison</strong>
+            <strong>{portalUser?.creator_name || "Creator portal"}</strong>
             <span>Creator portal</span>
           </div>
         </div>
@@ -1419,7 +1419,7 @@ export default function Home() {
               <h1>Creator overview</h1>
               <p>Review platform activity and securely view each creator's control room.</p>
             </div>
-            <span className="supportMode">Viewing as Tiffani</span>
+            <span className="supportMode">Viewing as {portalUser?.creator_name.split(/\s+/)[0] || "creator"}</span>
           </div>
           <div className="ownerMetrics">
             <div><span>Creators</span><strong>{platformOverview.creator_count}</strong><small>{platformOverview.active_creator_count} live</small></div>
@@ -1600,7 +1600,7 @@ export default function Home() {
                   <div className="conversationTranscript">
                     {conversationMessages.length ? conversationMessages.map((message) => (
                       <article className={message.role} key={message.id}>
-                        <span>{message.role === "user" ? selectedConversation.telegram_name : "Tiffani"}</span>
+                        <span>{message.role === "user" ? selectedConversation.telegram_name : (portalUser?.creator_name.split(/\s+/)[0] || "Creator")}</span>
                         {message.voice_note_id && <audio controls preload="none" src={`/api/admin/conversations/voice/${message.voice_note_id}`} />}
                         <p>{message.content}</p>
                         {message.voice_status === "creator_review" && <small className="voiceReviewFlag">Voice memo awaiting your reply</small>}
@@ -1950,7 +1950,7 @@ export default function Home() {
               </label>
               {bookingType === "custom_content" ? <label className="amountField">
                 <span>Custom quote total</span>
-                <input inputMode="decimal" min="1" onChange={(event) => setBookingAmount(event.target.value)} placeholder="Enter the amount Tiffani wants to charge" type="number" value={bookingAmount} />
+                <input inputMode="decimal" min="1" onChange={(event) => setBookingAmount(event.target.value)} placeholder="Enter the amount the creator wants to charge" type="number" value={bookingAmount} />
               </label> : <div className="calculatedTotal">
                 Total: {money(Math.round(Number(bookingDuration || 0) * Number(bookingType === "in_person" ? settings.in_person_rate : settings.video_chat_rate) * 100))}
                 {bookingType === "in_person" && <small>Excluded from earnings</small>}

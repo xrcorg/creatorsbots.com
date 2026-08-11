@@ -22,6 +22,13 @@ interface Env {
   CLOUDFLARE_ACCESS_AUD?: string;
   PORTAL_OWNER_EMAILS?: string;
   PORTAL_CREATOR_EMAILS?: string;
+  CREATOR_KEY?: string;
+  CREATOR_DISPLAY_NAME?: string;
+  CREATOR_CHAT_NAME?: string;
+  CREATOR_PROFILE_SEED?: string;
+  CREATOR_CASHAPP?: string;
+  CREATOR_VENMO?: string;
+  CREATOR_ZELLE?: string;
 }
 
 interface ExecutionContext {
@@ -64,9 +71,24 @@ type TelegramUpdate = {
 type PortalUser = {
   email: string;
   role: "owner" | "creator";
-  creator_key: "tiffani";
-  creator_name: "Tiffani Madison";
+  creator_key: string;
+  creator_name: string;
 };
+
+function creatorConfig(env: Env) {
+  const key = env.CREATOR_KEY?.trim().toLowerCase() || "tiffani";
+  const displayName = env.CREATOR_DISPLAY_NAME?.trim() || (key === "madison" ? "Madison Morgan" : "Tiffani Madison");
+  const chatName = env.CREATOR_CHAT_NAME?.trim() || displayName.split(/\s+/)[0] || "Creator";
+  return {
+    key,
+    displayName,
+    chatName,
+    profileSeed: env.CREATOR_PROFILE_SEED?.trim().toLowerCase() || (key === "tiffani" ? "tiffani" : "blank"),
+    cashapp: env.CREATOR_CASHAPP?.trim() || (key === "tiffani" ? "$playmatexoxo" : ""),
+    venmo: env.CREATOR_VENMO?.trim() || (key === "tiffani" ? "@barbiedoll10" : ""),
+    zelle: env.CREATOR_ZELLE?.trim() || (key === "tiffani" ? "valleyvillageconsulting@gmail.com" : ""),
+  };
+}
 
 const AGE_PROMPTS = [
   "Hey, before we text I need to make sure you're 18+ so we can talk about everything. Are you 18+?",
@@ -77,7 +99,9 @@ const AGE_PROMPTS = [
 function agePrompt() {
   return AGE_PROMPTS[Math.floor(Math.random() * AGE_PROMPTS.length)];
 }
-const INTRO = "Hey, it's Tiffany. What are you up to?";
+function creatorIntro(env: Env) {
+  return `Hey, it's ${creatorConfig(env).chatName}. What are you up to?`;
+}
 const NAME_PROMPT = "What's your name, babe?";
 const CLOSED = "I can only chat with adults who are 18 or older. This conversation is now closed.";
 const CREATOR_TAKEOVER = "__TIFFANI_TAKEOVER__";
@@ -128,8 +152,14 @@ type SextingMediaFile = {
   r2_key: string;
 };
 
-function manualPaymentMethods(intro: string) {
-  return `${intro}\nCash App: $playmatexoxo\nVenmo: @barbiedoll10\nZelle: valleyvillageconsulting@gmail.com\n\nPut your Telegram username in the payment notes and send me a screenshot after you pay.`;
+function paymentLines(env: Env) {
+  const config = creatorConfig(env);
+  return [config.cashapp && `Cash App: ${config.cashapp}`, config.venmo && `Venmo: ${config.venmo}`, config.zelle && `Zelle: ${config.zelle}`].filter(Boolean).join("\n");
+}
+
+function manualPaymentMethods(env: Env, intro: string) {
+  const methods = paymentLines(env);
+  return methods ? `${intro}\n${methods}\n\nPut your Telegram username in the payment notes and send me a screenshot after you pay.` : `${intro}\nI still need to finish setting up my payment methods. I'll get back to you with them.`;
 }
 
 function productPrice(product: ContentProduct) {
@@ -147,14 +177,16 @@ function productOffer(product: ContentProduct) {
   return `I have ${product.title}${product.actors ? `, starring ${product.actors}` : ""}.${product.genre ? ` Tags: ${product.genre}.` : ""} It's ${productPrice(product)}.${trailer}`;
 }
 
-function productPaymentOptions(product: ContentProduct) {
+function productPaymentOptions(env: Env, product: ContentProduct) {
   if (product.content_type === "video_rating") {
     return `Video ratings are ${videoRatingStars(product)} Telegram Stars, babe. I'll send the invoice here, then you can send the photo you want rated after it is paid.`;
   }
   const nextStep = product.content_type === "physical_item"
     ? "I will verify it, then I'll ask for your shipping name and address."
     : "I will verify it before I send the content to you.";
-  return `Please send ${productPrice(product)} using:\nCash App: $playmatexoxo\nVenmo: @barbiedoll10\nZelle: valleyvillageconsulting@gmail.com\n\nIn the payment notes, put your Telegram username. ${nextStep} Send me a screenshot of the payment after you send it.`;
+  const methods = paymentLines(env);
+  if (!methods) return "I still need to finish setting up my payment methods. I'll get back to you with them.";
+  return `Please send ${productPrice(product)} using:\n${methods}\n\nIn the payment notes, put your Telegram username. ${nextStep} Send me a screenshot of the payment after you send it.`;
 }
 
 function videoRatingStars(product: ContentProduct) {
@@ -272,6 +304,27 @@ For personal favorite or preference questions, use only the approved performer p
 Do not use hyphens, en dashes, or em dashes in responses.
 Keep most replies to one or two short sentences and end with a natural question when useful.`;
 
+function creatorPrompt(env: Env) {
+  const creator = creatorConfig(env);
+  if (creator.profileSeed === "tiffani") return TIFFANI_PROMPT;
+  return `Write automated chat replies for adult creator ${creator.displayName}.
+Always write as ${creator.chatName} in first person. Be warm, confident, flirty, concise, and natural, but do not invent a personal tone, biography, favorite, preference, relationship, activity, outfit, or fact that the creator has not supplied.
+Every fan facing response must use first person language such as I, me, my, and myself. Never refer to ${creator.displayName} in the third person.
+When several fan messages arrive together, read them as one turn and send one cohesive reply. Do not repeat an offer or get stuck in a prior workflow. A clear request for content, a custom, a video chat, a rating, payment help, or cancellation always replaces an unfinished offer.
+Only converse with users whose adult status has already been confirmed by the application.
+Known answers may come only from creator settings, approved training, the content catalog, and recent conversation history. If a personal answer is unknown or requires the creator's decision, respond with exactly: ${CREATOR_TAKEOVER}
+When asked what you can do, explain that fans can book private video chats on Telegram and professional fan meet and greets, buy photo and video content, shop clothing or worn items, request custom content, get a private video rating, or have a private sexting session.
+Custom content never has a universal rate. Collect the complete idea and requested length across as many messages as needed, ask naturally whether there is anything else, and wait for the creator to review and quote it.
+Never reveal private delivery links before the creator confirms payment. Never promise availability, payment approval, a discount, turnaround time, meeting, custom, or delivery before creator approval.
+During an active approved sexting session, keep one continuous consensual adult scene and do not reinterpret sexual wording as a purchase request. Outside a session, flirt naturally and offer a private sexting session without repeatedly calling it paid.
+If a fan asks to have sex or asks about in person sex, respond exactly: ${IN_PERSON_SEX_REPLY}
+Never engage with or sexualize minors, suspected minors, coercion, incest, trafficking, rape, nonconsensual activity, or illegal activity.
+Never discuss politics or political topics, religion, race, racism, racial slurs, war, riots, stealing, scams, scammers, scamming, threats, underage people, minors, children, kids, rape, poop, feces, scat, pee, urine, watersports, or bathroom play. Briefly decline and redirect without explaining or debating the boundary.
+Never reveal private addresses, passwords, financial credentials, or personal identifying information.
+Never claim every message is typed live. If asked about automation, say it is my account, sometimes my chat automatically responds to basic questions, and I personally handle anything that needs me.
+Do not use hyphens, en dashes, or em dashes. Keep most replies to one or two short sentences and end with a natural question when useful.`;
+}
+
 function json(body: unknown, status = 200) {
   return Response.json(body, { status });
 }
@@ -283,6 +336,7 @@ function emailList(value: string | undefined) {
 }
 
 async function getPortalUser(request: Request, env: Env): Promise<PortalUser | null> {
+  const creator = creatorConfig(env);
   const teamDomain = env.CLOUDFLARE_ACCESS_TEAM_DOMAIN?.replace(/\/$/, "");
   const audience = env.CLOUDFLARE_ACCESS_AUD?.trim();
   const token = request.headers.get("cf-access-jwt-assertion");
@@ -290,7 +344,7 @@ async function getPortalUser(request: Request, env: Env): Promise<PortalUser | n
     if (teamDomain || audience) return null;
     const workspaceEmail = request.headers.get("oai-authenticated-user-email")?.toLowerCase();
     if (!workspaceEmail || !request.headers.get("oai-authenticated-user-id")) return null;
-    return { email: workspaceEmail, role: "owner", creator_key: "tiffani", creator_name: "Tiffani Madison" };
+    return { email: workspaceEmail, role: "owner", creator_key: creator.key, creator_name: creator.displayName };
   }
 
   try {
@@ -303,10 +357,10 @@ async function getPortalUser(request: Request, env: Env): Promise<PortalUser | n
     const email = typeof payload.email === "string" ? payload.email.toLowerCase() : "";
     if (!email) return null;
     if (emailList(env.PORTAL_OWNER_EMAILS).has(email)) {
-      return { email, role: "owner", creator_key: "tiffani", creator_name: "Tiffani Madison" };
+      return { email, role: "owner", creator_key: creator.key, creator_name: creator.displayName };
     }
     if (emailList(env.PORTAL_CREATOR_EMAILS).has(email)) {
-      return { email, role: "creator", creator_key: "tiffani", creator_name: "Tiffani Madison" };
+      return { email, role: "creator", creator_key: creator.key, creator_name: creator.displayName };
     }
     return null;
   } catch (error) {
@@ -315,7 +369,10 @@ async function getPortalUser(request: Request, env: Env): Promise<PortalUser | n
   }
 }
 
-async function prepareDatabase(db: D1Database) {
+async function prepareDatabase(env: Env) {
+  const db = env.DB;
+  const creator = creatorConfig(env);
+  const seedTiffani = creator.profileSeed === "tiffani";
   await db.batch([
     db.prepare(`CREATE TABLE IF NOT EXISTS creator_accounts (
       creator_key TEXT PRIMARY KEY,
@@ -655,10 +712,7 @@ async function prepareDatabase(db: D1Database) {
     )`),
     db.prepare(`INSERT OR IGNORE INTO creator_accounts
       (creator_key, display_name, login_email, status, telegram_connected)
-      VALUES ('tiffani', 'Tiffani Madison', '', 'live', 1)`),
-    db.prepare(`INSERT OR IGNORE INTO creator_accounts
-      (creator_key, display_name, login_email, status, template_key, telegram_connected)
-      VALUES ('madison', 'Madison Morgan', '', 'draft', 'tiffani', 0)`),
+      VALUES (?, ?, '', 'live', 1)`).bind(creator.key, creator.displayName),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('flirty_level', 'very')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('human_takeover', 'on')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('learning', 'approval')"),
@@ -670,7 +724,8 @@ async function prepareDatabase(db: D1Database) {
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('video_rating_stars', '5000')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('preferred_topics', '')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('avoid_topics', '')"),
-    db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('tone_guidance', 'Short, blunt, warm, confident, flirty, and natural')"),
+    db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('tone_guidance', ?)")
+      .bind(seedTiffani ? 'Short, blunt, warm, confident, flirty, and natural' : ''),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('creator_feedback', '')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_enabled', 'on')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sexting_test_mode', 'off')"),
@@ -689,14 +744,16 @@ async function prepareDatabase(db: D1Database) {
     db.prepare("UPDATE app_settings SET value = 'off', updated_at = CURRENT_TIMESTAMP WHERE key = 'sexting_test_mode'"),
     db.prepare("UPDATE app_settings SET value = 'on', updated_at = CURRENT_TIMESTAMP WHERE key = 'human_takeover'"),
     db.prepare("UPDATE app_settings SET value = '500', updated_at = CURRENT_TIMESTAMP WHERE key = 'sexting_5_stars' AND value = '3850'"),
-    db.prepare(`INSERT OR IGNORE INTO creator_social_links (platform, label, url)
-      VALUES ('Instagram', '@tiffanimadisonvip', ?)`).bind(INSTAGRAM_URL),
-    db.prepare(`INSERT OR IGNORE INTO creator_social_links (platform, label, url)
-      VALUES ('Pornhub', 'Tiffani Madison', ?)`).bind(PORNHUB_URL),
-    db.prepare(`INSERT OR IGNORE INTO creator_social_links (platform, label, url)
-      VALUES ('X', '@TiffaniMadison_', ?)`).bind(X_URL),
-    db.prepare(`INSERT OR IGNORE INTO creator_social_links (platform, label, url)
-      VALUES ('All links', 'Hubzter', ?)`).bind(ALL_LINKS_URL),
+    ...(seedTiffani ? [
+      db.prepare(`INSERT OR IGNORE INTO creator_social_links (platform, label, url)
+        VALUES ('Instagram', '@tiffanimadisonvip', ?)`).bind(INSTAGRAM_URL),
+      db.prepare(`INSERT OR IGNORE INTO creator_social_links (platform, label, url)
+        VALUES ('Pornhub', 'Tiffani Madison', ?)`).bind(PORNHUB_URL),
+      db.prepare(`INSERT OR IGNORE INTO creator_social_links (platform, label, url)
+        VALUES ('X', '@TiffaniMadison_', ?)`).bind(X_URL),
+      db.prepare(`INSERT OR IGNORE INTO creator_social_links (platform, label, url)
+        VALUES ('All links', 'Hubzter', ?)`).bind(ALL_LINKS_URL),
+    ] : []),
     db.prepare(`INSERT OR IGNORE INTO conversation_training (category, suggestion)
       SELECT 'topic', value FROM app_settings WHERE key = 'preferred_topics' AND value != ''`),
     db.prepare(`INSERT OR IGNORE INTO conversation_training (category, suggestion)
@@ -705,10 +762,10 @@ async function prepareDatabase(db: D1Database) {
       SELECT 'tone', value FROM app_settings WHERE key = 'tone_guidance' AND value != ''`),
     db.prepare(`INSERT OR IGNORE INTO conversation_training (category, suggestion)
       SELECT 'feedback', value FROM app_settings WHERE key = 'creator_feedback' AND value != ''`),
-    db.prepare(`INSERT OR IGNORE INTO content_products
+    ...(seedTiffani ? [db.prepare(`INSERT OR IGNORE INTO content_products
       (content_type, title, price_cents, genre, actors, trailer_url, delivery_url)
       VALUES ('video', ?, 2499, 'BBC', 'Tiffani Madison and Mauvius Garcon', ?, ?)`)
-      .bind(PRODUCT_TITLE, PRODUCT_TRAILER, PRODUCT_DELIVERY),
+      .bind(PRODUCT_TITLE, PRODUCT_TRAILER, PRODUCT_DELIVERY)] : []),
     db.prepare(`INSERT OR IGNORE INTO content_products
       (content_type, title, price_cents, genre, actors, trailer_url, delivery_url)
       VALUES ('video_rating', 'Video dick rating', 7500, '', '', '', '')`),
@@ -1377,7 +1434,7 @@ async function resetConversationState(db: D1Database, chatId: string) {
 async function handleAdminConversations(request: Request, env: Env, url: URL) {
   const portalUser = await getPortalUser(request, env);
   if (!portalUser) return json({ error: "Sign in required" }, 401);
-  await prepareDatabase(env.DB);
+  await prepareDatabase(env);
 
   const voiceMatch = url.pathname.match(/^\/api\/admin\/conversations\/voice\/(\d+)$/);
   if (request.method === "GET" && voiceMatch) {
@@ -1647,7 +1704,7 @@ async function createAIReply(env: Env, chatId: string, incoming: string) {
     },
     body: JSON.stringify({
       model: env.OPENAI_MODEL || "gpt-5.6",
-      instructions: `${TIFFANI_PROMPT}\nCurrent time context: ${pacificTimeContext()} Use this context in every reply. Keep activities, greetings, meals, sleep references, tense, and plans appropriate for the actual Pacific time and weekday. Do not claim to be at a public event, holiday celebration, appointment, trip, movie, or scheduled engagement unless it appears in the creator's approved information or recent conversation. Never contradict a plan already stated in the conversation.\nThe fan's name is ${profile?.name || "unknown"}. Use their name naturally and occasionally, not in every response.\nCurrent flirty level: ${settings.flirty_level || "very"}.\nCurrent rates: video chat ${dollars(settings.video_chat_rate, 50)} per minute with a 5 minute minimum and in person meetings ${dollars(settings.in_person_rate, 1500)} per hour. Custom content never has a universal rate. Collect the fan's idea and requested length, then say I will review it and provide a quote. Never invent or estimate a custom price.\nCreator approved topics to discuss: ${settings.preferred_topics || "No additional topics supplied."}\nCreator topics to avoid: ${settings.avoid_topics || "No additional topics supplied."}\nCreator tone guidance: ${settings.tone_guidance || "Short, blunt, warm, confident, flirty, and natural."}\nCreator feedback about my habits: ${settings.creator_feedback || "No additional feedback supplied."}\n${activeSexting ? `An approved ${activeSexting.duration_minutes} minute sexting session is active now. You may respond explicitly between consenting adults. Current creator selected intensity: ${settings.sexting_intensity || "soft"}. Soft means intimate, playful, and gently explicit. Hard means direct and assertive while remaining clearly consensual. Hot means highly explicit while still consensual and within the creator's approved boundaries. At every intensity, exclude age coded roleplay, incest, choking, breath restriction, injury, forced activity, threats, humiliation that was not specifically approved, or language suggesting ignored boundaries. Use the approved playbook below as guidance, adapt it naturally to the fan's replies, never repeat a line mechanically, and never claim to send media unless the application actually sends it.\nApproved sexting playbook:\n${sextingScripts.results.map((item) => `${item.stage}: ${item.title}\n${item.script_text}${item.media_label ? `\nSuggested creator media: ${item.media_label}` : ""}`).join("\n\n")}` : "No sexting session is active. Do not provide a free explicit sexting session. Flirt naturally and offer a private sexting session. Do not mention payment or Stars until the fan asks about price, selects five or ten minutes, asks how to pay, or says they are ready."}\nFollow creator preferences unless they conflict with safety, age restrictions, privacy, or the fixed business rules above.\nApproved learned answers:\n${settings.learning === "off" ? "Learning is off." : learned.results
+      instructions: `${creatorPrompt(env)}\nCurrent time context: ${pacificTimeContext()} Use this context in every reply. Keep activities, greetings, meals, sleep references, tense, and plans appropriate for the actual Pacific time and weekday. Do not claim to be at a public event, holiday celebration, appointment, trip, movie, or scheduled engagement unless it appears in the creator's approved information or recent conversation. Never contradict a plan already stated in the conversation.\nThe fan's name is ${profile?.name || "unknown"}. Use their name naturally and occasionally, not in every response.\nCurrent flirty level: ${settings.flirty_level || "very"}.\nCurrent rates: video chat ${dollars(settings.video_chat_rate, 50)} per minute with a 5 minute minimum and in person meetings ${dollars(settings.in_person_rate, 1500)} per hour. Custom content never has a universal rate. Collect the fan's idea and requested length, then say I will review it and provide a quote. Never invent or estimate a custom price.\nCreator approved topics to discuss: ${settings.preferred_topics || "No additional topics supplied."}\nCreator topics to avoid: ${settings.avoid_topics || "No additional topics supplied."}\nCreator tone guidance: ${settings.tone_guidance || (creatorConfig(env).profileSeed === "tiffani" ? "Short, blunt, warm, confident, flirty, and natural." : "Warm, concise, and natural until the creator supplies tone guidance.")}\nCreator feedback about my habits: ${settings.creator_feedback || "No additional feedback supplied."}\n${activeSexting ? `An approved ${activeSexting.duration_minutes} minute sexting session is active now. You may respond explicitly between consenting adults. Current creator selected intensity: ${settings.sexting_intensity || "soft"}. Soft means intimate, playful, and gently explicit. Hard means direct and assertive while remaining clearly consensual. Hot means highly explicit while still consensual and within the creator's approved boundaries. At every intensity, exclude age coded roleplay, incest, choking, breath restriction, injury, forced activity, threats, humiliation that was not specifically approved, or language suggesting ignored boundaries. Use the approved playbook below as guidance, adapt it naturally to the fan's replies, never repeat a line mechanically, and never claim to send media unless the application actually sends it.\nApproved sexting playbook:\n${sextingScripts.results.map((item) => `${item.stage}: ${item.title}\n${item.script_text}${item.media_label ? `\nSuggested creator media: ${item.media_label}` : ""}`).join("\n\n")}` : "No sexting session is active. Do not provide a free explicit sexting session. Flirt naturally and offer a private sexting session. Do not mention payment or Stars until the fan asks about price, selects five or ten minutes, asks how to pay, or says they are ready."}\nFollow creator preferences unless they conflict with safety, age restrictions, privacy, or the fixed business rules above.\nApproved learned answers:\n${settings.learning === "off" ? "Learning is off." : learned.results
         .map((item) => `Fan question: ${item.question}\nApproved answer: ${item.answer}`)
         .join("\n\n")}`,
       input,
@@ -1682,7 +1739,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   }
 
   const update = await request.json() as TelegramUpdate;
-  await prepareDatabase(env.DB);
+  await prepareDatabase(env);
   const claimedUpdate = await env.DB.prepare(`INSERT OR IGNORE INTO telegram_updates (update_id)
     VALUES (?)`).bind(update.update_id).run();
   if (!claimedUpdate.meta.changes) return json({ ok: true, duplicate: true });
@@ -1888,8 +1945,8 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       const knownProfile = await env.DB.prepare(`SELECT name FROM fan_profiles WHERE chat_id = ?`)
         .bind(chatId).first<{ name: string | null }>();
       await sendTelegramMessage(env, message, knownProfile?.name
-        ? INTRO
-        : "Hey, it's Tiffany. What's your name, babe?");
+        ? creatorIntro(env)
+        : `Hey, it's ${creatorConfig(env).chatName}. What's your name, babe?`);
     } else if (isAdultNo(message.text)) {
       await env.DB.prepare("UPDATE fan_sessions SET age_status = 'blocked', updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?")
         .bind(chatId)
@@ -2465,7 +2522,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       return json({ ok: true });
     }
     if (isManualPaymentQuestion(message.text)) {
-      const paymentReply = manualPaymentMethods("Once I confirm the date, time, service, and total, you can pay using one of these, babe.");
+      const paymentReply = manualPaymentMethods(env, "Once I confirm the date, time, service, and total, you can pay using one of these, babe.");
       await saveMessage(env.DB, chatId, "user", message.text);
       await saveMessage(env.DB, chatId, "assistant", paymentReply);
       await sendTelegramMessage(env, message, paymentReply);
@@ -2587,7 +2644,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
           await sendVideoRatingCheckout(env, env.DB, message, product);
           return json({ ok: true });
         }
-        const paymentOptions = productPaymentOptions(product);
+        const paymentOptions = productPaymentOptions(env, product);
         await saveMessage(env.DB, chatId, "user", message.text);
         await saveMessage(env.DB, chatId, "assistant", paymentOptions);
         await sendTelegramMessage(env, message, paymentOptions);
@@ -2741,7 +2798,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       await sendVideoRatingCheckout(env, env.DB, message, product);
       return json({ ok: true });
     }
-    const paymentOptions = productPaymentOptions(product);
+    const paymentOptions = productPaymentOptions(env, product);
     await saveMessage(env.DB, chatId, "user", message.text);
     await saveMessage(env.DB, chatId, "assistant", paymentOptions);
     await sendTelegramMessage(env, message, paymentOptions);
@@ -2772,7 +2829,7 @@ async function isAdminRequest(request: Request, env: Env) {
 async function handleAdminPending(request: Request, env: Env) {
   const portalUser = await getPortalUser(request, env);
   if (!portalUser) return json({ error: "Sign in required" }, 401);
-  await prepareDatabase(env.DB);
+  await prepareDatabase(env);
   const settings = await getSettings(env.DB);
   const misplacedCustoms = await env.DB.prepare(`SELECT id, chat_id, business_connection_id, question
     FROM pending_replies WHERE status = 'pending' ORDER BY id ASC LIMIT 100`).all<{
@@ -2954,9 +3011,10 @@ async function handleAdminPending(request: Request, env: Env) {
     status, template_key, telegram_connected FROM creator_accounts ORDER BY created_at ASC`)
     .all<{ creator_key: string; display_name: string; login_email: string; status: string; template_key: string | null; telegram_connected: number }>();
   const creatorEmail = Array.from(emailList(env.PORTAL_CREATOR_EMAILS))[0] || "";
+  const currentCreator = creatorConfig(env);
   if (creatorEmail) {
     await env.DB.prepare(`UPDATE creator_accounts SET login_email = ?, updated_at = CURRENT_TIMESTAMP
-      WHERE creator_key = 'tiffani' AND login_email = ''`).bind(creatorEmail).run();
+      WHERE creator_key = ? AND login_email = ''`).bind(creatorEmail, currentCreator.key).run();
   }
   const emptyDailyEarnings = dailyEarnings.map((day) => ({ ...day, amount_cents: 0, transaction_count: 0,
     items: [], stars: 0, star_transaction_count: 0, star_items: [] }));
@@ -3002,14 +3060,14 @@ async function handleAdminPending(request: Request, env: Env) {
       creators: creatorAccounts.results.map((creator) => ({
         key: creator.creator_key,
         name: creator.display_name,
-        email: creator.creator_key === "tiffani" ? creatorEmail : creator.login_email,
+        email: creator.creator_key === currentCreator.key ? creatorEmail : creator.login_email,
         status: creator.status,
-        template_name: creator.template_key === "tiffani" ? "Tiffani template" : "",
+        template_name: creator.template_key ? `${creator.template_key} template` : "",
         telegram_connected: Boolean(creator.telegram_connected),
-        weekly_cents: creator.creator_key === "tiffani" ? weekly?.total_cents || 0 : 0,
-        all_time_cents: creator.creator_key === "tiffani" ? allTime?.total_cents || 0 : 0,
-        all_time_stars: creator.creator_key === "tiffani" ? starsSummary?.total_stars || 0 : 0,
-        daily_earnings: creator.creator_key === "tiffani" ? dailyEarnings : emptyDailyEarnings,
+        weekly_cents: creator.creator_key === currentCreator.key ? weekly?.total_cents || 0 : 0,
+        all_time_cents: creator.creator_key === currentCreator.key ? allTime?.total_cents || 0 : 0,
+        all_time_stars: creator.creator_key === currentCreator.key ? starsSummary?.total_stars || 0 : 0,
+        daily_earnings: creator.creator_key === currentCreator.key ? dailyEarnings : emptyDailyEarnings,
       })),
     } : null,
     settings,
@@ -3018,7 +3076,7 @@ async function handleAdminPending(request: Request, env: Env) {
 
 async function handleAdminSextingScripts(request: Request, env: Env, url: URL) {
   if (!await isAdminRequest(request, env)) return json({ error: "Sign in required" }, 401);
-  await prepareDatabase(env.DB);
+  await prepareDatabase(env);
   const match = url.pathname.match(/^\/api\/admin\/sexting-scripts\/(\d+)$/);
   if (request.method === "POST" && url.pathname === "/api/admin/sexting-scripts") {
     const body = await request.json() as { stage?: string; title?: string; script_text?: string; media_label?: string };
@@ -3060,7 +3118,7 @@ function validHttpUrl(value: string, required = false) {
 
 async function handleAdminProducts(request: Request, env: Env, url: URL) {
   if (!await isAdminRequest(request, env)) return json({ error: "Sign in required" }, 401);
-  await prepareDatabase(env.DB);
+  await prepareDatabase(env);
   const mediaMatch = url.pathname.match(/^\/api\/admin\/products\/(\d+)\/media(?:\/(\d+))?(?:\/file)?$/);
   const match = url.pathname.match(/^\/api\/admin\/products\/(\d+)$/);
   if (mediaMatch) {
@@ -3213,7 +3271,7 @@ async function handleAdminProducts(request: Request, env: Env, url: URL) {
 
 async function handleAdminReply(request: Request, env: Env) {
   if (!await isAdminRequest(request, env)) return json({ error: "Sign in required" }, 401);
-  await prepareDatabase(env.DB);
+  await prepareDatabase(env);
   const body = await request.json() as { id?: number; answer?: string; learn?: boolean; action?: "reply" | "ignore" };
   const answer = body.answer?.trim();
   if (!body.id) return json({ error: "Question is required" }, 400);
@@ -3253,7 +3311,7 @@ async function handleAdminReply(request: Request, env: Env) {
 
 async function handleAdminPurchase(request: Request, env: Env) {
   if (!await isAdminRequest(request, env)) return json({ error: "Sign in required" }, 401);
-  await prepareDatabase(env.DB);
+  await prepareDatabase(env);
   const body = await request.json() as { id?: number; action?: "approve" | "decline" | "close_unpaid" };
   if (!body.id || !body.action) return json({ error: "Purchase action is required" }, 400);
   if (!["approve", "decline", "close_unpaid"].includes(body.action)) {
@@ -3345,7 +3403,7 @@ async function handleAdminPurchase(request: Request, env: Env) {
 
 async function handleAdminBooking(request: Request, env: Env) {
   if (!await isAdminRequest(request, env)) return json({ error: "Sign in required" }, 401);
-  await prepareDatabase(env.DB);
+  await prepareDatabase(env);
   const settings = await getSettings(env.DB);
   const body = await request.json() as {
     id?: number;
@@ -3416,7 +3474,7 @@ async function handleAdminBooking(request: Request, env: Env) {
   const fanAnswer = body.action === "approve" && body.service_type === "video_chat" && !/\btelegram\b/i.test(answer)
     ? `${answer}\n\nWe'll do the video chat right here on Telegram.`
     : body.action === "approve" && body.service_type === "custom_content"
-      ? manualPaymentMethods(`${answer}\n\nThe total for your custom will be ${dollars(String(amountCents / 100), 0)}.`)
+      ? manualPaymentMethods(env, `${answer}\n\nThe total for your custom will be ${dollars(String(amountCents / 100), 0)}.`)
     : answer;
   await sendTelegramMessage(env, {
     message_id: 0,
@@ -3445,7 +3503,7 @@ async function handleAdminBooking(request: Request, env: Env) {
 
 async function handleAdminCustom(request: Request, env: Env) {
   if (!await isAdminRequest(request, env)) return json({ error: "Sign in required" }, 401);
-  await prepareDatabase(env.DB);
+  await prepareDatabase(env);
   const body = await request.json() as {
     id?: number;
     delivery_url?: string;
@@ -3531,7 +3589,7 @@ async function handleAdminCustom(request: Request, env: Env) {
 
 async function handleAdminPhysicalOrder(request: Request, env: Env) {
   if (!await isAdminRequest(request, env)) return json({ error: "Sign in required" }, 401);
-  await prepareDatabase(env.DB);
+  await prepareDatabase(env);
   const body = await request.json() as { id?: number; tracking_number?: string };
   const trackingNumber = String(body.tracking_number || "").trim().slice(0, 180);
   if (!body.id || trackingNumber.length < 3) return json({ error: "A tracking number is required" }, 400);
@@ -3557,7 +3615,7 @@ async function handleAdminPhysicalOrder(request: Request, env: Env) {
 
 async function handleAdminTasks(request: Request, env: Env) {
   if (!await isAdminRequest(request, env)) return json({ error: "Sign in required" }, 401);
-  await prepareDatabase(env.DB);
+  await prepareDatabase(env);
   const body = await request.json() as {
     id?: number;
     action?: "create" | "complete" | "reopen" | "remove";
@@ -3622,7 +3680,7 @@ async function broadcastAnnouncement(env: Env, announcementId: number, platform:
 
 async function handleAdminAnnouncements(request: Request, env: Env, ctx: ExecutionContext) {
   if (!await isAdminRequest(request, env)) return json({ error: "Sign in required" }, 401);
-  await prepareDatabase(env.DB);
+  await prepareDatabase(env);
   const body = await request.json() as { platform?: string; message?: string; stream_url?: string };
   const platform = body.platform?.trim().slice(0, 40) || "Live stream";
   const message = body.message?.trim().slice(0, 500) || "";
@@ -3639,7 +3697,7 @@ async function handleAdminAnnouncements(request: Request, env: Env, ctx: Executi
 
 async function handleAdminSocialLinks(request: Request, env: Env, url: URL) {
   if (!await isAdminRequest(request, env)) return json({ error: "Sign in required" }, 401);
-  await prepareDatabase(env.DB);
+  await prepareDatabase(env);
   if (request.method === "POST" && url.pathname === "/api/admin/social-links") {
     const body = await request.json() as { platform?: string; label?: string; url?: string };
     const platform = body.platform?.trim().slice(0, 50) || "";
@@ -3683,7 +3741,7 @@ async function handleAdminSocialLinks(request: Request, env: Env, url: URL) {
 
 async function handleAdminTraining(request: Request, env: Env, url: URL) {
   if (!await isAdminRequest(request, env)) return json({ error: "Sign in required" }, 401);
-  await prepareDatabase(env.DB);
+  await prepareDatabase(env);
   if (request.method === "POST" && url.pathname === "/api/admin/training") {
     const body = await request.json() as { category?: string; suggestion?: string };
     const allowedCategories = ["topic", "avoid", "tone", "feedback"];
@@ -3727,7 +3785,7 @@ async function handleAdminTraining(request: Request, env: Env, url: URL) {
 
 async function handleAdminSexting(request: Request, env: Env) {
   if (!await isAdminRequest(request, env)) return json({ error: "Sign in required" }, 401);
-  await prepareDatabase(env.DB);
+  await prepareDatabase(env);
   const body = await request.json() as { id?: number; action?: "start" | "complete" | "takeover" | "resume" };
   if (!body.id || !body.action) return json({ error: "A session action is required" }, 400);
   if (!["start", "complete", "takeover", "resume"].includes(body.action)) {
@@ -3785,7 +3843,7 @@ async function handleAdminSexting(request: Request, env: Env) {
 
 async function handleAdminSextingMedia(request: Request, env: Env, url: URL) {
   if (!await isAdminRequest(request, env)) return json({ error: "Sign in required" }, 401);
-  await prepareDatabase(env.DB);
+  await prepareDatabase(env);
   const match = url.pathname.match(/^\/api\/admin\/sexting-media\/(\d+)(?:\/file)?$/);
   if (request.method === "POST" && url.pathname === "/api/admin/sexting-media") {
     const form = await request.formData();
@@ -3846,7 +3904,7 @@ async function handleAdminSextingMedia(request: Request, env: Env, url: URL) {
 
 async function handleAdminSettings(request: Request, env: Env) {
   if (!await isAdminRequest(request, env)) return json({ error: "Sign in required" }, 401);
-  await prepareDatabase(env.DB);
+  await prepareDatabase(env);
   const body = await request.json() as { key?: string; value?: string };
   const allowed: Record<string, string[]> = {
     flirty_level: ["soft", "flirty", "very"],
@@ -3894,7 +3952,7 @@ async function handleAdminSettings(request: Request, env: Env) {
 async function handleSaleDisputes(request: Request, env: Env) {
   const portalUser = await getPortalUser(request, env);
   if (!portalUser) return json({ error: "Sign in required" }, 401);
-  await prepareDatabase(env.DB);
+  await prepareDatabase(env);
   const body = await request.json() as {
     earnings_event_id?: number;
     sexting_session_id?: number;

@@ -9,18 +9,18 @@ export async function generateMetadata(): Promise<Metadata> {
   const image = `${protocol}://${host}/og.png`;
 
   return {
-    title: "Tiffani Madison · Telegram Chat Pilot",
-    description: "A private test experience for Tiffani Madison's Telegram fan assistant.",
+    title: "CreatorsBots · Creator Portal",
+    description: "A private creator operations portal for Telegram conversations, content, bookings, and sales.",
     icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
     openGraph: {
-      title: "Tiffani Madison · Private Telegram Chat Pilot",
+      title: "CreatorsBots · Creator Portal",
       description: "Manage fan chats, content, bookings, sales, and creator takeover in one place.",
-      images: [{ url: image, width: 1200, height: 630, alt: "Tiffani Madison private Telegram chat pilot" }],
+      images: [{ url: image, width: 1200, height: 630, alt: "CreatorsBots creator portal" }],
     },
     twitter: {
       card: "summary_large_image",
-      title: "Tiffani Madison · Private Telegram Chat Pilot",
-      description: "A private test of Tiffani's Telegram fan assistant.",
+      title: "CreatorsBots · Creator Portal",
+      description: "Private creator operations for Telegram conversations, content, bookings, and sales.",
       images: [image],
     },
   };

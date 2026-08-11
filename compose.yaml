@@ -11,8 +11,39 @@ services:
       CLOUDFLARE_ACCESS_AUD: ${CLOUDFLARE_ACCESS_AUD}
       PORTAL_OWNER_EMAILS: ${PORTAL_OWNER_EMAILS}
       PORTAL_CREATOR_EMAILS: ${PORTAL_CREATOR_EMAILS}
+      CREATOR_KEY: tiffani
+      CREATOR_DISPLAY_NAME: Tiffani Madison
+      CREATOR_CHAT_NAME: Tiffany
+      CREATOR_PROFILE_SEED: tiffani
+      CREATOR_CASHAPP: ${CREATOR_CASHAPP:-}
+      CREATOR_VENMO: ${CREATOR_VENMO:-}
+      CREATOR_ZELLE: ${CREATOR_ZELLE:-}
     volumes:
       - app_data:/data
+    networks:
+      - creator_net
+
+  madison:
+    build: .
+    restart: unless-stopped
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.6}
+      TELEGRAM_BOT_TOKEN: ${MADISON_TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_WEBHOOK_SECRET: ${MADISON_TELEGRAM_WEBHOOK_SECRET:-}
+      CLOUDFLARE_ACCESS_TEAM_DOMAIN: ${CLOUDFLARE_ACCESS_TEAM_DOMAIN}
+      CLOUDFLARE_ACCESS_AUD: ${MADISON_CLOUDFLARE_ACCESS_AUD:-}
+      PORTAL_OWNER_EMAILS: ${PORTAL_OWNER_EMAILS}
+      PORTAL_CREATOR_EMAILS: ${MADISON_PORTAL_CREATOR_EMAILS:-}
+      CREATOR_KEY: madison
+      CREATOR_DISPLAY_NAME: Madison Morgan
+      CREATOR_CHAT_NAME: Madison
+      CREATOR_PROFILE_SEED: blank
+      CREATOR_CASHAPP: ${MADISON_CREATOR_CASHAPP:-}
+      CREATOR_VENMO: ${MADISON_CREATOR_VENMO:-}
+      CREATOR_ZELLE: ${MADISON_CREATOR_ZELLE:-}
+    volumes:
+      - madison_app_data:/data
     networks:
       - creator_net
 
@@ -21,8 +52,10 @@ services:
     restart: unless-stopped
     depends_on:
       - app
+      - madison
     environment:
       APP_DOMAIN: ${APP_DOMAIN}
+      MADISON_APP_DOMAIN: ${MADISON_APP_DOMAIN:-madison.creatorsbots.com}
     ports:
       - "80:80"
       - "443:443"
@@ -38,5 +71,6 @@ networks:
 
 volumes:
   app_data:
+  madison_app_data:
   caddy_data:
   caddy_config:
