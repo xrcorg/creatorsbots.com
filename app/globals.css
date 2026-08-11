@@ -376,6 +376,11 @@ button { cursor: pointer; }
 .settingsPanel section { display: flex; gap: 4px; }
 .settingsPanel button { border: 1px solid var(--line); border-radius: 999px; padding: 6px 8px; background: white; color: var(--muted); font-size: 8px; text-transform: capitalize; }
 .settingsPanel button.selected, .settingsPanel .settingToggle { border-color: #f0a9cc; background: #fff0f7; color: var(--deep-pink); font-weight: 800; }
+.settingsPanel > .primaryAction { width: 100%; margin-top: 14px; border: 0; border-radius: 12px; padding: 11px; background: var(--pink); color: white; font-size: 11px; font-weight: 800; text-transform: none; }
+.settingsPanel > .primaryAction:disabled { opacity: .5; }
+.settingsSaved, .settingsUnsaved { display: block; margin-top: 7px; font-size: 9px; font-weight: 750; text-align: center; }
+.settingsSaved { color: #298751; }
+.settingsUnsaved { color: var(--deep-pink); }
 .rateSetting label { display: flex; align-items: center; gap: 3px; color: var(--deep-pink); font-weight: 850; }
 .rateSetting input { width: 72px; border: 1px solid #f0a9cc; border-radius: 9px; padding: 7px 8px; background: #fff8fb; color: var(--deep-pink); font-weight: 850; text-align: right; }
 .creatorProfileLinks { margin-top: 16px; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: white; }

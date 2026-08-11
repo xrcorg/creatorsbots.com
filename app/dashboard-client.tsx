@@ -364,11 +364,14 @@ export default function Home() {
   const [bookingType, setBookingType] = useState<"video_chat" | "custom_content" | "in_person">("video_chat");
   const [bookingDuration, setBookingDuration] = useState("");
   const [settings, setSettings] = useState<CreatorSettings>({ flirty_level: "very", human_takeover: "on", learning: "approval", custom_approval: "required", video_chat_rate: "50", custom_content_rate: "50", in_person_rate: "1500", preferred_topics: "", avoid_topics: "", tone_guidance: "Short, blunt, warm, confident, flirty, and natural", creator_feedback: "", sexting_enabled: "on", sexting_intensity: "soft", sexting_rate: "10", sexting_min_minutes: "5", sexting_5_stars: "500", sexting_10_stars: "1000", sleep_hours_enabled: "on", sleep_start: "02:00", sleep_end: "08:00" });
+  const [settingsDirty, setSettingsDirty] = useState(false);
+  const [settingsSaveStatus, setSettingsSaveStatus] = useState("");
   const [liveLoading, setLiveLoading] = useState(false);
   const [liveError, setLiveError] = useState("");
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [dashboardView, setDashboardView] = useState<"today" | "content" | "settings" | "history">("today");
   const previousAttentionCount = useRef<number | null>(null);
+  const settingsDirtyRef = useRef(false);
 
   const loadLivePending = useCallback(async () => {
     try {
@@ -401,7 +404,7 @@ export default function Home() {
       setSaleDisputes(data.sale_disputes || []);
       if (data.bookings[0]?.suggested_type) setBookingType(data.bookings[0].suggested_type);
       setEarnings(data.earnings);
-      setSettings(data.settings);
+      if (!settingsDirtyRef.current) setSettings(data.settings);
       setSavedAnswers(data.learned_count);
       setLiveError("");
     } catch {
@@ -804,18 +807,33 @@ export default function Home() {
     }
   }
 
-  async function updateSetting<K extends keyof CreatorSettings>(key: K, value: CreatorSettings[K]) {
+  function changeSetting<K extends keyof CreatorSettings>(key: K, value: CreatorSettings[K]) {
+    setSettings((current) => ({ ...current, [key]: value }));
+    settingsDirtyRef.current = true;
+    setSettingsDirty(true);
+    setSettingsSaveStatus("Unsaved changes");
+  }
+
+  async function saveCreatorSettings() {
     try {
-      const response = await fetch("/api/admin/settings", {
+      setLiveLoading(true);
+      setSettingsSaveStatus("Saving changes...");
+      const entries = Object.entries(settings).filter(([key]) => key !== "human_takeover");
+      const responses = await Promise.all(entries.map(([key, value]) => fetch("/api/admin/settings", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ key, value }),
-      });
-      if (!response.ok) throw new Error("Setting update failed");
-      setSettings((current) => ({ ...current, [key]: value }));
+      })));
+      if (responses.some((response) => !response.ok)) throw new Error("Setting update failed");
+      settingsDirtyRef.current = false;
+      setSettingsDirty(false);
+      setSettingsSaveStatus("Changes saved");
       setLiveError("");
     } catch {
-      setLiveError("The setting could not be changed. Please try again.");
+      setSettingsSaveStatus("Changes were not saved");
+      setLiveError("The creator settings could not be saved. Please try again.");
+    } finally {
+      setLiveLoading(false);
     }
   }
 
@@ -1612,24 +1630,26 @@ export default function Home() {
           <div className="personaSummary settingsPanel dashboardSection dashboardSettings">
             <div>
               <span>Flirty level</span>
-              <section>{(["soft", "flirty", "very"] as const).map((value) => <button className={settings.flirty_level === value ? "selected" : ""} key={value} onClick={() => void updateSetting("flirty_level", value)}>{value}</button>)}</section>
+              <section>{(["soft", "flirty", "very"] as const).map((value) => <button className={settings.flirty_level === value ? "selected" : ""} key={value} onClick={() => changeSetting("flirty_level", value)}>{value}</button>)}</section>
             </div>
             <div><span>Human takeover</span><strong>Always available</strong></div>
-            <div><span>Learning</span><button className="settingToggle" onClick={() => void updateSetting("learning", settings.learning === "approval" ? "off" : "approval")}>{settings.learning === "approval" ? "Approval only" : "Off"}</button></div>
-            <div><span>Custom approval</span><button className="settingToggle" onClick={() => void updateSetting("custom_approval", settings.custom_approval === "required" ? "off" : "required")}>{settings.custom_approval === "required" ? "Required" : "Off"}</button></div>
-            <div><span>Sexting</span><button className="settingToggle" onClick={() => void updateSetting("sexting_enabled", settings.sexting_enabled === "on" ? "off" : "on")}>{settings.sexting_enabled}</button></div>
-            <div><span>Sleep hours</span><button className="settingToggle" onClick={() => void updateSetting("sleep_hours_enabled", settings.sleep_hours_enabled === "on" ? "off" : "on")}>{settings.sleep_hours_enabled}</button></div>
-            <div className="rateSetting"><span>Sleep time</span><label><input aria-label="Sleep start time" onBlur={() => void updateSetting("sleep_start", settings.sleep_start)} onChange={(event) => setSettings((current) => ({ ...current, sleep_start: event.target.value }))} type="time" value={settings.sleep_start} /></label></div>
-            <div className="rateSetting"><span>Wake time</span><label><input aria-label="Wake time" onBlur={() => void updateSetting("sleep_end", settings.sleep_end)} onChange={(event) => setSettings((current) => ({ ...current, sleep_end: event.target.value }))} type="time" value={settings.sleep_end} /></label></div>
-            <div><span>Sexting intensity</span><section>{(["soft", "hard", "hot"] as const).map((value) => <button className={settings.sexting_intensity === value ? "selected" : ""} key={value} onClick={() => void updateSetting("sexting_intensity", value)}>{value}</button>)}</section></div>
-            <div className="rateSetting"><span>Video chat per minute</span><label>$<input aria-label="Video chat rate per minute" inputMode="decimal" min="1" onBlur={() => void updateSetting("video_chat_rate", settings.video_chat_rate)} onChange={(event) => setSettings((current) => ({ ...current, video_chat_rate: event.target.value }))} type="number" value={settings.video_chat_rate} /></label></div>
-            <div className="rateSetting"><span>Custom content per minute</span><label>$<input aria-label="Custom content rate per minute" inputMode="decimal" min="1" onBlur={() => void updateSetting("custom_content_rate", settings.custom_content_rate)} onChange={(event) => setSettings((current) => ({ ...current, custom_content_rate: event.target.value }))} type="number" value={settings.custom_content_rate} /></label></div>
-            <div className="rateSetting"><span>In person meet per hour</span><label>$<input aria-label="In person meet rate per hour" inputMode="decimal" min="1" onBlur={() => void updateSetting("in_person_rate", settings.in_person_rate)} onChange={(event) => setSettings((current) => ({ ...current, in_person_rate: event.target.value }))} type="number" value={settings.in_person_rate} /></label></div>
-            <div className="rateSetting"><span>Sexting per minute</span><label>$<input aria-label="Sexting rate per minute" inputMode="decimal" min="1" onBlur={() => void updateSetting("sexting_rate", settings.sexting_rate)} onChange={(event) => setSettings((current) => ({ ...current, sexting_rate: event.target.value }))} type="number" value={settings.sexting_rate} /></label></div>
-            <div className="rateSetting"><span>Sexting minimum minutes</span><label><input aria-label="Minimum sexting session length" inputMode="numeric" min="1" max="9" onBlur={() => void updateSetting("sexting_min_minutes", settings.sexting_min_minutes)} onChange={(event) => setSettings((current) => ({ ...current, sexting_min_minutes: event.target.value }))} type="number" value={settings.sexting_min_minutes} /></label></div>
-            <div className="rateSetting"><span>{settings.sexting_min_minutes || "5"} minute Stars price</span><label>⭐<input aria-label="Minimum sexting package price in Stars" inputMode="numeric" min="1" onBlur={() => void updateSetting("sexting_5_stars", settings.sexting_5_stars)} onChange={(event) => setSettings((current) => ({ ...current, sexting_5_stars: event.target.value }))} type="number" value={settings.sexting_5_stars} /></label></div>
-            <div className="rateSetting"><span>10 minute Stars price</span><label>⭐<input aria-label="10 minute sexting price in Stars" inputMode="numeric" min="1" onBlur={() => void updateSetting("sexting_10_stars", settings.sexting_10_stars)} onChange={(event) => setSettings((current) => ({ ...current, sexting_10_stars: event.target.value }))} type="number" value={settings.sexting_10_stars} /></label></div>
+            <div><span>Learning</span><button className="settingToggle" onClick={() => changeSetting("learning", settings.learning === "approval" ? "off" : "approval")}>{settings.learning === "approval" ? "Approval only" : "Off"}</button></div>
+            <div><span>Custom approval</span><button className="settingToggle" onClick={() => changeSetting("custom_approval", settings.custom_approval === "required" ? "off" : "required")}>{settings.custom_approval === "required" ? "Required" : "Off"}</button></div>
+            <div><span>Sexting</span><button className="settingToggle" onClick={() => changeSetting("sexting_enabled", settings.sexting_enabled === "on" ? "off" : "on")}>{settings.sexting_enabled}</button></div>
+            <div><span>Sleep hours</span><button className="settingToggle" onClick={() => changeSetting("sleep_hours_enabled", settings.sleep_hours_enabled === "on" ? "off" : "on")}>{settings.sleep_hours_enabled}</button></div>
+            <div className="rateSetting"><span>Sleep time</span><label><input aria-label="Sleep start time" onChange={(event) => changeSetting("sleep_start", event.target.value)} type="time" value={settings.sleep_start} /></label></div>
+            <div className="rateSetting"><span>Wake time</span><label><input aria-label="Wake time" onChange={(event) => changeSetting("sleep_end", event.target.value)} type="time" value={settings.sleep_end} /></label></div>
+            <div><span>Sexting intensity</span><section>{(["soft", "hard", "hot"] as const).map((value) => <button className={settings.sexting_intensity === value ? "selected" : ""} key={value} onClick={() => changeSetting("sexting_intensity", value)}>{value}</button>)}</section></div>
+            <div className="rateSetting"><span>Video chat per minute</span><label>$<input aria-label="Video chat rate per minute" inputMode="decimal" min="1" onChange={(event) => changeSetting("video_chat_rate", event.target.value)} type="number" value={settings.video_chat_rate} /></label></div>
+            <div className="rateSetting"><span>Custom content per minute</span><label>$<input aria-label="Custom content rate per minute" inputMode="decimal" min="1" onChange={(event) => changeSetting("custom_content_rate", event.target.value)} type="number" value={settings.custom_content_rate} /></label></div>
+            <div className="rateSetting"><span>In person meet per hour</span><label>$<input aria-label="In person meet rate per hour" inputMode="decimal" min="1" onChange={(event) => changeSetting("in_person_rate", event.target.value)} type="number" value={settings.in_person_rate} /></label></div>
+            <div className="rateSetting"><span>Sexting per minute</span><label>$<input aria-label="Sexting rate per minute" inputMode="decimal" min="1" onChange={(event) => changeSetting("sexting_rate", event.target.value)} type="number" value={settings.sexting_rate} /></label></div>
+            <div className="rateSetting"><span>Sexting minimum minutes</span><label><input aria-label="Minimum sexting session length" inputMode="numeric" min="1" max="9" onChange={(event) => changeSetting("sexting_min_minutes", event.target.value)} type="number" value={settings.sexting_min_minutes} /></label></div>
+            <div className="rateSetting"><span>{settings.sexting_min_minutes || "5"} minute Stars price</span><label>⭐<input aria-label="Minimum sexting package price in Stars" inputMode="numeric" min="1" onChange={(event) => changeSetting("sexting_5_stars", event.target.value)} type="number" value={settings.sexting_5_stars} /></label></div>
+            <div className="rateSetting"><span>10 minute Stars price</span><label>⭐<input aria-label="10 minute sexting price in Stars" inputMode="numeric" min="1" onChange={(event) => changeSetting("sexting_10_stars", event.target.value)} type="number" value={settings.sexting_10_stars} /></label></div>
             <div><span>Age gate</span><strong>Required</strong></div>
+            <button className="primaryAction" disabled={liveLoading || !settingsDirty} onClick={() => void saveCreatorSettings()} type="button">{liveLoading ? "Saving..." : "Save changes"}</button>
+            {settingsSaveStatus && <small className={settingsDirty ? "settingsUnsaved" : "settingsSaved"}>{settingsSaveStatus}</small>}
           </div>
 
           <div className="creatorProfileLinks dashboardSection dashboardSettings">
