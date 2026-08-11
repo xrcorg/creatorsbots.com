@@ -10,6 +10,7 @@ import {
   isCancelReply,
   isConversationQuestion,
   isCustomDecline,
+  isCustomDetailsFinished,
   isGenericCancelReply,
   isLikelyBookingDetailReply,
   isLikelyCityReply,
@@ -103,6 +104,15 @@ test("customs require both creative details and a duration", () => {
     duration: false,
     description: false,
   });
+});
+
+test("custom collection ends only with an explicit finished phrase", () => {
+  for (const reply of ["done", "finished", "all done", "that's all", "that's everything", "I'm done"]) {
+    assert.equal(isCustomDetailsFinished(reply), true, reply);
+  }
+  for (const detail of ["and wear red", "one more thing", "10 minutes", "can you say my name?"]) {
+    assert.equal(isCustomDetailsFinished(detail), false, detail);
+  }
 });
 
 test("name introductions preserve the rest of the fan message", () => {

@@ -341,7 +341,7 @@ button { cursor: pointer; }
 .customMeta { display: flex; justify-content: space-between; gap: 10px; font-size: 10px; }
 .customMeta strong { color: var(--deep-pink); }
 .customMeta span { color: var(--muted); }
-.customCard p { margin: 10px 0; color: var(--ink); font-size: 11px; line-height: 1.5; }
+.customCard p { margin: 10px 0; color: var(--ink); font-size: 11px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
 .queueNote { margin: 0; color: var(--muted); font-size: 10px; }
 .requestOwner { margin-top: 12px; color: var(--deep-pink); font-size: 11px; font-weight: 850; }
 .takeoverCard { padding: 18px; border: 1px solid #f3c4da; border-radius: 20px; background: linear-gradient(160deg, #fff6fa, #fff); box-shadow: 0 12px 30px rgba(200,47,121,.08); }

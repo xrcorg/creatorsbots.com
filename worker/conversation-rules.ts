@@ -33,6 +33,10 @@ export function customDetailsMissing(text: string) {
   return { duration: !hasDuration, description: usefulWords.length < 5 };
 }
 
+export function isCustomDetailsFinished(text: string) {
+  return /^(?:done|finished|all done|complete|i(?:'m| am) done|that(?:'s| is) all|that(?:'s| is) everything|those are all the details)[.! ]*$/i.test(text.trim());
+}
+
 export function isAffirmativeReply(text: string) {
   return /^(yes|yes i do|yes i want to|yes please|yes babe|yeah|yeah i do|yep|sure|okay|ok|alright|i guess|okay i guess|ok i guess|let's do it|lets do it|i do|i want to|i'd love to|id love to)[.! ]*$/i.test(text.trim());
 }

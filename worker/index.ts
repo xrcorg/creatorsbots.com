@@ -1,7 +1,7 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { bookingDetailsMissing, customDetailsMissing, isAffirmativeReply, isBookingDecline, isBotQuestion, isCancelReply, isCustomDecline, isGenericCancelReply, isLikelyBookingDetailReply, isLikelyCityReply, isLikelyCustomDetailReply, isLikelyShippingAddress, isLikelyShippingName, isPhysicalOrderDecline, isRatingDecline, isSextingDecline, isSextingPackageFollowUp, parseNameIntroduction } from "./conversation-rules";
+import { bookingDetailsMissing, customDetailsMissing, isAffirmativeReply, isBookingDecline, isBotQuestion, isCancelReply, isCustomDecline, isCustomDetailsFinished, isGenericCancelReply, isLikelyBookingDetailReply, isLikelyCityReply, isLikelyShippingAddress, isLikelyShippingName, isPhysicalOrderDecline, isRatingDecline, isSextingDecline, isSextingPackageFollowUp, parseNameIntroduction } from "./conversation-rules";
 
 interface Env {
   ASSETS: Fetcher;
@@ -183,7 +183,7 @@ function bookingPrompt(settings: Record<string, string>, requestText = "") {
 }
 
 function customVideoPrompt(_settings: Record<string, string>) {
-  return "Yeah babe, I make customs. What did you have in mind, and how long do you want it to be?";
+  return "Yeah babe, I make customs. Send me everything you want and how long you want it to be. You can send as many messages as you need, then say done when you're finished.";
 }
 
 const TIFFANI_PROMPT = `Write automated chat replies for adult creator Tiffani Madison.
@@ -434,6 +434,7 @@ async function prepareDatabase(db: D1Database) {
       chat_id TEXT PRIMARY KEY,
       business_connection_id TEXT,
       status TEXT NOT NULL DEFAULT 'awaiting_details',
+      details TEXT NOT NULL DEFAULT '',
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS custom_fulfillments (
@@ -661,6 +662,10 @@ async function prepareDatabase(db: D1Database) {
   const customColumns = await db.prepare("PRAGMA table_info(custom_fulfillments)").all<{ name: string }>();
   if (!customColumns.results.some((column) => column.name === "completion_comment")) {
     await db.prepare("ALTER TABLE custom_fulfillments ADD COLUMN completion_comment TEXT NOT NULL DEFAULT ''").run();
+  }
+  const customDraftColumns = await db.prepare("PRAGMA table_info(custom_drafts)").all<{ name: string }>();
+  if (!customDraftColumns.results.some((column) => column.name === "details")) {
+    await db.prepare("ALTER TABLE custom_drafts ADD COLUMN details TEXT NOT NULL DEFAULT ''").run();
   }
   const contentColumns = await db.prepare("PRAGMA table_info(content_products)").all<{ name: string }>();
   if (!contentColumns.results.some((column) => column.name === "stars_price")) {
@@ -1165,7 +1170,7 @@ async function collectQuickMessages(db: D1Database, chatId: string, message: Tel
 
   const buffered = await db.prepare(`SELECT message_id, message_text
     FROM inbound_message_buffer WHERE chat_id = ? AND created_at >= datetime('now', '-10 minutes')
-    ORDER BY message_id ASC LIMIT 10`)
+    ORDER BY message_id ASC LIMIT 200`)
     .bind(chatId)
     .all<{ message_id: number; message_text: string }>();
   if (!buffered.results.length) return null;
@@ -1591,6 +1596,9 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   if (!collected) return json({ ok: true, combined_with_newer_message: true });
   message.text = collected.text;
   const requestedFlow = requestedConversationFlow(message.text);
+  const customDraft = await env.DB.prepare(`SELECT status, details FROM custom_drafts
+    WHERE chat_id = ?`).bind(chatId).first<{ status: string; details: string }>();
+  const collectingCustomDetails = customDraft?.status === "awaiting_details";
 
   // A fan can change the subject after seeing the sexting packages. Clear that
   // temporary choice before any normal conversation handler returns, otherwise
@@ -1660,7 +1668,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     return json({ ok: true, active_sexting: true });
   }
 
-  if (isMultiConversationalTurn(message.text, collected.count)) {
+  if (!collectingCustomDetails && isMultiConversationalTurn(message.text, collected.count)) {
     let combinedReply = CREATOR_TAKEOVER;
     try {
       combinedReply = await createAIReply(env, chatId, message.text);
@@ -1680,35 +1688,35 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     return json({ ok: true });
   }
 
-  if (isBotQuestion(message.text)) {
+  if (!collectingCustomDetails && isBotQuestion(message.text)) {
     const automationReply = "It's me, babe, but sometimes my chat automatically responds to basic questions. I personally handle anything that needs me.";
     await sendSavedReply(env, message, chatId, automationReply);
     return json({ ok: true });
   }
 
-  if (isCapabilitiesQuestion(message.text)) {
+  if (!collectingCustomDetails && isCapabilitiesQuestion(message.text)) {
     await sendSavedReply(env, message, chatId, CAPABILITIES);
     return json({ ok: true });
   }
 
-  if (isSocialQuestion(message.text)) {
+  if (!collectingCustomDetails && isSocialQuestion(message.text)) {
     const socialReply = await socialReplyFor(env.DB, message.text);
     await sendSavedReply(env, message, chatId, socialReply);
     return json({ ok: true });
   }
 
-  const preferenceReply = knownProfilePreferenceReply(message.text);
+  const preferenceReply = collectingCustomDetails ? null : knownProfilePreferenceReply(message.text);
   if (preferenceReply) {
     await sendSavedReply(env, message, chatId, preferenceReply);
     return json({ ok: true });
   }
 
-  if (isTodayActivityQuestion(message.text)) {
+  if (!collectingCustomDetails && isTodayActivityQuestion(message.text)) {
     await sendSavedReply(env, message, chatId, randomTodayActivity(chatId));
     return json({ ok: true });
   }
 
-  if (isMoviePlanFollowUp(message.text)) {
+  if (!collectingCustomDetails && isMoviePlanFollowUp(message.text)) {
     const recentPlan = await env.DB.prepare(`SELECT content FROM chat_messages
       WHERE chat_id = ? AND role = 'assistant' ORDER BY id DESC LIMIT 3`)
       .bind(chatId).all<{ content: string }>();
@@ -1718,17 +1726,17 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     }
   }
 
-  if (isHowAreYouQuestion(message.text)) {
+  if (!collectingCustomDetails && isHowAreYouQuestion(message.text)) {
     await sendSavedReply(env, message, chatId, randomHowAreYouReply(chatId));
     return json({ ok: true });
   }
 
-  if (isGoodnight(message.text)) {
+  if (!collectingCustomDetails && isGoodnight(message.text)) {
     await sendSavedReply(env, message, chatId, "Sweet dreams, babe. Talk to you tomorrow.");
     return json({ ok: true });
   }
 
-  if (isGreeting(message.text)) {
+  if (!collectingCustomDetails && isGreeting(message.text)) {
     const greeting = Number(new Intl.DateTimeFormat("en-US", {
       timeZone: "America/Los_Angeles", hour: "2-digit", hourCycle: "h23",
     }).format(new Date())) < 12 ? "Good morning, babe. How are you?" : "Hey babe. How are you?";
@@ -1736,13 +1744,13 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     return json({ ok: true });
   }
 
-  if (isThanks(message.text)) {
+  if (!collectingCustomDetails && isThanks(message.text)) {
     await sendSavedReply(env, message, chatId, "Of course, babe.");
     return json({ ok: true });
   }
 
   const sextingDraft = pendingSextingDraft;
-  if (sextingDraft && sextingDraft.status !== "awaiting_package" &&
+  if (!collectingCustomDetails && sextingDraft && sextingDraft.status !== "awaiting_package" &&
       isSextingPaymentQuestion(message.text) && /\bsext(?:ing)?\b/i.test(message.text)) {
     const paymentReply = "For sexting here, I use Telegram Stars, babe. Tell me if you want 5 or 10 minutes and I'll send the invoice.";
     await env.DB.prepare(`UPDATE sexting_drafts SET status = 'awaiting_package', updated_at = CURRENT_TIMESTAMP
@@ -1750,7 +1758,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     await sendSavedReply(env, message, chatId, paymentReply);
     return json({ ok: true, sexting_payment_answered: true });
   }
-  if (sextingDraft?.status === "awaiting_package") {
+  if (!collectingCustomDetails && sextingDraft?.status === "awaiting_package") {
     if (isGenericCancelReply(message.text) || isSextingDecline(message.text)) {
       await env.DB.prepare(`UPDATE sexting_drafts SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
         WHERE chat_id = ?`).bind(chatId).run();
@@ -1785,14 +1793,14 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     }
   }
 
-  if (isInPersonSexSolicitation(message.text)) {
+  if (!collectingCustomDetails && isInPersonSexSolicitation(message.text)) {
     await saveMessage(env.DB, chatId, "user", message.text);
     await saveMessage(env.DB, chatId, "assistant", IN_PERSON_SEX_REPLY);
     await sendTelegramMessage(env, message, IN_PERSON_SEX_REPLY);
     return json({ ok: true });
   }
 
-  if (isSextingQuestion(message.text)) {
+  if (!collectingCustomDetails && isSextingQuestion(message.text)) {
     if (settings.sexting_enabled === "off") {
       await sendTelegramMessage(env, message, "I'm not offering sexting sessions right now, babe.");
       return json({ ok: true });
@@ -1810,17 +1818,15 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     return json({ ok: true });
   }
 
-  const customDraft = await env.DB.prepare(`SELECT status FROM custom_drafts
-    WHERE chat_id = ?`).bind(chatId).first<{ status: string }>();
-  if (customDraft?.status === "awaiting_details" && requestedFlow && requestedFlow !== "custom") {
+  const explicitCustomFlowSwitch = requestedFlow && requestedFlow !== "custom" &&
+    /\b(?:instead|actually|rather|change|switch|never mind|nevermind)\b/i.test(message.text);
+  if (customDraft?.status === "awaiting_details" && explicitCustomFlowSwitch) {
     await env.DB.prepare(`UPDATE custom_drafts SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
       WHERE chat_id = ?`).bind(chatId).run();
     customDraft.status = "cancelled";
   }
   const cancelCustomDraft = isGenericCancelReply(message.text) || isCustomDecline(message.text);
-  const shouldHandleCustomDraft = customDraft?.status === "awaiting_details" &&
-    (cancelCustomDraft || (!isCancelReply(message.text) && isLikelyCustomDetailReply(message.text)));
-  if (customDraft?.status === "awaiting_details" && shouldHandleCustomDraft) {
+  if (customDraft?.status === "awaiting_details") {
     if (cancelCustomDraft) {
       await env.DB.prepare(`UPDATE custom_drafts SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
         WHERE chat_id = ?`).bind(chatId).run();
@@ -1841,29 +1847,39 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       await sendSavedReply(env, message, chatId, customPriceReply);
       return json({ ok: true });
     }
-    const recentCustomMessages = await env.DB.prepare(`SELECT content FROM chat_messages
-      WHERE chat_id = ? AND role = 'user' ORDER BY id DESC LIMIT 4`)
-      .bind(chatId).all<{ content: string }>();
-    const combinedCustomDetails = [...recentCustomMessages.results]
-      .reverse().map((item) => item.content).concat(message.text).join(" ");
-    const missingCustomDetails = customDetailsMissing(combinedCustomDetails);
-    if (missingCustomDetails.description || missingCustomDetails.duration) {
-      const customFollowUp = missingCustomDetails.description && missingCustomDetails.duration
-        ? "Tell me what you want in the custom and how many minutes you want, babe."
-        : missingCustomDetails.description
-          ? "What do you want me to do in the custom?"
-          : "How many minutes do you want it to be?";
-      await sendSavedReply(env, message, chatId, customFollowUp);
+    const customParts = message.text.split(/\n+/).map((part) => part.trim()).filter(Boolean);
+    const finishedWithBatch = customParts.length > 0 && isCustomDetailsFinished(customParts[customParts.length - 1]);
+    const newCustomDetails = finishedWithBatch ? customParts.slice(0, -1).join("\n") : message.text.trim();
+    const combinedCustomDetails = [customDraft.details.trim(), newCustomDetails]
+      .filter(Boolean).join("\n").slice(0, 100000);
+    if (finishedWithBatch) {
+      const missingCustomDetails = customDetailsMissing(combinedCustomDetails);
+      if (missingCustomDetails.description || missingCustomDetails.duration) {
+        const customFollowUp = missingCustomDetails.description && missingCustomDetails.duration
+          ? "I still need your custom idea and how many minutes you want, babe. Send the details, then say done when you're finished."
+          : missingCustomDetails.description
+            ? "I still need to know what you want me to do. Send the details, then say done when you're finished."
+            : "How many minutes do you want the custom to be? Send the length, then say done when you're finished.";
+        await sendSavedReply(env, message, chatId, customFollowUp);
+        return json({ ok: true });
+      }
+      await env.DB.prepare(`UPDATE custom_drafts SET status = 'submitted', updated_at = CURRENT_TIMESTAMP
+        WHERE chat_id = ?`).bind(chatId).run();
+      await env.DB.prepare(`INSERT INTO booking_requests (chat_id, business_connection_id, details)
+        VALUES (?, ?, ?)`).bind(chatId, message.business_connection_id || null, `Custom content request:\n${combinedCustomDetails}`).run();
+      const received = "Got it, babe. I'll look over everything and send you a quote.";
+      await saveMessage(env.DB, chatId, "user", message.text);
+      await saveMessage(env.DB, chatId, "assistant", received);
+      await sendTelegramMessage(env, message, received);
       return json({ ok: true });
     }
-    await env.DB.prepare(`UPDATE custom_drafts SET status = 'submitted', updated_at = CURRENT_TIMESTAMP
-      WHERE chat_id = ?`).bind(chatId).run();
-    await env.DB.prepare(`INSERT INTO booking_requests (chat_id, business_connection_id, details)
-      VALUES (?, ?, ?)`).bind(chatId, message.business_connection_id || null, `Custom content request: ${combinedCustomDetails}`).run();
-    const received = "That sounds fun. I'll look it over and see if I can make it for you.";
+    await env.DB.prepare(`UPDATE custom_drafts
+      SET details = ?, updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?`)
+      .bind(combinedCustomDetails, chatId).run();
+    const acknowledgement = "Got it. Keep going, babe, and say done when you're finished.";
     await saveMessage(env.DB, chatId, "user", message.text);
-    await saveMessage(env.DB, chatId, "assistant", received);
-    await sendTelegramMessage(env, message, received);
+    await saveMessage(env.DB, chatId, "assistant", acknowledgement);
+    await sendTelegramMessage(env, message, acknowledgement);
     return json({ ok: true });
   }
 
@@ -1881,10 +1897,14 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       await sendTelegramMessage(env, message, unavailable);
       return json({ ok: true });
     }
-    await env.DB.prepare(`INSERT INTO custom_drafts (chat_id, business_connection_id, status)
-      VALUES (?, ?, 'awaiting_details') ON CONFLICT(chat_id) DO UPDATE SET
-      business_connection_id = excluded.business_connection_id, status = 'awaiting_details', updated_at = CURRENT_TIMESTAMP`)
-      .bind(chatId, message.business_connection_id || null).run();
+    const initialCustomMissing = customDetailsMissing(message.text);
+    const initialCustomDetails = !initialCustomMissing.description || !initialCustomMissing.duration
+      ? message.text.trim()
+      : "";
+    await env.DB.prepare(`INSERT INTO custom_drafts (chat_id, business_connection_id, status, details)
+      VALUES (?, ?, 'awaiting_details', ?) ON CONFLICT(chat_id) DO UPDATE SET
+      business_connection_id = excluded.business_connection_id, status = 'awaiting_details', details = excluded.details, updated_at = CURRENT_TIMESTAMP`)
+      .bind(chatId, message.business_connection_id || null, initialCustomDetails).run();
     await saveMessage(env.DB, chatId, "user", message.text);
     const prompt = customVideoPrompt(settings);
     await saveMessage(env.DB, chatId, "assistant", prompt);
@@ -2189,10 +2209,10 @@ async function handleAdminPending(request: Request, env: Env) {
     }>();
   for (const item of misplacedCustoms.results.filter((entry) => isCustomVideoQuestion(entry.question))) {
     await env.DB.batch([
-      env.DB.prepare(`INSERT INTO custom_drafts (chat_id, business_connection_id, status)
-        VALUES (?, ?, 'awaiting_details') ON CONFLICT(chat_id) DO UPDATE SET
+      env.DB.prepare(`INSERT INTO custom_drafts (chat_id, business_connection_id, status, details)
+        VALUES (?, ?, 'awaiting_details', '') ON CONFLICT(chat_id) DO UPDATE SET
         business_connection_id = excluded.business_connection_id, status = 'awaiting_details',
-        updated_at = CURRENT_TIMESTAMP`).bind(item.chat_id, item.business_connection_id),
+        details = '', updated_at = CURRENT_TIMESTAMP`).bind(item.chat_id, item.business_connection_id),
       env.DB.prepare(`UPDATE pending_replies SET status = 'routed', answered_at = CURRENT_TIMESTAMP
         WHERE id = ? AND status = 'pending'`).bind(item.id),
     ]);
