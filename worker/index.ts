@@ -842,7 +842,7 @@ function askedToShowTrailer(text: string) {
 }
 
 function isDirectTrailerRequest(text: string) {
-  return /\b(?:can|could|may)\s+i\s+(?:see|watch)\s+(?:the\s+|a\s+)?(?:trailer|preview)\b|\b(?:show|send)\s+me\s+(?:the\s+|a\s+)?(?:trailer|preview)\b|\b(?:see|watch)\s+(?:the\s+|a\s+)?(?:trailer|preview)\b/i.test(text);
+  return /\b(?:can|could|may)\s+i\s+(?:see|watch)\s+(?:the\s+|a\s+)?(?:trailer|preview)\b|\bdo\s+you\s+have\s+(?:the\s+|a\s+)?(?:trailer|preview)\b|\b(?:show|send)\s+me\s+(?:the\s+|a\s+)?(?:trailer|preview)\b|\b(?:see|watch)\s+(?:the\s+|a\s+)?(?:trailer|preview)\b/i.test(text);
 }
 
 function askedToBuyProduct(text: string) {
@@ -1121,6 +1121,20 @@ async function getInterestedProduct(db: D1Database, chatId: string) {
     JOIN content_products ON content_products.id = product_interest.product_id
     WHERE product_interest.chat_id = ? AND content_products.active = 1`)
     .bind(chatId).first<ContentProduct>();
+}
+
+async function getTrailerFollowUpProduct(db: D1Database, chatId: string) {
+  const [lastAssistant, products] = await Promise.all([
+    db.prepare(`SELECT content FROM chat_messages WHERE chat_id = ? AND role = 'assistant'
+      ORDER BY id DESC LIMIT 1`).bind(chatId).first<{ content: string }>(),
+    getActiveProducts(db),
+  ]);
+  const mentioned = lastAssistant
+    ? products.filter((product) => lastAssistant.content.toLowerCase().includes(product.title.toLowerCase()))
+    : [];
+  if (mentioned.length === 1) return { product: mentioned[0], ambiguous: false };
+  if (mentioned.length > 1) return { product: null, ambiguous: true };
+  return { product: await getInterestedProduct(db, chatId) || await getNewestProduct(db), ambiguous: false };
 }
 
 async function rememberProductInterest(db: D1Database, chatId: string,
@@ -2151,10 +2165,18 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   }
 
   if (isDirectTrailerRequest(message.text)) {
-    const product = await getInterestedProduct(env.DB, chatId) || await getNewestProduct(env.DB);
-    if (product?.trailer_url) {
+    const trailerContext = await getTrailerFollowUpProduct(env.DB, chatId);
+    if (trailerContext.ambiguous) {
+      const clarification = "Which video did you want the trailer for, babe?";
+      await sendSavedReply(env, message, chatId, clarification);
+      return json({ ok: true, trailer_needs_title: true });
+    }
+    const product = trailerContext.product;
+    if (product) {
       await rememberProductInterest(env.DB, chatId, connectionId, product.id);
-      const trailerReply = `Here you go, babe. This is the trailer for ${product.title}:\n${product.trailer_url}\n\nDo you want the full video for ${productPrice(product)}?`;
+      const trailerReply = product.trailer_url
+        ? `Here you go, babe. This is the trailer for ${product.title}:\n${product.trailer_url}\n\nDo you want the full video for ${productPrice(product)}?`
+        : `I don't have a trailer added for ${product.title} right now, babe. Do you still want to buy it for ${productPrice(product)}?`;
       await saveMessage(env.DB, chatId, "user", message.text);
       await saveMessage(env.DB, chatId, "assistant", trailerReply);
       await sendTelegramMessage(env, message, trailerReply);
