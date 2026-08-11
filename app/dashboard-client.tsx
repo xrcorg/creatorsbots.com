@@ -767,12 +767,6 @@ export default function Home() {
     }
   }
 
-  function openConversationFromAdmin(chatId: string) {
-    setDashboardView("inbox");
-    void openConversation(chatId);
-    window.setTimeout(() => document.getElementById("creator-control-room")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
-  }
-
   async function resolvePurchase(action: "approve" | "decline" | "close_unpaid") {
     const current = livePurchases[0];
     if (!current) return;
@@ -1972,25 +1966,6 @@ export default function Home() {
               </button>
               <button className="ignoreAction" disabled={liveLoading} onClick={() => void resolveBooking("close_unpaid")}>
                 Close as unpaid and follow up
-              </button>
-            </div>
-          ) : livePending.length ? (
-            <div className="inboxQueueNotice dashboardSection dashboardToday">
-              <span className="inboxQueueIcon">!</span>
-              <div>
-                <strong>{livePending.length} {livePending.length === 1 ? "chat needs" : "chats need"} your reply</strong>
-                <small>Open the Inbox to review the conversation and respond.</small>
-              </div>
-              <button
-                className="primaryAction"
-                onClick={() => {
-                  const conversation = conversations.find((item) => Number(item.pending_count) > 0);
-                  if (conversation) openConversationFromAdmin(conversation.chat_id);
-                  else setDashboardView("inbox");
-                }}
-                type="button"
-              >
-                Open inbox
               </button>
             </div>
           ) : null}

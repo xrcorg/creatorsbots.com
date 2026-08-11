@@ -438,11 +438,6 @@ button { cursor: pointer; }
 .purchasePrice { margin: -4px 0 12px; color: var(--deep-pink); font-size: 22px; font-weight: 900; }
 .takeoverCard textarea { width: 100%; min-height: 105px; resize: vertical; border: 1px solid var(--line); border-radius: 13px; outline: none; padding: 12px; background: white; font-size: 12px; }
 .takeoverCard textarea:focus { border-color: var(--pink); box-shadow: 0 0 0 3px rgba(237,79,154,.1); }
-.inboxQueueNotice { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 16px 18px; border: 1px solid #f3c4da; border-radius: 18px; background: linear-gradient(160deg, #fff6fa, #fff); }
-.inboxQueueIcon { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 9px; background: var(--pink); color: white; font-weight: 900; }
-.inboxQueueNotice strong { display: block; color: var(--ink); font-size: 13px; }
-.inboxQueueNotice small { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; }
-.inboxQueueNotice .primaryAction { width: auto; min-width: 110px; margin: 0; padding-inline: 16px; }
 .amountField { display: block; margin: 10px 0; color: var(--muted); font-size: 9px; font-weight: 750; }
 .amountField span { display: block; margin-bottom: 5px; }
 .amountField input, .amountField select { width: 100%; border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: white; color: var(--ink); }
