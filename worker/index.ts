@@ -853,6 +853,10 @@ function isVideoRatingQuestion(text: string) {
   return /\b(dick rating|rate my dick|rate my cock|cock rating|video rating)\b/i.test(text);
 }
 
+function isFreeContentQuestion(text: string) {
+  return /\b(anything|something|videos?|photos?|content|clips?)\b[^?.!]{0,40}\bfree\b|\bfree\b[^?.!]{0,40}\b(videos?|photos?|content|clips?|anything|something)\b/i.test(text);
+}
+
 function isCatalogListQuestion(text: string) {
   return /\b(what|which|show me).*(videos|photos|content|packages|bundles).*(have|sell|available)|\b(?:what|see|show me).*(?:have|got).*(?:for sale|available)|\b(?:do you have|got|have you got)\s+(?:any\s+)?(?:videos|photos|content|packages|bundles)\b|\b(?:any|some)\s+(?:videos|photos|content|packages|bundles)(?:\s+(?:for sale|available))?\b|\b(content menu|catalog|shop menu)\b/i.test(text);
 }
@@ -1132,8 +1136,9 @@ async function getActiveProducts(db: D1Database) {
 }
 
 function catalogReply(products: ContentProduct[]) {
-  if (!products.length) return "I'm adding new content soon, babe. What kind of content do you want to see?";
-  const lines = products.slice(0, 10).map((product) =>
+  const saleContent = products.filter((product) => product.content_type !== "video_rating");
+  if (!saleContent.length) return "I'm adding new content soon, babe. What kind of content do you want to see?";
+  const lines = saleContent.slice(0, 10).map((product) =>
     `${product.title} · ${product.content_type.replaceAll("_", " ")} · ${product.content_type === "video_rating" ? `${videoRatingStars(product).toLocaleString()} Stars` : productPrice(product)}`);
   return `Here's what I have right now, babe:\n\n${lines.join("\n")}\n\nTell me which title you want and I'll show you the details.`;
 }
@@ -2371,6 +2376,17 @@ async function handleTelegramWebhook(request: Request, env: Env) {
         return json({ ok: true });
       }
     }
+  }
+
+  if (isFreeContentQuestion(message.text)) {
+    const freePreview = (await getActiveProducts(env.DB)).find((product) =>
+      !["physical_item", "video_rating"].includes(product.content_type) && Boolean(product.trailer_url));
+    const freeReply = freePreview
+      ? `I don't give away the full videos, babe, but you can watch my trailers for free. Here's one for ${freePreview.title}:\n${freePreview.trailer_url}`
+      : "I don't give away the full videos, babe, but I can show you any free trailers I add.";
+    if (freePreview) await rememberProductInterest(env.DB, chatId, connectionId, freePreview.id);
+    await sendSavedReply(env, message, chatId, freeReply);
+    return json({ ok: true, free_preview: true });
   }
 
   if (isCatalogListQuestion(message.text)) {
