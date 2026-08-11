@@ -1335,8 +1335,8 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
 
 function randomResponseDelayMs(activeSexting: boolean) {
   if (IMMEDIATE_TEST_RESPONSES) return 0;
-  const minimumSeconds = 20;
-  const maximumSeconds = activeSexting ? 25 : 300;
+  const minimumSeconds = activeSexting ? 20 : 30;
+  const maximumSeconds = activeSexting ? 25 : 180;
   return Math.floor((minimumSeconds + Math.random() * (maximumSeconds - minimumSeconds)) * 1000);
 }
 
