@@ -1441,13 +1441,19 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
   }
 
   if (request.method === "POST" && url.pathname === "/api/admin/conversations/reply") {
-    const body = await request.json<{ chat_id?: string; text?: string; action?: "send" | "pause" | "resume"; learn?: boolean }>();
+    const body = await request.json<{ chat_id?: string; text?: string; action?: "send" | "pause" | "resume" | "dismiss"; learn?: boolean }>();
     const chatId = String(body.chat_id || "").trim();
     if (!chatId) return json({ error: "A conversation is required" }, 400);
     const conversation = await env.DB.prepare(`SELECT fan_sessions.chat_id,
       fan_sessions.business_connection_id FROM fan_sessions WHERE fan_sessions.chat_id = ?`)
       .bind(chatId).first<{ chat_id: string; business_connection_id: string | null }>();
     if (!conversation) return json({ error: "Conversation not found" }, 404);
+
+    if (body.action === "dismiss") {
+      await env.DB.prepare(`UPDATE pending_replies SET status = 'ignored', answered_at = CURRENT_TIMESTAMP
+        WHERE chat_id = ? AND status = 'pending'`).bind(chatId).run();
+      return json({ ok: true, pending_count: 0 });
+    }
 
     if (body.action === "resume") {
       await env.DB.batch([
@@ -2758,7 +2764,7 @@ async function handleAdminPending(request: Request, env: Env) {
     }, customVideoPrompt(settings));
     await saveMessage(env.DB, item.chat_id, "assistant", customVideoPrompt(settings));
   }
-  const pending = await env.DB.prepare(`SELECT id, question, created_at
+  const pending = await env.DB.prepare(`SELECT id, chat_id, question, created_at
     FROM pending_replies WHERE status = 'pending' ORDER BY id ASC LIMIT 100`).all();
   const purchases = await env.DB.prepare(`SELECT purchase_requests.id, purchase_requests.product_title,
     purchase_requests.price, purchase_requests.payment_note, purchase_requests.created_at,

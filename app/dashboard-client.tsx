@@ -11,6 +11,7 @@ type Message = {
 
 type LivePendingReply = {
   id: number;
+  chat_id: string;
   question: string;
   created_at: string;
 };
@@ -625,9 +626,16 @@ export default function Home() {
       });
       const data = await response.json() as { error?: string };
       if (!response.ok) throw new Error(data.error || "Reply failed");
+      const resolvedChatId = selectedConversation.chat_id;
+      const sentReply = conversationReply.trim();
       setConversationReply("");
+      setLivePending((items) => items.filter((item) => item.chat_id !== resolvedChatId));
+      setConversations((items) => items.map((item) => item.chat_id === resolvedChatId
+        ? { ...item, pending_count: 0, control_mode: "human", last_message: sentReply,
+          last_role: "assistant", last_message_at: new Date().toISOString().replace("T", " ").replace("Z", "") }
+        : item));
       await loadLivePending();
-      await openConversation(selectedConversation.chat_id);
+      await openConversation(resolvedChatId);
       setConversationStatus(saveForFuture
         ? "Reply sent and saved for future answers. The bot is paused for this chat."
         : "Reply sent. The bot is paused for this chat.");
@@ -641,6 +649,32 @@ export default function Home() {
   function sendConversationReply(event: FormEvent) {
     event.preventDefault();
     void submitConversationReply(false);
+  }
+
+  async function dismissConversationRequest() {
+    if (!selectedConversation) return;
+    const chatId = selectedConversation.chat_id;
+    try {
+      setLiveLoading(true);
+      setConversationStatus("Clearing request...");
+      const response = await fetch("/api/admin/conversations/reply", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, action: "dismiss" }),
+      });
+      const data = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(data.error || "Request could not be cleared");
+      setLivePending((items) => items.filter((item) => item.chat_id !== chatId));
+      setConversations((items) => items.map((item) => item.chat_id === chatId
+        ? { ...item, pending_count: 0 }
+        : item));
+      setConversationStatus("Request cleared.");
+      await loadLivePending();
+    } catch (error) {
+      setConversationStatus(error instanceof Error ? error.message : "Request could not be cleared.");
+    } finally {
+      setLiveLoading(false);
+    }
   }
 
   function fillQuickReply(template: string) {
@@ -1574,6 +1608,7 @@ export default function Home() {
                     <div className="conversationReplyActions">
                       <button className="primaryAction" disabled={liveLoading || !conversationReply.trim()}>Send once</button>
                       <button className="secondaryAction" disabled={liveLoading || !conversationReply.trim()} onClick={() => void submitConversationReply(true)} type="button">Send and save for future</button>
+                      {Number(selectedConversation.pending_count) > 0 && <button className="ignoreAction" disabled={liveLoading} onClick={() => void dismissConversationRequest()} type="button">Clear request without replying</button>}
                     </div>
                     <small>Sending a reply pauses automatic responses for this chat until you turn Bot replies back on.</small>
                   </form>
