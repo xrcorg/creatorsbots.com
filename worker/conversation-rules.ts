@@ -21,7 +21,8 @@ export function bookingDetailsMissing(text: string) {
 export function isLikelyCityReply(text: string) {
   const value = text.trim().replace(/[.!?]+$/g, "");
   if (!/^[a-z][a-z .'-]{1,59}$/i.test(value)) return false;
-  return !/^(today|tomorrow|tonight|morning|afternoon|evening|noon|midnight|yes|no|sure|okay|ok|alright)$/i.test(value);
+  return !/^(today|tomorrow|tonight|morning|afternoon|evening|noon|midnight|yes|no|sure|okay|ok|alright)$/i.test(value) &&
+    !/^(?:what|which|who|whose|where|when|why|how|can|could|would|will|do|does|did|is|are|am|should|have|has)\b/i.test(value);
 }
 
 export function customDetailsMissing(text: string) {
@@ -36,9 +37,62 @@ export function isAffirmativeReply(text: string) {
   return /^(yes|yes i do|yes i want to|yes please|yes babe|yeah|yeah i do|yep|sure|okay|ok|alright|i guess|okay i guess|ok i guess|let's do it|lets do it|i do|i want to|i'd love to|id love to)[.! ]*$/i.test(text.trim());
 }
 
-export function isCancelReply(text: string) {
-  return /\b(cancel|never mind|nevermind|not now|maybe later|no thanks|no thank you|forget it|not interested)\b/i.test(text) ||
+export function isGenericCancelReply(text: string) {
+  return /\b(cancel|cancel that|cancel this|never mind|nevermind|not now|maybe later|no thanks|no thank you|forget it|not interested|changed my mind|don't want it|dont want it|do not want it|not anymore|stop this)\b/i.test(text) ||
     /^(?:no|nope|neither)(?:\s+(?:thanks|thank you|sorry))?[.! ]*$/i.test(text.trim());
+}
+
+export function isCancelReply(text: string) {
+  return isGenericCancelReply(text) || isBookingDecline(text) || isCustomDecline(text) ||
+    isPhysicalOrderDecline(text) || isRatingDecline(text) || isSextingDecline(text);
+}
+
+export function isBookingDecline(text: string) {
+  return /\b(?:do not|don't|dont|no longer)\s+(?:want\s+(?:a\s+)?)?(?:video chat|video call|booking|meet and greet|in person meet)\b/i.test(text);
+}
+
+export function isCustomDecline(text: string) {
+  return /\b(?:do not|don't|dont|no longer)\s+(?:want\s+(?:a\s+)?)?(?:custom|custom video|custom content)\b/i.test(text);
+}
+
+export function isPhysicalOrderDecline(text: string) {
+  return /\b(?:do not|don't|dont|no longer)\s+(?:want\s+(?:the\s+)?)?(?:item|order|panty|panties|clothing|clothes)\b/i.test(text);
+}
+
+export function isRatingDecline(text: string) {
+  return /\b(?:do not|don't|dont|no longer)\s+(?:want\s+(?:a\s+)?)?(?:rating|dick rating|video rating)\b/i.test(text);
+}
+
+export function isConversationQuestion(text: string) {
+  return /\?/.test(text) || /^(?:what|which|who|whose|where|when|why|how|can|could|would|will|do|does|did|is|are|am|should|have|has)\b/i.test(text.trim());
+}
+
+export function isLikelyShippingName(text: string) {
+  const value = text.trim().replace(/[,.!]+$/g, "");
+  if (isConversationQuestion(value) || /\b(?:sext|video chat|video call|custom|buy|book|payment|pay)\b/i.test(value)) return false;
+  return /^(?:[a-z][a-z'-]*\s*){1,5}$/i.test(value);
+}
+
+export function isLikelyShippingAddress(text: string) {
+  const value = text.trim();
+  return /\d/.test(value) && (/,/.test(value) ||
+    /\b(?:street|st|avenue|ave|road|rd|boulevard|blvd|lane|ln|drive|dr|court|ct|way|highway|hwy|apartment|apt|suite|unit|zip)\b/i.test(value) ||
+    /\b\d{5}(?:-\d{4})?\b/.test(value));
+}
+
+export function isLikelyBookingDetailReply(text: string, expectingCity = false) {
+  if (/\b(video chat|video call|in person|meet and greet)\b/i.test(text)) return true;
+  if (/\b(today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|morning|afternoon|evening|noon|midnight)\b/i.test(text)) return true;
+  if (/\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b|\b\d{1,2}[\/.\-]\d{1,2}(?:[\/.\-]\d{2,4})?\b/i.test(text)) return true;
+  if (/^(?:you|with you|a meeting with you|meet with you)\??[.! ]*$/i.test(text.trim())) return true;
+  return expectingCity && isLikelyCityReply(text);
+}
+
+export function isLikelyCustomDetailReply(text: string) {
+  if (!isConversationQuestion(text)) {
+    return !/^(?:hi|hey|hello|lol|lmao|thanks|thank you|okay|ok|cool|nice|what's up|whats up)[.! ]*$/i.test(text.trim());
+  }
+  return /\b(custom|customs|custom video|custom content|how much|price|cost|pay|payment|turnaround|when.*(?:done|ready))\b/i.test(text);
 }
 
 export function isSextingPackageFollowUp(text: string) {

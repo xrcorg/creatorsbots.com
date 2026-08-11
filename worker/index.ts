@@ -1,7 +1,7 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { bookingDetailsMissing, customDetailsMissing, isAffirmativeReply, isBotQuestion, isCancelReply, isLikelyCityReply, isSextingDecline, isSextingPackageFollowUp, parseNameIntroduction } from "./conversation-rules";
+import { bookingDetailsMissing, customDetailsMissing, isAffirmativeReply, isBookingDecline, isBotQuestion, isCancelReply, isCustomDecline, isGenericCancelReply, isLikelyBookingDetailReply, isLikelyCityReply, isLikelyCustomDetailReply, isLikelyShippingAddress, isLikelyShippingName, isPhysicalOrderDecline, isRatingDecline, isSextingDecline, isSextingPackageFollowUp, parseNameIntroduction } from "./conversation-rules";
 
 interface Env {
   ASSETS: Fetcher;
@@ -808,12 +808,28 @@ function isExplicitBusinessRequest(text: string) {
     isCustomVideoQuestion(text) || isBookingQuestion(text) || isManualPaymentQuestion(text);
 }
 
+type ConversationFlow = "sexting" | "booking" | "custom" | "physical" | "rating" | "content";
+
+function requestedConversationFlow(text: string): ConversationFlow | null {
+  if (isVideoRatingQuestion(text) && !isRatingDecline(text)) return "rating";
+  if (isPhysicalItemQuestion(text) && !isPhysicalOrderDecline(text)) return "physical";
+  if (isBookingQuestion(text) && !isBookingDecline(text)) return "booking";
+  if (isCustomVideoQuestion(text) && !isCustomDecline(text)) return "custom";
+  if (isProductQuestion(text) || isCatalogListQuestion(text)) return "content";
+  if (isSextingQuestion(text)) return "sexting";
+  return null;
+}
+
 function isTurnaroundQuestion(text: string) {
   return /\b(when will (?:you|it)|when.*done|how long.*(?:take|until)|turnaround|when can i get|when.*ready)\b/i.test(text);
 }
 
 function isTodayActivityQuestion(text: string) {
   return /\b(what are you doing(?: today| right now)?|what are you (?:really )?up to(?: today| right now)?|what do you have planned today|plans for today|what's your day looking like|whats your day looking like)\b/i.test(text);
+}
+
+function isMoviePlanFollowUp(text: string) {
+  return /\b(?:which|what) movie\b|\bmovie (?:are|will) you (?:seeing|watching)\b/i.test(text);
 }
 
 function knownProfilePreferenceReply(text: string) {
@@ -848,7 +864,11 @@ function isHowAreYouQuestion(text: string) {
 }
 
 function isSextingQuestion(text: string) {
-  if (isSextingDecline(text)) return false;
+  if (isSextingDecline(text) ||
+      (isBookingQuestion(text) && !isBookingDecline(text)) ||
+      (isCustomVideoQuestion(text) && !isCustomDecline(text)) ||
+      (isPhysicalItemQuestion(text) && !isPhysicalOrderDecline(text)) ||
+      (isVideoRatingQuestion(text) && !isRatingDecline(text))) return false;
   return /\b(sext|sexting|dirty text|dirty texting|text session|i want sex|want to have sex|what are you wearing)\b/i.test(text);
 }
 
@@ -1132,11 +1152,10 @@ async function hasNewerBufferedMessage(db: D1Database, chatId: string, messageId
 }
 
 function isMultiConversationalTurn(text: string, count: number) {
-  if (count < 2) return false;
   if (/\b(sext|video chat|video call|meet|meeting|book|buy|pay|payment|custom|content|photo|video|trailer)\b/i.test(text)) return false;
   const conversationalSignals = [isGreeting(text), isHowAreYouQuestion(text), isTodayActivityQuestion(text)]
     .filter(Boolean).length;
-  return conversationalSignals >= 2 || (text.match(/\?/g)?.length || 0) >= 2;
+  return conversationalSignals >= 2 || (count >= 2 && (text.match(/\?/g)?.length || 0) >= 2);
 }
 
 async function createAIReply(env: Env, chatId: string, incoming: string) {
@@ -1446,11 +1465,15 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   const physicalOrder = await env.DB.prepare(`SELECT id, status FROM physical_orders
     WHERE chat_id = ? AND status IN ('awaiting_name', 'awaiting_address') ORDER BY id DESC LIMIT 1`)
     .bind(chatId).first<{ id: number; status: string }>();
-  if (physicalOrder) {
-    if (isCancelReply(message.text)) {
+  const cancelPhysicalOrder = isGenericCancelReply(message.text) || isPhysicalOrderDecline(message.text);
+  const shouldHandlePhysicalOrder = Boolean(physicalOrder && (cancelPhysicalOrder ||
+    (physicalOrder.status === "awaiting_name" && isLikelyShippingName(message.text)) ||
+    (physicalOrder.status === "awaiting_address" && isLikelyShippingAddress(message.text))));
+  if (physicalOrder && shouldHandlePhysicalOrder) {
+    if (cancelPhysicalOrder) {
       await env.DB.prepare(`UPDATE physical_orders SET status = 'cancelled' WHERE id = ?`)
         .bind(physicalOrder.id).run();
-      await sendSavedReply(env, message, chatId, "No problem, babe. I cancelled the shipping request.");
+      await sendSavedReply(env, message, chatId, "No problem, lmk if you want anything else!");
       return json({ ok: true, physical_order_cancelled: true });
     }
     if (physicalOrder.status === "awaiting_name") {
@@ -1470,10 +1493,13 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   const ratingOrder = await env.DB.prepare(`SELECT id FROM rating_orders
     WHERE chat_id = ? AND status = 'awaiting_photo' ORDER BY id DESC LIMIT 1`)
     .bind(chatId).first<{ id: number }>();
-  if (ratingOrder) {
-    if (isCancelReply(message.text)) {
+  const cancelRatingOrder = isGenericCancelReply(message.text) || isRatingDecline(message.text);
+  const shouldHandleRatingOrder = Boolean(ratingOrder && (cancelRatingOrder ||
+    message.photo?.length || requestedConversationFlow(message.text) === "rating"));
+  if (ratingOrder && shouldHandleRatingOrder) {
+    if (cancelRatingOrder) {
       await env.DB.prepare(`UPDATE rating_orders SET status = 'cancelled' WHERE id = ?`).bind(ratingOrder.id).run();
-      await sendSavedReply(env, message, chatId, "No problem, babe. I cancelled the rating request.");
+      await sendSavedReply(env, message, chatId, "No problem, lmk if you want a rating later!");
       return json({ ok: true, rating_cancelled: true });
     }
     const photoFileId = message.photo?.at(-1)?.file_id;
@@ -1494,6 +1520,12 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     latestSextingSession.control_mode === "human" && Boolean(latestSextingSession.ends_at) &&
       Date.parse(`${latestSextingSession.ends_at!.replace(" ", "T")}Z`) > Date.now();
   if (activeHumanTakeover) {
+    if (isGenericCancelReply(message.text) || isSextingDecline(message.text)) {
+      await env.DB.prepare(`UPDATE sexting_sessions SET status = 'completed', completed_at = CURRENT_TIMESTAMP
+        WHERE id = ?`).bind(latestSextingSession.id).run();
+      await sendSavedReply(env, message, chatId, SEXTING_CANCELLATION_REPLY);
+      return json({ ok: true, sexting_cancelled: true });
+    }
     await saveMessage(env.DB, chatId, "user", message.text);
     return json({ ok: true, creator_controlling_session: true });
   }
@@ -1523,13 +1555,15 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       (pendingSextingDraft && isSextingPaymentQuestion(message.text))));
   if (!collected) return json({ ok: true, combined_with_newer_message: true });
   message.text = collected.text;
+  const requestedFlow = requestedConversationFlow(message.text);
 
   // A fan can change the subject after seeing the sexting packages. Clear that
   // temporary choice before any normal conversation handler returns, otherwise
   // a later follow up can be mistaken for another package response.
   if (pendingSextingDraft?.status === "awaiting_package" &&
       (isSextingDecline(message.text) ||
-        (!isCancelReply(message.text) &&
+        (requestedFlow !== null && requestedFlow !== "sexting") ||
+        (!isGenericCancelReply(message.text) &&
           !isSextingPaymentQuestion(message.text) &&
           !isSextingPackageFollowUp(message.text)))) {
     await env.DB.prepare(`UPDATE sexting_drafts SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
@@ -1551,6 +1585,12 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   }
 
   if (activeSextingSession) {
+    if (isGenericCancelReply(message.text) || isSextingDecline(message.text)) {
+      await env.DB.prepare(`UPDATE sexting_sessions SET status = 'completed', completed_at = CURRENT_TIMESTAMP
+        WHERE id = ?`).bind(activeSextingSession.id).run();
+      await sendSavedReply(env, message, chatId, SEXTING_CANCELLATION_REPLY);
+      return json({ ok: true, sexting_cancelled: true });
+    }
     const currentControl = await env.DB.prepare(`SELECT control_mode FROM sexting_sessions WHERE id = ?`)
       .bind(activeSextingSession.id).first<{ control_mode: string }>();
     if (currentControl?.control_mode === "human") {
@@ -1633,6 +1673,16 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     return json({ ok: true });
   }
 
+  if (isMoviePlanFollowUp(message.text)) {
+    const recentPlan = await env.DB.prepare(`SELECT content FROM chat_messages
+      WHERE chat_id = ? AND role = 'assistant' ORDER BY id DESC LIMIT 3`)
+      .bind(chatId).all<{ content: string }>();
+    if (recentPlan.results.some((item) => /\bmovie\b/i.test(item.content))) {
+      await sendSavedReply(env, message, chatId, "I haven't picked one yet. What do you think I should see?");
+      return json({ ok: true, plan_follow_up: true });
+    }
+  }
+
   if (isHowAreYouQuestion(message.text)) {
     await sendSavedReply(env, message, chatId, randomHowAreYouReply(chatId));
     return json({ ok: true });
@@ -1657,7 +1707,8 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   }
 
   const sextingDraft = pendingSextingDraft;
-  if (sextingDraft && sextingDraft.status !== "awaiting_package" && isSextingPaymentQuestion(message.text)) {
+  if (sextingDraft && sextingDraft.status !== "awaiting_package" &&
+      isSextingPaymentQuestion(message.text) && /\bsext(?:ing)?\b/i.test(message.text)) {
     const paymentReply = "For sexting here, I use Telegram Stars, babe. Tell me if you want 5 or 10 minutes and I'll send the invoice.";
     await env.DB.prepare(`UPDATE sexting_drafts SET status = 'awaiting_package', updated_at = CURRENT_TIMESTAMP
       WHERE chat_id = ?`).bind(chatId).run();
@@ -1665,7 +1716,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     return json({ ok: true, sexting_payment_answered: true });
   }
   if (sextingDraft?.status === "awaiting_package") {
-    if (isCancelReply(message.text)) {
+    if (isGenericCancelReply(message.text) || isSextingDecline(message.text)) {
       await env.DB.prepare(`UPDATE sexting_drafts SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
         WHERE chat_id = ?`).bind(chatId).run();
       await saveMessage(env.DB, chatId, "user", message.text);
@@ -1726,8 +1777,16 @@ async function handleTelegramWebhook(request: Request, env: Env) {
 
   const customDraft = await env.DB.prepare(`SELECT status FROM custom_drafts
     WHERE chat_id = ?`).bind(chatId).first<{ status: string }>();
-  if (customDraft?.status === "awaiting_details") {
-    if (isCancelReply(message.text)) {
+  if (customDraft?.status === "awaiting_details" && requestedFlow && requestedFlow !== "custom") {
+    await env.DB.prepare(`UPDATE custom_drafts SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+      WHERE chat_id = ?`).bind(chatId).run();
+    customDraft.status = "cancelled";
+  }
+  const cancelCustomDraft = isGenericCancelReply(message.text) || isCustomDecline(message.text);
+  const shouldHandleCustomDraft = customDraft?.status === "awaiting_details" &&
+    (cancelCustomDraft || (!isCancelReply(message.text) && isLikelyCustomDetailReply(message.text)));
+  if (customDraft?.status === "awaiting_details" && shouldHandleCustomDraft) {
+    if (cancelCustomDraft) {
       await env.DB.prepare(`UPDATE custom_drafts SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
         WHERE chat_id = ?`).bind(chatId).run();
       await saveMessage(env.DB, chatId, "user", message.text);
@@ -1800,8 +1859,25 @@ async function handleTelegramWebhook(request: Request, env: Env) {
 
   const bookingDraft = await env.DB.prepare(`SELECT status FROM booking_drafts
     WHERE chat_id = ?`).bind(chatId).first<{ status: string }>();
-  if (bookingDraft?.status === "awaiting_details") {
-    if (isCancelReply(message.text)) {
+  if (bookingDraft?.status === "awaiting_details" && requestedFlow && requestedFlow !== "booking") {
+    await env.DB.prepare(`UPDATE booking_drafts SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+      WHERE chat_id = ?`).bind(chatId).run();
+    bookingDraft.status = "cancelled";
+  }
+  const priorBookingMessagesForRouting = bookingDraft?.status === "awaiting_details"
+    ? await env.DB.prepare(`SELECT content FROM chat_messages WHERE chat_id = ? AND role = 'user'
+        ORDER BY id DESC LIMIT 5`).bind(chatId).all<{ content: string }>()
+    : { results: [] as Array<{ content: string }> };
+  const priorBookingTextForRouting = [...priorBookingMessagesForRouting.results]
+    .reverse().map((item) => item.content).join(" ");
+  const expectingBookingCity = bookingDraft?.status === "awaiting_details" &&
+    bookingDetailsMissing(priorBookingTextForRouting).includes("city");
+  const cancelBookingDraft = isGenericCancelReply(message.text) || isBookingDecline(message.text);
+  const shouldHandleBookingDraft = bookingDraft?.status === "awaiting_details" &&
+    (cancelBookingDraft || (!isCancelReply(message.text) && (isManualPaymentQuestion(message.text) ||
+      isLikelyBookingDetailReply(message.text, expectingBookingCity))));
+  if (bookingDraft?.status === "awaiting_details" && shouldHandleBookingDraft) {
+    if (cancelBookingDraft) {
       await env.DB.prepare(`UPDATE booking_drafts SET status = 'cancelled',
         updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?`).bind(chatId).run();
       await saveMessage(env.DB, chatId, "user", message.text);
@@ -1823,11 +1899,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       await sendTelegramMessage(env, message, clarification);
       return json({ ok: true });
     }
-    const recentBookingMessages = await env.DB.prepare(`SELECT content FROM chat_messages
-      WHERE chat_id = ? AND role = 'user' ORDER BY id DESC LIMIT 5`)
-      .bind(chatId).all<{ content: string }>();
-    const priorBookingDetails = [...recentBookingMessages.results]
-      .reverse().map((item) => item.content).join(" ");
+    const priorBookingDetails = priorBookingTextForRouting;
     const standaloneCityReply = bookingDetailsMissing(priorBookingDetails).includes("city") && isLikelyCityReply(message.text);
     const combinedBookingDetails = `${priorBookingDetails}${standaloneCityReply ? " city is " : " "}${message.text}`.trim();
     const missingBookingDetails = bookingDetailsMissing(combinedBookingDetails);
