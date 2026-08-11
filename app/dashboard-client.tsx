@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
 type Message = {
   id: number;
@@ -473,18 +473,8 @@ export default function Home() {
     return () => window.clearInterval(timer);
   }, [selectedConversationId]);
 
-  const statusText = useMemo(() => {
-    if (blocked) return "Conversation closed";
-    if (!verified) return "Waiting for age confirmation";
-    if (livePurchases.length) return "Payment approval needed";
-    if (sextingSessions.length) return "Paid sexting session waiting";
-    if (liveCustoms.length) return "Custom content to fulfill";
-    if (liveBookings.length) return "Booking approval needed";
-    if (livePending.length) return "Tiffani reply needed";
-    return "AI assistant active";
-  }, [blocked, liveBookings.length, liveCustoms.length, livePending.length, livePurchases.length, sextingSessions.length, verified]);
-
   const attentionCount = livePending.length + livePurchases.length + liveBookings.length + liveCustoms.length + sextingSessions.length;
+  const statusText = attentionCount ? `${attentionCount} ${attentionCount === 1 ? "item needs" : "items need"} attention` : "Bot active";
   const onboardingPhotoCount = sextingMedia.filter((item) => item.media_type === "image").length;
   const onboardingClipCount = sextingMedia.filter((item) => item.media_type === "video").length;
   const onboardingSteps = [onboardingPhotoCount >= 20, onboardingClipCount >= 5, contentProducts.length > 0];
@@ -1332,7 +1322,7 @@ export default function Home() {
           <span className="brandMark">TM</span>
           <div>
             <strong>Tiffani Madison</strong>
-            <span>Telegram pilot</span>
+            <span>Creator portal</span>
           </div>
         </div>
         <div className="topActions">
@@ -1347,10 +1337,10 @@ export default function Home() {
               type="button"
             >
               Inbox
-              {conversations.length > 0 && <span>{conversations.length}</span>}
+              {livePending.length > 0 && <span>{livePending.length}</span>}
             </button>
           )}
-          <span className={`statusPill ${livePending.length || livePurchases.length || liveBookings.length || liveCustoms.length || sextingSessions.length ? "needsReply" : ""}`}>
+          <span className={`statusPill ${attentionCount ? "needsReply" : ""}`}>
             <i /> {statusText}
           </span>
           <button className="ghostButton" onClick={() => void enableNotifications()}>{notificationsEnabled ? "Alerts on" : "Enable alerts"}</button>
@@ -1373,26 +1363,6 @@ export default function Home() {
             <div><span>All time</span><strong>{money(earnings.all_time_cents)}</strong><small>All creators</small></div>
             <div><span>Needs attention</span><strong>{platformOverview.attention_count}</strong><small>Across the platform</small></div>
           </div>
-          <section className="ownerConversationInbox">
-            <div className="sectionHeading">
-              <div><p className="eyebrow">Creator messages</p><strong>Current conversations</strong></div>
-              <span>{conversations.length}</span>
-            </div>
-            {conversations.length ? <div className="ownerConversationList">
-              {conversations.slice(0, 12).map((conversation) => (
-                <button key={conversation.chat_id} onClick={() => openConversationFromAdmin(conversation.chat_id)} type="button">
-                  <span className="conversationAvatar">{conversation.telegram_name.replace(/^@/, "").slice(0, 1).toUpperCase()}</span>
-                  <span>
-                    <strong>{conversation.telegram_name}</strong>
-                    <small>{conversation.last_message || "No saved messages"}</small>
-                  </span>
-                  <em>{conversation.active_workflow}</em>
-                  {Number(conversation.pending_count) > 0 && <b>{conversation.pending_count}</b>}
-                </button>
-              ))}
-            </div> : <p className="queueNote">No creator conversations have been received yet.</p>}
-            {conversations.length > 12 && <button className="ownerViewAll" onClick={() => { setDashboardView("inbox"); window.setTimeout(() => document.getElementById("creator-control-room")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50); }} type="button">View all {conversations.length} conversations</button>}
-          </section>
           <section className="disputeQueue">
             <div className="sectionHeading"><strong>Sale disputes</strong><span>{pendingSaleDisputes.length}</span></div>
             {pendingSaleDisputes.length ? pendingSaleDisputes.map((dispute) => (
@@ -1471,45 +1441,6 @@ export default function Home() {
       )}
 
       <section className="workspace creatorDashboard">
-        <aside className="sidePanel">
-          <p className="eyebrow">Creator operations</p>
-          <h1>Everything you need in one place.</h1>
-          <p className="intro">
-            Manage Telegram conversations, tasks, sales, content, bookings, and creator settings.
-          </p>
-
-          <div className="profileCard">
-            <div className="avatar">T</div>
-            <div>
-              <strong>Tiffani Madison</strong>
-              <span>Soft and sweet · switch domme</span>
-            </div>
-            <span className="onlineDot" aria-label="Online" />
-          </div>
-
-          <div className="metricGrid">
-            <div><strong>18+</strong><span>Age gate</span></div>
-            <div><strong>{savedAnswers}</strong><span>Learned replies</span></div>
-            <div><strong>{livePending.length + livePurchases.length + liveBookings.length}</strong><span>Needs Tiffani</span></div>
-            <div><strong>Very</strong><span>Flirty level</span></div>
-          </div>
-
-          <div className="ruleCard">
-            <div className="ruleIcon">♡</div>
-            <div>
-              <strong>Voice active</strong>
-              <p>Short, blunt, lightly flirty, and confident with occasional emojis.</p>
-            </div>
-          </div>
-          <div className="ruleCard safe">
-            <div className="ruleIcon">✓</div>
-            <div>
-              <strong>Safety active</strong>
-              <p>Adults only. Consent required. Private information stays private.</p>
-            </div>
-          </div>
-        </aside>
-
         <aside className="creatorPanel visible" data-dashboard-view={dashboardView} id="creator-control-room">
           <nav className="controlRoomNav" aria-label="Control room sections">
             {(["today", "inbox", "content", "settings", "history"] as const).map((view) => (
