@@ -8,6 +8,7 @@ import {
   isBotQuestion,
   isCancelReply,
   isLikelyCityReply,
+  isSextingDecline,
   isSextingPackageFollowUp,
   parseNameIntroduction,
 } from "../worker/conversation-rules.ts";
@@ -31,6 +32,12 @@ test("stale sexting offers do not hijack a changed subject", () => {
   for (const reply of ["5", "ten minutes", "what are the prices?", "sexting options", "yes please"]) {
     assert.equal(isSextingPackageFollowUp(reply), true, reply);
   }
+});
+
+test("declining sexting can route directly to another service", () => {
+  assert.equal(isSextingDecline("I don't want sexting, how much is your video chat?"), true);
+  assert.equal(isSextingDecline("I do not want to sext anymore"), true);
+  assert.equal(isSextingDecline("I want to sext"), false);
 });
 
 test("automation questions are recognized consistently", () => {

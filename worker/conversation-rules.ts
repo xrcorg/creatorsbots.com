@@ -49,6 +49,10 @@ export function isSextingPackageFollowUp(text: string) {
     /^(?:how much|what does it cost|what are the prices?)[?!. ]*$/i.test(value);
 }
 
+export function isSextingDecline(text: string) {
+  return /\b(?:i\s+)?(?:do not|don't|dont|no longer)\s+(?:want\s+(?:to\s+)?)?(?:sext|sexting)\b|\b(?:not interested in|no)\s+sexting\b/i.test(text);
+}
+
 export function parseNameIntroduction(text: string) {
   const cleaned = text.trim().replace(/^(?:my name is|i am|i'm|im)\s+/i, "");
   const intent = /\s+(?=(?:and\s+)?(?:i\s+(?:want|wanna|would like|need)|i'd\s+like|can\s+i|could\s+i|do\s+you|what\b|how\b|let's\b|lets\b))/i.exec(cleaned);

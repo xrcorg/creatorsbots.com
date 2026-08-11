@@ -1,7 +1,7 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { bookingDetailsMissing, customDetailsMissing, isAffirmativeReply, isBotQuestion, isCancelReply, isLikelyCityReply, isSextingPackageFollowUp, parseNameIntroduction } from "./conversation-rules";
+import { bookingDetailsMissing, customDetailsMissing, isAffirmativeReply, isBotQuestion, isCancelReply, isLikelyCityReply, isSextingDecline, isSextingPackageFollowUp, parseNameIntroduction } from "./conversation-rules";
 
 interface Env {
   ASSETS: Fetcher;
@@ -848,6 +848,7 @@ function isHowAreYouQuestion(text: string) {
 }
 
 function isSextingQuestion(text: string) {
+  if (isSextingDecline(text)) return false;
   return /\b(sext|sexting|dirty text|dirty texting|text session|i want sex|want to have sex|what are you wearing)\b/i.test(text);
 }
 
@@ -1527,9 +1528,10 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   // temporary choice before any normal conversation handler returns, otherwise
   // a later follow up can be mistaken for another package response.
   if (pendingSextingDraft?.status === "awaiting_package" &&
-      !isCancelReply(message.text) &&
-      !isSextingPaymentQuestion(message.text) &&
-      !isSextingPackageFollowUp(message.text)) {
+      (isSextingDecline(message.text) ||
+        (!isCancelReply(message.text) &&
+          !isSextingPaymentQuestion(message.text) &&
+          !isSextingPackageFollowUp(message.text)))) {
     await env.DB.prepare(`UPDATE sexting_drafts SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
       WHERE chat_id = ?`).bind(chatId).run();
     pendingSextingDraft.status = "cancelled";
