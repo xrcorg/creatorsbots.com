@@ -19,6 +19,7 @@ import {
   isLikelyShippingName,
   isMessageBurst,
   isPhysicalOrderDecline,
+  isPresenceCheck,
   isRatingDecline,
   isSextingDecline,
   isSextingPackageFollowUp,
@@ -30,6 +31,13 @@ test("natural confirmations are accepted", () => {
   for (const reply of ["yes", "Yes I do", "yeah i do", "let's do it", "ok", "alright", "I guess"]) {
     assert.equal(isAffirmativeReply(reply), true, reply);
   }
+});
+
+test("short presence checks stay in automatic conversation", () => {
+  for (const message of ["?", "??", "???", "are you there?", "are we still talking?", "still there?", "hello?"]) {
+    assert.equal(isPresenceCheck(message), true, message);
+  }
+  assert.equal(isPresenceCheck("what is your favorite movie?"), false);
 });
 
 test("natural trailer offers preserve the next affirmative reply", () => {

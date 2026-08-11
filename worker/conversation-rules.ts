@@ -52,6 +52,13 @@ export function isTrailerOfferAwaitingConfirmation(text: string) {
     /\b(?:trailer|preview)\b[^?!.]{0,180}\b(?:want|wanna|like|interested)\b/i.test(value);
 }
 
+export function isPresenceCheck(text: string) {
+  const value = text.trim();
+  if (/^\?{1,8}$/.test(value)) return true;
+  return /\b(?:are you (?:still )?there|are we still talking|are you still talking to me|you still there|still there|did you leave|where did you go|can you hear me)\b/i.test(value) ||
+    /^(?:hello|hey|hi)[?!. ]+$/i.test(value);
+}
+
 export function isGenericCancelReply(text: string) {
   return /\b(cancel|cancel that|cancel this|never mind|nevermind|not now|maybe later|no thanks|no thank you|forget it|not interested|changed my mind|don't want it|dont want it|do not want it|not anymore|stop this)\b/i.test(text) ||
     /^(?:no|nope|neither)(?:\s+(?:thanks|thank you|sorry))?[.! ]*$/i.test(text.trim());

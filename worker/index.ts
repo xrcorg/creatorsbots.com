@@ -1,7 +1,7 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { bookingDetailsMissing, customDetailsMissing, isAffirmativeReply, isBookingDecline, isBotQuestion, isCancelReply, isCustomDecline, isCustomDetailsFinished, isGenericCancelReply, isLikelyBookingDetailReply, isLikelyCityReply, isLikelyShippingAddress, isLikelyShippingName, isMessageBurst, isPhysicalOrderDecline, isRatingDecline, isSextingDecline, isSextingPackageFollowUp, isTrailerOfferAwaitingConfirmation, parseNameIntroduction } from "./conversation-rules";
+import { bookingDetailsMissing, customDetailsMissing, isAffirmativeReply, isBookingDecline, isBotQuestion, isCancelReply, isCustomDecline, isCustomDetailsFinished, isGenericCancelReply, isLikelyBookingDetailReply, isLikelyCityReply, isLikelyShippingAddress, isLikelyShippingName, isMessageBurst, isPhysicalOrderDecline, isPresenceCheck, isRatingDecline, isSextingDecline, isSextingPackageFollowUp, isTrailerOfferAwaitingConfirmation, parseNameIntroduction } from "./conversation-rules";
 
 interface Env {
   ASSETS: Fetcher;
@@ -1205,6 +1205,21 @@ function randomResponseDelayMs(activeSexting: boolean) {
   return Math.floor((minimumSeconds + Math.random() * (maximumSeconds - minimumSeconds)) * 1000);
 }
 
+function presenceReply(messageId: number, activeSexting: boolean) {
+  const replies = activeSexting
+    ? [
+        "I'm right here, babe. Keep talking to me.",
+        "Yeah babe, I'm still here with you. What are you thinking about?",
+        "I'm here, babe. Tell me what you want.",
+      ]
+    : [
+        "Yeah babe, I'm here. What's up?",
+        "I'm still here. What were you gonna say?",
+        "I'm here, babe. What's on your mind?",
+      ];
+  return replies[Math.abs(messageId) % replies.length];
+}
+
 async function collectQuickMessages(db: D1Database, chatId: string, message: TelegramMessage,
   activeSexting: boolean) {
   const inserted = await db.prepare(`INSERT OR IGNORE INTO inbound_message_buffer
@@ -1722,6 +1737,10 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       await saveMessage(env.DB, chatId, "user", message.text);
       return json({ ok: true, creator_controlling_session: true });
     }
+    if (isPresenceCheck(message.text)) {
+      await sendSavedReply(env, message, chatId, presenceReply(message.message_id, true));
+      return json({ ok: true, active_sexting: true, presence_reply: true });
+    }
     if (isExplicitBusinessRequest(message.text)) {
       await sendSavedReply(env, message, chatId, SEXTING_BUSINESS_DEFER_REPLY);
       return json({ ok: true, active_sexting: true, business_deferred: true });
@@ -1748,6 +1767,11 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     await saveMessage(env.DB, chatId, "assistant", sextingReply);
     await sendTelegramMessage(env, message, sextingReply);
     return json({ ok: true, active_sexting: true });
+  }
+
+  if (isPresenceCheck(message.text)) {
+    await sendSavedReply(env, message, chatId, presenceReply(message.message_id, false));
+    return json({ ok: true, presence_reply: true });
   }
 
   if (!collectingCustomDetails && isMultiConversationalTurn(message.text, collected.count)) {
