@@ -1637,7 +1637,7 @@ export default function Home() {
                     <div className="conversationReplyActions">
                       <button className="primaryAction" disabled={liveLoading || !conversationReply.trim()}>Send once</button>
                       <button className="secondaryAction" disabled={liveLoading || !conversationReply.trim()} onClick={() => void submitConversationReply(true)} type="button">Send and save for future</button>
-                      {Number(selectedConversation.pending_count) > 0 && <button className="ignoreAction" disabled={liveLoading} onClick={() => void dismissConversationRequest()} type="button">Clear request without replying</button>}
+                      {Number(selectedConversation.pending_count) > 0 && <button className="ignoreAction clearRequestAction" disabled={liveLoading} onClick={() => void dismissConversationRequest()} type="button">Clear request without replying</button>}
                     </div>
                     <small>Sending a reply pauses automatic responses for this chat until you turn Bot replies back on.</small>
                   </form>
