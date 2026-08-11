@@ -39,6 +39,7 @@ type TelegramMessage = {
   caption?: string;
   photo?: Array<{ file_id: string }>;
   video?: { file_id: string };
+  voice?: { file_id: string; mime_type?: string; duration?: number; file_size?: number };
   successful_payment?: {
     currency: string;
     total_amount: number;
@@ -340,6 +341,19 @@ async function prepareDatabase(db: D1Database) {
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS chat_messages_chat_id_idx
       ON chat_messages(chat_id, id)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS voice_notes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      chat_id TEXT NOT NULL,
+      telegram_file_id TEXT NOT NULL UNIQUE,
+      r2_key TEXT NOT NULL,
+      mime_type TEXT NOT NULL DEFAULT 'audio/ogg',
+      duration_seconds INTEGER NOT NULL DEFAULT 0,
+      transcript TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'creator_review',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS voice_notes_chat_id_idx
+      ON voice_notes(chat_id, id)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS conversation_controls (
       chat_id TEXT PRIMARY KEY,
       control_mode TEXT NOT NULL DEFAULT 'bot',
@@ -736,6 +750,30 @@ async function sendTelegramMessage(env: Env, message: TelegramMessage, text: str
   if (!response.ok) {
     throw new Error(`Telegram send failed with status ${response.status}`);
   }
+}
+
+async function processTelegramVoice(env: Env, chatId: string, voice: NonNullable<TelegramMessage["voice"]>) {
+  const existing = await env.DB.prepare(`SELECT id FROM voice_notes
+    WHERE telegram_file_id = ?`).bind(voice.file_id).first<{ id: number }>();
+  if (existing) return { needsReview: true };
+  if (!env.TELEGRAM_BOT_TOKEN) throw new Error("TELEGRAM_BOT_TOKEN is not configured");
+
+  const fileResponse = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/getFile?file_id=${encodeURIComponent(voice.file_id)}`);
+  const fileData = await fileResponse.json() as { ok?: boolean; result?: { file_path?: string } };
+  if (!fileResponse.ok || !fileData.ok || !fileData.result?.file_path) throw new Error("Telegram voice file could not be located");
+  const audioResponse = await fetch(`https://api.telegram.org/file/bot${env.TELEGRAM_BOT_TOKEN}/${fileData.result.file_path}`);
+  if (!audioResponse.ok) throw new Error("Telegram voice file could not be downloaded");
+  const audio = await audioResponse.arrayBuffer();
+  const mimeType = voice.mime_type || audioResponse.headers.get("content-type") || "audio/ogg";
+  const extension = fileData.result.file_path.split(".").pop()?.replace(/[^a-zA-Z0-9]/g, "") || "ogg";
+  const r2Key = `voice-notes/${chatId}/${crypto.randomUUID()}.${extension}`;
+  await env.MEDIA.put(r2Key, audio, { httpMetadata: { contentType: mimeType } });
+
+  await env.DB.prepare(`INSERT INTO voice_notes
+    (chat_id, telegram_file_id, r2_key, mime_type, duration_seconds, transcript, status)
+    VALUES (?, ?, ?, ?, ?, '', 'creator_review')`).bind(chatId, voice.file_id, r2Key, mimeType,
+      voice.duration || 0).run();
+  return { needsReview: true };
 }
 
 async function sendTelegramProductMedia(env: Env, message: TelegramMessage, media: ProductMedia) {
@@ -1253,6 +1291,19 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
   if (!portalUser) return json({ error: "Sign in required" }, 401);
   await prepareDatabase(env.DB);
 
+  const voiceMatch = url.pathname.match(/^\/api\/admin\/conversations\/voice\/(\d+)$/);
+  if (request.method === "GET" && voiceMatch) {
+    const voice = await env.DB.prepare(`SELECT r2_key, mime_type FROM voice_notes WHERE id = ?`)
+      .bind(Number(voiceMatch[1])).first<{ r2_key: string; mime_type: string }>();
+    if (!voice) return json({ error: "Voice memo not found" }, 404);
+    const object = await env.MEDIA.get(voice.r2_key);
+    if (!object) return json({ error: "Stored voice memo not found" }, 404);
+    return new Response(object.body, { headers: {
+      "content-type": voice.mime_type,
+      "cache-control": "private, max-age=3600",
+    } });
+  }
+
   const match = url.pathname.match(/^\/api\/admin\/conversations\/([^/]+)$/);
   if (request.method === "GET" && match) {
     const chatId = decodeURIComponent(match[1]);
@@ -1267,8 +1318,40 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
       WHERE fan_sessions.chat_id = ?`).bind(chatId).first();
     if (!conversation) return json({ error: "Conversation not found" }, 404);
     const messages = await env.DB.prepare(`SELECT id, role, content, created_at
-      FROM chat_messages WHERE chat_id = ? ORDER BY id DESC LIMIT 100`).bind(chatId).all();
-    return json({ conversation, messages: messages.results.reverse() });
+      FROM chat_messages WHERE chat_id = ? ORDER BY id DESC LIMIT 100`).bind(chatId).all<{
+        id: number; role: string; content: string; created_at: string;
+      }>();
+    const voiceNotes = await env.DB.prepare(`SELECT id, transcript, duration_seconds, status, created_at
+      FROM voice_notes WHERE chat_id = ? ORDER BY id DESC LIMIT 100`).bind(chatId).all<{
+        id: number; transcript: string; duration_seconds: number; status: string; created_at: string;
+      }>();
+    const orderedMessages = messages.results.reverse().map((item) => ({ ...item })) as Array<{
+      id: number; role: string; content: string; created_at: string;
+      voice_note_id?: number; voice_duration?: number; voice_status?: string;
+    }>;
+    const claimedMessages = new Set<number>();
+    for (const voice of voiceNotes.results.reverse()) {
+      const matchIndex = orderedMessages.findIndex((item, index) => !claimedMessages.has(index) &&
+        item.role === "user" && item.content === (voice.transcript || "Voice memo received"));
+      if (matchIndex >= 0) {
+        claimedMessages.add(matchIndex);
+        orderedMessages[matchIndex].voice_note_id = voice.id;
+        orderedMessages[matchIndex].voice_duration = voice.duration_seconds;
+        orderedMessages[matchIndex].voice_status = voice.status;
+      } else {
+        orderedMessages.push({
+          id: -voice.id,
+          role: "user",
+          content: voice.transcript || "Voice memo received",
+          created_at: voice.created_at,
+          voice_note_id: voice.id,
+          voice_duration: voice.duration_seconds,
+          voice_status: voice.status,
+        });
+      }
+    }
+    orderedMessages.sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id - b.id);
+    return json({ conversation, messages: orderedMessages });
   }
 
   if (request.method === "POST" && url.pathname === "/api/admin/conversations/reset") {
@@ -1589,6 +1672,18 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   if (!message.text && message.photo?.length) {
     message.text = message.caption?.trim() || "Payment screenshot sent";
   }
+  let voiceNeedsReview = false;
+  if (!message.text && message.voice) {
+    try {
+      const voiceResult = await processTelegramVoice(env, chatId, message.voice);
+      voiceNeedsReview = voiceResult.needsReview;
+      message.text = "Voice memo received";
+    } catch (error) {
+      console.error("Voice memo processing failed", error);
+      voiceNeedsReview = true;
+      message.text = "Voice memo received";
+    }
+  }
   if (!message.text && message.caption?.trim()) message.text = message.caption.trim();
   if (!message.text) return json({ ok: true });
   const userId = message.from?.id ? String(message.from.id) : null;
@@ -1698,6 +1793,16 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       await sendTelegramMessage(env, message, agePrompt());
     }
     return json({ ok: true });
+  }
+
+  if (voiceNeedsReview) {
+    await saveMessage(env.DB, chatId, "user", message.text);
+    await queueCreatorReply(env.DB, message);
+    await env.DB.prepare(`INSERT INTO conversation_controls (chat_id, control_mode, taken_over_by, updated_at)
+      VALUES (?, 'human', 'voice_memo', CURRENT_TIMESTAMP)
+      ON CONFLICT(chat_id) DO UPDATE SET control_mode = 'human', taken_over_by = 'voice_memo',
+      updated_at = CURRENT_TIMESTAMP`).bind(chatId).run();
+    return json({ ok: true, voice_creator_reply_needed: true });
   }
 
   const profile = await env.DB.prepare("SELECT name, name_status FROM fan_profiles WHERE chat_id = ?")

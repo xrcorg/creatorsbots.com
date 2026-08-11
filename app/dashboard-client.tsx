@@ -213,6 +213,9 @@ type ConversationMessage = {
   role: "user" | "assistant";
   content: string;
   created_at: string;
+  voice_note_id?: number;
+  voice_duration?: number;
+  voice_status?: "creator_review";
 };
 
 type PlatformOverview = {
@@ -1560,7 +1563,9 @@ export default function Home() {
                     {conversationMessages.length ? conversationMessages.map((message) => (
                       <article className={message.role} key={message.id}>
                         <span>{message.role === "user" ? selectedConversation.telegram_name : "Tiffani"}</span>
+                        {message.voice_note_id && <audio controls preload="none" src={`/api/admin/conversations/voice/${message.voice_note_id}`} />}
                         <p>{message.content}</p>
+                        {message.voice_status === "creator_review" && <small className="voiceReviewFlag">Voice memo awaiting your reply</small>}
                         <time>{new Date(`${message.created_at.replace(" ", "T")}Z`).toLocaleString()}</time>
                       </article>
                     )) : <p className="conversationPlaceholder">{conversationStatus || "No saved messages in this conversation."}</p>}
@@ -1569,7 +1574,7 @@ export default function Home() {
                   <form className="conversationReplyForm" onSubmit={sendConversationReply}>
                     <textarea maxLength={4000} value={conversationReply} onChange={(event) => setConversationReply(event.target.value)} placeholder={`Reply to ${selectedConversation.telegram_name}`} />
                     <button className="primaryAction" disabled={liveLoading || !conversationReply.trim()}>Send reply</button>
-                    <small>Sending a reply pauses automatic responses for this chat until you select Return to bot.</small>
+                    <small>Sending a reply pauses automatic responses for this chat until you turn Bot replies back on.</small>
                   </form>
                 </> : <div className="conversationPlaceholder">Choose a chat to view its recent messages and controls.</div>}
               </div>

@@ -261,6 +261,8 @@ button { cursor: pointer; }
 .conversationTranscript article.assistant { align-self: flex-end; background: #ffe8f3; }
 .conversationTranscript article span, .conversationTranscript article time { display: block; color: var(--muted); font-size: 7px; }
 .conversationTranscript article p { margin: 4px 0; font-size: 9px; line-height: 1.45; white-space: pre-wrap; }
+.conversationTranscript audio { display: block; width: min(100%, 300px); height: 32px; margin: 7px 0 4px; }
+.voiceReviewFlag { display: block; margin-top: 5px; color: #a02c4d; font-size: 7px; font-weight: 800; }
 .conversationPlaceholder { margin: auto; padding: 24px; color: var(--muted); font-size: 10px; line-height: 1.5; text-align: center; }
 .conversationNotice { margin: 0; padding: 9px 12px; border-top: 1px solid #eddde5; background: #f5fff8; color: #28744a; font-size: 8px; }
 .conversationReplyForm { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding: 12px; border-top: 1px solid #eddde5; background: white; }
