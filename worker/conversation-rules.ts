@@ -1,5 +1,5 @@
 export function isBotQuestion(text: string) {
-  return /\b(are you (?:a )?bot|is this (?:a )?bot|am i talking to (?:a )?bot|is this automated|are these automated responses|who am i talking to)\b/i.test(text);
+  return /\b(are you (?:a )?bot|is this (?:a )?bot|am i talking to (?:a )?bot|is this automated|are these automated responses|who am i talking to|who (?:made|built|programmed|created) you)\b/i.test(text);
 }
 
 export function bookingDetailsMissing(text: string) {

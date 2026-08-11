@@ -1361,6 +1361,55 @@ async function rememberProductInterest(db: D1Database, chatId: string,
     .bind(chatId, productId, businessConnectionId).run();
 }
 
+async function handlePaymentSent(env: Env, message: TelegramMessage, chatId: string) {
+  if (!isPaymentSent(message.text)) return false;
+
+  const quotedCustom = await env.DB.prepare(`SELECT id FROM custom_fulfillments
+    WHERE chat_id = ? AND status = 'awaiting_payment' ORDER BY id DESC LIMIT 1`)
+    .bind(chatId).first<{ id: number }>();
+  if (quotedCustom) {
+    await env.DB.prepare(`UPDATE custom_fulfillments SET status = 'payment_review' WHERE id = ?`)
+      .bind(quotedCustom.id).run();
+    const confirmation = "Ok, thanks babe. Let me check when I get the chance and I'll let you know when I can start it!";
+    await saveMessage(env.DB, chatId, "user", message.text);
+    await saveMessage(env.DB, chatId, "assistant", confirmation);
+    await sendTelegramMessage(env, message, confirmation);
+    return true;
+  }
+
+  const product = await getInterestedProduct(env.DB, chatId);
+  if (!product) {
+    const clarification = "Ok, thanks babe. Which video or item did you pay for so I can verify it?";
+    await saveMessage(env.DB, chatId, "user", message.text);
+    await saveMessage(env.DB, chatId, "assistant", clarification);
+    await sendTelegramMessage(env, message, clarification);
+    return true;
+  }
+  if (product.content_type === "video_rating") {
+    await saveMessage(env.DB, chatId, "user", message.text);
+    await sendVideoRatingCheckout(env, env.DB, message, product);
+    return true;
+  }
+
+  const existing = await env.DB.prepare(`SELECT id FROM purchase_requests
+    WHERE chat_id = ? AND product_title = ? AND status = 'pending' LIMIT 1`)
+    .bind(chatId, product.title).first();
+  if (!existing) {
+    await env.DB.prepare(`INSERT INTO purchase_requests
+      (chat_id, business_connection_id, product_title, price, payment_note)
+      VALUES (?, ?, ?, ?, ?)`)
+      .bind(chatId, message.business_connection_id || null, product.title, productPrice(product), message.text)
+      .run();
+  }
+  const confirmation = product.content_type === "physical_item"
+    ? "Ok, thanks babe. Let me verify it, then I'll get your shipping information."
+    : "Ok, thanks babe. Let me check when I get the chance and I'll send you the link!";
+  await saveMessage(env.DB, chatId, "user", message.text);
+  await saveMessage(env.DB, chatId, "assistant", confirmation);
+  await sendTelegramMessage(env, message, confirmation);
+  return true;
+}
+
 function isTiffaniSleeping(settings: Record<string, string>, date = new Date()) {
   if (settings.sleep_hours_enabled === "off") return false;
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -1916,6 +1965,11 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   if (session?.age_status === "blocked") return json({ ok: true });
 
   const settings = await getSettings(env.DB);
+  // Payment confirmations are transactional. Record and acknowledge them
+  // immediately so they cannot be lost to sleep hours or a manual takeover.
+  if (await handlePaymentSent(env, message, chatId)) {
+    return json({ ok: true, payment_review: true });
+  }
   if (settings.response_test_mode !== "on" && isTiffaniSleeping(settings)) {
     await saveMessage(env.DB, chatId, "user", message.text);
     await queueCreatorReply(env.DB, message);
@@ -2740,49 +2794,6 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     await saveMessage(env.DB, chatId, "user", message.text);
     await saveMessage(env.DB, chatId, "assistant", offer);
     await sendTelegramMessage(env, message, offer);
-    return json({ ok: true });
-  }
-
-  if (isPaymentSent(message.text)) {
-    const quotedCustom = await env.DB.prepare(`SELECT id FROM custom_fulfillments
-      WHERE chat_id = ? AND status = 'awaiting_payment' ORDER BY id DESC LIMIT 1`)
-      .bind(chatId).first<{ id: number }>();
-    if (quotedCustom) {
-      await env.DB.prepare(`UPDATE custom_fulfillments SET status = 'payment_review' WHERE id = ?`)
-        .bind(quotedCustom.id).run();
-      const confirmation = "Ok, thanks babe. Let me check when I get the chance and I'll let you know when I can start it!";
-      await saveMessage(env.DB, chatId, "user", message.text);
-      await saveMessage(env.DB, chatId, "assistant", confirmation);
-      await sendTelegramMessage(env, message, confirmation);
-      return json({ ok: true, custom_payment_review: true });
-    }
-    const product = await getInterestedProduct(env.DB, chatId) || await getNewestProduct(env.DB);
-    if (!product) {
-      await sendTelegramMessage(env, message, "Tell me which content you paid for so I can check it, babe.");
-      return json({ ok: true });
-    }
-    if (product.content_type === "video_rating") {
-      await saveMessage(env.DB, chatId, "user", message.text);
-      await sendVideoRatingCheckout(env, env.DB, message, product);
-      return json({ ok: true });
-    }
-    const existing = await env.DB.prepare(`SELECT id FROM purchase_requests
-      WHERE chat_id = ? AND status = 'pending' LIMIT 1`).bind(chatId).first();
-    if (!existing) {
-      await env.DB.prepare(`INSERT INTO purchase_requests
-        (chat_id, business_connection_id, product_title, price, payment_note)
-        VALUES (?, ?, ?, ?, ?)`)
-        .bind(chatId, message.business_connection_id || null, product.title, productPrice(product), message.text)
-        .run();
-    }
-    const confirmation = product.content_type === "physical_item"
-      ? "Ok, thanks babe. Let me verify it, then I'll get your shipping information."
-      : product.content_type === "video_rating"
-        ? "Ok, thanks babe. Let me verify it, then you can send the photo you want me to rate."
-        : "Ok, thanks babe. Let me check when I get the chance and I'll send you the link!";
-    await saveMessage(env.DB, chatId, "user", message.text);
-    await saveMessage(env.DB, chatId, "assistant", confirmation);
-    await sendTelegramMessage(env, message, confirmation);
     return json({ ok: true });
   }
 

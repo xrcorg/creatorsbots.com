@@ -127,6 +127,8 @@ test("service declines are recognized without losing the replacement request", (
 test("automation questions are recognized consistently", () => {
   assert.equal(isBotQuestion("Is this a bot?"), true);
   assert.equal(isBotQuestion("Are these automated responses?"), true);
+  assert.equal(isBotQuestion("Who made you?"), true);
+  assert.equal(isBotQuestion("Who programmed you?"), true);
 });
 
 test("bookings require a service, date, and time", () => {
