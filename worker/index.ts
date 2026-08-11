@@ -822,7 +822,7 @@ async function socialReplyFor(db: D1Database, text: string) {
 }
 
 function isProductQuestion(text: string) {
-  return /\b(blonde bombshell|trailer|buy (the )?(video|photo|content|panties|clothes|clothing)|purchase (the )?(video|photo|content|panties|clothes|clothing)|video for sale|content for sale|what.*sell|(newest|latest|new) (video|photo|content)|most recent (video|photo|content)|panty|panties|worn clothing|clothing item|dick rating|rate my dick|rate my cock|video rating)\b/i.test(text);
+  return /\b(blonde bombshell|trailer|buy (the )?(video|photo|content|panties|clothes|clothing)|purchase (the )?(video|photo|content|panties|clothes|clothing)|video for sale|content for sale|what.*sell|(?:what|see|show me).*(?:have|got).*(?:for sale|available)|(newest|latest|new) (video|photo|content)|most recent (video|photo|content)|panty|panties|worn clothing|clothing item|dick rating|rate my dick|rate my cock|video rating)\b/i.test(text);
 }
 
 function isPhysicalItemQuestion(text: string) {
@@ -834,7 +834,7 @@ function isVideoRatingQuestion(text: string) {
 }
 
 function isCatalogListQuestion(text: string) {
-  return /\b(what|which|show me).*(videos|photos|content|packages|bundles).*(have|sell|available)|\b(?:do you have|got|have you got)\s+(?:any\s+)?(?:videos|photos|content|packages|bundles)\b|\b(?:any|some)\s+(?:videos|photos|content|packages|bundles)(?:\s+(?:for sale|available))?\b|\b(content menu|catalog|shop menu)\b/i.test(text);
+  return /\b(what|which|show me).*(videos|photos|content|packages|bundles).*(have|sell|available)|\b(?:what|see|show me).*(?:have|got).*(?:for sale|available)|\b(?:do you have|got|have you got)\s+(?:any\s+)?(?:videos|photos|content|packages|bundles)\b|\b(?:any|some)\s+(?:videos|photos|content|packages|bundles)(?:\s+(?:for sale|available))?\b|\b(content menu|catalog|shop menu)\b/i.test(text);
 }
 
 function askedToShowTrailer(text: string) {
@@ -1219,7 +1219,7 @@ async function hasNewerBufferedMessage(db: D1Database, chatId: string, messageId
 }
 
 function isMultiConversationalTurn(text: string, count: number) {
-  if (/\b(sext|video chat|video call|meet|meeting|book|buy|pay|payment|custom|content|photo|video|trailer)\b/i.test(text)) return false;
+  if (/\b(sext|video chat|video call|meet|meeting|book|buy|pay|payment|custom|content|photo|video|trailer|sell|sale|available)\b/i.test(text)) return false;
   const conversationalSignals = [isGreeting(text), isHowAreYouQuestion(text), isTodayActivityQuestion(text)]
     .filter(Boolean).length;
   return conversationalSignals >= 2 || (count >= 2 && (text.match(/\?/g)?.length || 0) >= 2);
@@ -1615,8 +1615,15 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     WHERE chat_id = ? AND status = 'active' AND ends_at IS NOT NULL AND ends_at > CURRENT_TIMESTAMP
     ORDER BY id DESC LIMIT 1`)
     .bind(chatId).first<{ id: number; control_mode: string }>();
-  const pendingSextingDraft = await env.DB.prepare(`SELECT status FROM sexting_drafts WHERE chat_id = ?`)
-    .bind(chatId).first<{ status: string }>();
+  const pendingSextingDraft = await env.DB.prepare(`SELECT status,
+    CASE WHEN status = 'awaiting_package' AND updated_at < datetime('now', '-15 minutes') THEN 1 ELSE 0 END AS stale
+    FROM sexting_drafts WHERE chat_id = ?`)
+    .bind(chatId).first<{ status: string; stale: number }>();
+  if (pendingSextingDraft?.stale) {
+    await env.DB.prepare(`UPDATE sexting_drafts SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+      WHERE chat_id = ? AND status = 'awaiting_package'`).bind(chatId).run();
+    pendingSextingDraft.status = "cancelled";
+  }
   const collected = await collectQuickMessages(env.DB, chatId, message,
     Boolean(activeSextingSession || pendingSextingDraft?.status === "awaiting_package" ||
       (pendingSextingDraft && isSextingPaymentQuestion(message.text))));
@@ -1765,7 +1772,14 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     return json({ ok: true });
   }
 
-  if (!collectingCustomDetails && isMoviePlanFollowUp(message.text)) {
+  if (!collectingCustomDetails && isMoviePlanFollowUp(message.text) && isCatalogListQuestion(message.text)) {
+    const catalog = catalogReply(await getActiveProducts(env.DB));
+    const combinedReply = `I haven't picked the movie yet. What do you think I should see?\n\n${catalog}`;
+    await sendSavedReply(env, message, chatId, combinedReply);
+    return json({ ok: true, movie_and_catalog: true });
+  }
+
+  if (!collectingCustomDetails && isMoviePlanFollowUp(message.text) && !isExplicitBusinessRequest(message.text)) {
     const recentPlan = await env.DB.prepare(`SELECT content FROM chat_messages
       WHERE chat_id = ? AND role = 'assistant' ORDER BY id DESC LIMIT 3`)
       .bind(chatId).all<{ content: string }>();
