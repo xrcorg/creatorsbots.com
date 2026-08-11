@@ -21,10 +21,14 @@ export function casualMessageIntent(text: string): CasualMessageIntent {
   const value = normalizeCasualText(text).replace(/[?!.]+$/g, "").trim();
   if (/^(?:videos?|photos?|pics?|content|catalog|menu)$/.test(value)) return "catalog";
   if (/^(?:customs?|custom (?:video|content|photos?))$/.test(value)) return "custom";
-  if (/^(?:sex|sext|sexting|naughty)$/.test(value)) return "sexting";
+  if (/^(?:sext|sexting|naughty)$/.test(value)) return "sexting";
   if (/^(?:what are you doing|what you doing|what are you up to|whats? up)$/.test(value)) return "activity";
   if (/^(?:video chat|video call|meet|meet up|booking)$/.test(value)) return "booking";
   return null;
+}
+
+export function isAmbiguousSexMessage(text: string) {
+  return /^sex[?!. ]*$/i.test(normalizeCasualText(text));
 }
 
 export function bookingDetailsMissing(text: string) {

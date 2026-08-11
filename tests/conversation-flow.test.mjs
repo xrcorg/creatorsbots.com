@@ -6,6 +6,7 @@ import {
   casualMessageIntent,
   customDetailsMissing,
   isAffirmativeReply,
+  isAmbiguousSexMessage,
   isBookingDecline,
   isBotQuestion,
   isCancelReply,
@@ -63,7 +64,10 @@ test("lazy texting and common typos resolve to the intended flow", () => {
   assert.equal(casualMessageIntent("vidoes?"), "catalog");
   assert.equal(casualMessageIntent("custom?"), "custom");
   assert.equal(casualMessageIntent("custum"), "custom");
-  assert.equal(casualMessageIntent("sex"), "sexting");
+  assert.equal(casualMessageIntent("sex"), null);
+  assert.equal(isAmbiguousSexMessage("sex"), true);
+  assert.equal(isAmbiguousSexMessage("sext"), false);
+  assert.equal(casualMessageIntent("sext"), "sexting");
   assert.equal(casualMessageIntent("wyd?"), "activity");
   assert.equal(casualMessageIntent("videochat?"), "booking");
   assert.equal(normalizeCasualText("hru?"), "how are you?");
