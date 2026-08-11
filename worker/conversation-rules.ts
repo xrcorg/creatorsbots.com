@@ -13,6 +13,15 @@ export function normalizeCasualText(text: string) {
     .replace(/\bvideochat\b/g, "video chat")
     .replace(/\bwyd\b/g, "what are you doing")
     .replace(/\bhru\b/g, "how are you")
+    .replace(/\bnvm\b/g, "never mind")
+    .replace(/\brn\b/g, "right now")
+    .replace(/\babt\b/g, "about")
+    .replace(/\bb4\b/g, "before")
+    .replace(/\bbc\b/g, "because")
+    .replace(/\bjw\b/g, "just wondering")
+    .replace(/\bjk\b/g, "just kidding")
+    .replace(/\b(?:gtg|g2g)\b/g, "got to go")
+    .replace(/\bttyl\b/g, "talk to you later")
     .replace(/\bpix\b/g, "pics")
     .replace(/\s+/g, " ");
 }
@@ -115,8 +124,9 @@ export function isConversationReset(text: string) {
 }
 
 export function isGenericCancelReply(text: string) {
-  return /\b(cancel|cancel that|cancel this|never mind|nevermind|not now|maybe later|no thanks|no thank you|forget it|not interested|changed my mind|don't want it|dont want it|do not want it|not anymore|stop this)\b/i.test(text) ||
-    /^(?:no|nope|neither)(?:\s+(?:thanks|thank you|sorry))?[.! ]*$/i.test(text.trim());
+  const value = normalizeCasualText(text);
+  return /\b(cancel|cancel that|cancel this|never mind|nevermind|not now|maybe later|no thanks|no thank you|forget it|not interested|changed my mind|don't want it|dont want it|do not want it|not anymore|stop this)\b/i.test(value) ||
+    /^(?:no|nope|neither)(?:\s+(?:thanks|thank you|sorry))?[.! ]*$/i.test(value);
 }
 
 export function isCancelReply(text: string) {

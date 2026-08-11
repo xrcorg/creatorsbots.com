@@ -71,6 +71,9 @@ test("lazy texting and common typos resolve to the intended flow", () => {
   assert.equal(casualMessageIntent("wyd?"), "activity");
   assert.equal(casualMessageIntent("videochat?"), "booking");
   assert.equal(normalizeCasualText("hru?"), "how are you?");
+  assert.equal(normalizeCasualText("wyd rn?"), "what are you doing right now?");
+  assert.equal(normalizeCasualText("nvm"), "never mind");
+  assert.equal(isCancelReply("nvm"), true);
 });
 
 test("catalog follow ups stay in the active shopping flow", () => {

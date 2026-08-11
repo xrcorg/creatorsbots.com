@@ -257,6 +257,8 @@ function busyBurstReply(messageId: number) {
   return variations[Math.abs(messageId) % variations.length];
 }
 
+const TEXTING_GLOSSARY = `Understand casual texting, abbreviations, slang, and reasonable typos from context. Do not correct the fan or spell out an abbreviation unless they ask. Common meanings include: ROFL rolling on the floor laughing; STFU shut up; ICYMI in case you missed it; TLDR too long did not read; TMI too much information; AFAIK as far as I know; LMK let me know; NVM never mind; FTW for the win; BYOB bring your own beer; BOGO buy one get one; JK just kidding; JW just wondering; TGIF thank goodness it is Friday; TBH to be honest; TBF to be frank; RN right now; BRB be right back; ISO in search of; BRT be right there; BTW by the way; FTFY fixed that for you; GG good game; BFD big deal; IRL in real life; DAE does anyone else; LOL laugh out loud; SMH shaking my head; NGL not going to lie; BTS behind the scenes; IKR I know right; TTYL talk to you later; HMU hit me up; FWIW and FWIF for what it is worth; IMO in my opinion; WYD what are you doing; HRU how are you; IMHO in my humble opinion; IDK I do not know; IDC I do not care; IDGAF I do not care at all; NBD no big deal; TBA to be announced; TBD to be decided; AFK away from keyboard; ABT about; IYKYK if you know you know; B4 before; BC because; JIC just in case; FOMO fear of missing out; GTG and G2G got to go; H8 hate; LMAO laughing hard; IYKWIM if you know what I mean; MYOB mind your own business; POV point of view; TLC tender loving care; HBD happy birthday; W/E whatever; WTF what the fuck; GOAT greatest of all time; FR for real; SUS suspicious; BET okay or agreed; SLAY doing something well; MID average; EOD end of day; EOW end of week; COB close of business; ETA estimated time of arrival; FAQ frequently asked question; AKA also known as; ASAP as soon as possible; DIY do it yourself; NP no problem; N/A not available; OOO out of office; TIA thanks in advance; FYI for your information; NSFW not safe for work; WFH work from home; OMW on my way; WDYT what do you think; DM direct message; FB Facebook; IG Instagram; YT YouTube; SC Snapchat; WA WhatsApp; TT TikTok; PIN Pinterest; TTV Twitch; IM instant message; PM private message; OP original post; QOTD question of the day; OOTD outfit of the day; RT repost; TBT throwback Thursday; TIL today I learned; AMA ask me anything; ELI5 explain simply; FBF flashback Friday; GRWM get ready with me; ILY I love you; BF boyfriend; GF girlfriend; BAE babe or before anyone else depending on context; LYSM love you so much; PDA public display of affection; LTR long term relationship; DTR define the relationship; LDR long distance relationship; XOXO hugs and kisses; OTP one true pairing; LOML love of my life; SO significant other. Interpret ambiguous abbreviations such as X, CC, PM, IM, TT, LI, BR, SO, and P/E from the surrounding sentence instead of replacing them automatically.`;
+
 const TIFFANI_PROMPT = `Write automated chat replies for adult creator Tiffani Madison.
 Always write as Tiffani in first person. Be warm, confident, teasing, flirty, sexy, and concise.
 Every fan facing response must use first person language such as I, me, my, and myself. Never refer to Tiffani in the third person or say Tiffani will do something. Only state the name if the fan directly asks for it.
@@ -306,8 +308,9 @@ Keep most replies to one or two short sentences and end with a natural question 
 
 function creatorPrompt(env: Env) {
   const creator = creatorConfig(env);
-  if (creator.profileSeed === "tiffani") return TIFFANI_PROMPT;
+  if (creator.profileSeed === "tiffani") return `${TIFFANI_PROMPT}\n${TEXTING_GLOSSARY}`;
   return `Write automated chat replies for adult creator ${creator.displayName}.
+${TEXTING_GLOSSARY}
 Always write as ${creator.chatName} in first person. Be warm, confident, flirty, concise, and natural, but do not invent a personal tone, biography, favorite, preference, relationship, activity, outfit, or fact that the creator has not supplied.
 Every fan facing response must use first person language such as I, me, my, and myself. Never refer to ${creator.displayName} in the third person.
 When several fan messages arrive together, read them as one turn and send one cohesive reply. Do not repeat an offer or get stuck in a prior workflow. A clear request for content, a custom, a video chat, a rating, payment help, or cancellation always replaces an unfinished offer.
@@ -1151,7 +1154,7 @@ function knownProfilePreferenceReply(text: string) {
 }
 
 function isHowAreYouQuestion(text: string) {
-  return /\b(how are you|how're you|how are you doing|how have you been|how do you feel|how are you feeling)\b/i.test(text);
+  return /\b(how are you|how're you|how are you doing|how have you been|how do you feel|how are you feeling)\b/i.test(normalizeCasualText(text));
 }
 
 function isSextingQuestion(text: string) {
