@@ -34,7 +34,7 @@ export function customDetailsMissing(text: string) {
 }
 
 export function isCustomDetailsFinished(text: string) {
-  return /^(?:yes|yes,? that(?:'s| is) all|yes,? that(?:'s| is) everything|done|finished|all done|complete|i(?:'m| am) done|that(?:'s| is) all|that(?:'s| is) everything|those are all the details)[.! ]*$/i.test(text.trim());
+  return /^(?:yes|yes,? that(?:'s| is) all|yes,? that(?:'s| is) everything|done|finished|all done|complete|i(?:'m| am) done|that(?:'s| is) all|that(?:'s| is) everything|that(?:'s| is) it|nothing else|no,? that(?:'s| is) everything|those are all the details)[.! ]*$/i.test(text.trim());
 }
 
 export function isAffirmativeReply(text: string) {

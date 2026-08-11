@@ -186,6 +186,19 @@ function customVideoPrompt(_settings: Record<string, string>) {
   return "Yeah babe, I make customs. Send me everything you want and how long you want it to be. You can send as many messages as you need, then say done when you're finished.";
 }
 
+function customDetailsCheckIn(details: string) {
+  const variations = [
+    "Got it, babe. Is that everything, or do you want to add more?",
+    "I've got that. Does that cover everything, or is there more you want included?",
+    "Okay babe, I added it. Is that your full idea, or do you have more details?",
+    "Got it. Have I got everything, or do you want to keep going?",
+    "I have that part. Is that everything you want included, or is there more?",
+    "Okay, I'm following you. Is that everything, or is there more?",
+  ];
+  const detailCount = Math.max(1, details.split(/\n+/).filter(Boolean).length);
+  return variations[(detailCount - 1) % variations.length];
+}
+
 const TIFFANI_PROMPT = `Write automated chat replies for adult creator Tiffani Madison.
 Always write as Tiffani in first person. Be warm, confident, teasing, flirty, sexy, and concise.
 Every fan facing response must use first person language such as I, me, my, and myself. Never refer to Tiffani in the third person or say Tiffani will do something. Only state the name if the fan directly asks for it.
@@ -1882,7 +1895,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     await env.DB.prepare(`UPDATE custom_drafts
       SET details = ?, updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?`)
       .bind(combinedCustomDetails, chatId).run();
-    const acknowledgement = "Got it, babe. Is that everything, or do you want to add more?";
+    const acknowledgement = customDetailsCheckIn(combinedCustomDetails);
     await saveMessage(env.DB, chatId, "user", message.text);
     await saveMessage(env.DB, chatId, "assistant", acknowledgement);
     await sendTelegramMessage(env, message, acknowledgement);

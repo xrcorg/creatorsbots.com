@@ -107,7 +107,7 @@ test("customs require both creative details and a duration", () => {
 });
 
 test("custom collection ends only with an explicit finished phrase", () => {
-  for (const reply of ["yes", "yes, that's all", "done", "finished", "all done", "that's all", "that's everything", "I'm done"]) {
+  for (const reply of ["yes", "yes, that's all", "done", "finished", "all done", "that's all", "that's everything", "that's it", "nothing else", "no, that's everything", "I'm done"]) {
     assert.equal(isCustomDetailsFinished(reply), true, reply);
   }
   for (const detail of ["and wear red", "one more thing", "10 minutes", "can you say my name?"]) {
