@@ -1439,7 +1439,7 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
   }
 
   if (request.method === "POST" && url.pathname === "/api/admin/conversations/reply") {
-    const body = await request.json<{ chat_id?: string; text?: string; action?: "send" | "pause" | "resume" }>();
+    const body = await request.json<{ chat_id?: string; text?: string; action?: "send" | "pause" | "resume"; learn?: boolean }>();
     const chatId = String(body.chat_id || "").trim();
     if (!chatId) return json({ error: "A conversation is required" }, 400);
     const conversation = await env.DB.prepare(`SELECT fan_sessions.chat_id,
@@ -1482,7 +1482,12 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
       ...(conversation.business_connection_id ? { business_connection_id: conversation.business_connection_id } : {}),
     };
     await sendTelegramMessage(env, telegramMessage, reply);
-    await env.DB.batch([
+    const latestFanMessage = body.learn
+      ? await env.DB.prepare(`SELECT content FROM chat_messages
+          WHERE chat_id = ? AND role = 'user' ORDER BY id DESC LIMIT 1`)
+        .bind(chatId).first<{ content: string }>()
+      : null;
+    const updates = [
       env.DB.prepare(`INSERT INTO conversation_controls (chat_id, control_mode, taken_over_by, updated_at)
         VALUES (?, 'human', ?, CURRENT_TIMESTAMP)
         ON CONFLICT(chat_id) DO UPDATE SET control_mode = 'human', taken_over_by = excluded.taken_over_by,
@@ -1492,8 +1497,15 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
       env.DB.prepare(`UPDATE sexting_sessions SET control_mode = 'human', taken_over_at = CURRENT_TIMESTAMP
         WHERE chat_id = ? AND status = 'active' AND ends_at IS NOT NULL
         AND ends_at > CURRENT_TIMESTAMP`).bind(chatId),
-    ]);
-    return json({ ok: true, control_mode: "human" });
+      env.DB.prepare(`UPDATE pending_replies SET status = 'answered', answer = ?, answered_at = CURRENT_TIMESTAMP
+        WHERE chat_id = ? AND status = 'pending'`).bind(reply, chatId),
+    ];
+    if (body.learn && latestFanMessage?.content.trim()) {
+      updates.push(env.DB.prepare("INSERT INTO learned_answers (question, answer) VALUES (?, ?)")
+        .bind(latestFanMessage.content.trim(), reply));
+    }
+    await env.DB.batch(updates);
+    return json({ ok: true, control_mode: "human", learned: Boolean(body.learn && latestFanMessage?.content.trim()) });
   }
 
   return json({ error: "Conversation request not found" }, 404);

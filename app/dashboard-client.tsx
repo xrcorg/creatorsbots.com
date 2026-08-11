@@ -611,28 +611,34 @@ export default function Home() {
     }
   }
 
-  async function sendConversationReply(event: FormEvent) {
-    event.preventDefault();
+  async function submitConversationReply(saveForFuture: boolean) {
     if (!selectedConversation || !conversationReply.trim()) return;
     try {
       setLiveLoading(true);
-      setConversationStatus("Sending reply...");
+      setConversationStatus(saveForFuture ? "Sending and saving reply..." : "Sending reply...");
       const response = await fetch("/api/admin/conversations/reply", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ chat_id: selectedConversation.chat_id, text: conversationReply.trim(), action: "send" }),
+        body: JSON.stringify({ chat_id: selectedConversation.chat_id, text: conversationReply.trim(), action: "send", learn: saveForFuture }),
       });
       const data = await response.json() as { error?: string };
       if (!response.ok) throw new Error(data.error || "Reply failed");
       setConversationReply("");
       await loadLivePending();
       await openConversation(selectedConversation.chat_id);
-      setConversationStatus("Reply sent. The bot is paused for this chat.");
+      setConversationStatus(saveForFuture
+        ? "Reply sent and saved for future answers. The bot is paused for this chat."
+        : "Reply sent. The bot is paused for this chat.");
     } catch (error) {
       setConversationStatus(error instanceof Error ? error.message : "The reply could not be sent.");
     } finally {
       setLiveLoading(false);
     }
+  }
+
+  function sendConversationReply(event: FormEvent) {
+    event.preventDefault();
+    void submitConversationReply(false);
   }
 
   function fillQuickReply(template: string) {
@@ -1564,7 +1570,10 @@ export default function Home() {
                   </div>
                   <form className="conversationReplyForm" onSubmit={sendConversationReply}>
                     <textarea maxLength={4000} value={conversationReply} onChange={(event) => setConversationReply(event.target.value)} placeholder={`Reply to ${selectedConversation.telegram_name}`} />
-                    <button className="primaryAction" disabled={liveLoading || !conversationReply.trim()}>Send reply</button>
+                    <div className="conversationReplyActions">
+                      <button className="primaryAction" disabled={liveLoading || !conversationReply.trim()}>Send once</button>
+                      <button className="secondaryAction" disabled={liveLoading || !conversationReply.trim()} onClick={() => void submitConversationReply(true)} type="button">Send and save for future</button>
+                    </div>
                     <small>Sending a reply pauses automatic responses for this chat until you turn Bot replies back on.</small>
                   </form>
                 </> : <div className="conversationPlaceholder">Choose a chat to view its recent messages and controls.</div>}
