@@ -8,6 +8,7 @@ import {
   isBookingDecline,
   isBotQuestion,
   isCancelReply,
+  isCatalogContentRequest,
   isConversationQuestion,
   isCustomDecline,
   isCustomDetailsFinished,
@@ -38,6 +39,18 @@ test("short presence checks stay in automatic conversation", () => {
     assert.equal(isPresenceCheck(message), true, message);
   }
   assert.equal(isPresenceCheck("what is your favorite movie?"), false);
+});
+
+test("specific catalog searches win over stray sexting words", () => {
+  for (const message of [
+    "Do you have any BBC videos?",
+    "I wanna see if you have any BBC videos",
+    "Do you have lesbian content?",
+    "I would like to see some interracial video sets",
+  ]) {
+    assert.equal(isCatalogContentRequest(message), true, message);
+  }
+  assert.equal(isCatalogContentRequest("Sext"), false);
 });
 
 test("natural trailer offers preserve the next affirmative reply", () => {

@@ -59,6 +59,12 @@ export function isPresenceCheck(text: string) {
     /^(?:hello|hey|hi)[?!. ]+$/i.test(value);
 }
 
+export function isCatalogContentRequest(text: string) {
+  return /\b(?:do you have|have you got)\s+(?:any\s+)?(?:[a-z0-9&/]+\s+){0,5}(?:videos?|photos?|content|sets?|bundles?)\b/i.test(text) ||
+    /\b(?:i\s+)?(?:want|wanna|would like|like)(?:\s+to)?\s+see\b[\s\S]{0,160}\b(?:videos?|photos?|content|sets?|bundles?)\b/i.test(text) ||
+    /\b(?:any|some)\s+(?:[a-z0-9&/]+\s+){1,5}(?:videos?|photos?|content|sets?|bundles?)\b/i.test(text);
+}
+
 export function isGenericCancelReply(text: string) {
   return /\b(cancel|cancel that|cancel this|never mind|nevermind|not now|maybe later|no thanks|no thank you|forget it|not interested|changed my mind|don't want it|dont want it|do not want it|not anymore|stop this)\b/i.test(text) ||
     /^(?:no|nope|neither)(?:\s+(?:thanks|thank you|sorry))?[.! ]*$/i.test(text.trim());

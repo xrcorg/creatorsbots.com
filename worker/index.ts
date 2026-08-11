@@ -1,7 +1,7 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { bookingDetailsMissing, customDetailsMissing, isAffirmativeReply, isBookingDecline, isBotQuestion, isCancelReply, isCustomDecline, isCustomDetailsFinished, isGenericCancelReply, isLikelyBookingDetailReply, isLikelyCityReply, isLikelyShippingAddress, isLikelyShippingName, isMessageBurst, isPhysicalOrderDecline, isPresenceCheck, isRatingDecline, isSextingDecline, isSextingPackageFollowUp, isTrailerOfferAwaitingConfirmation, parseNameIntroduction } from "./conversation-rules";
+import { bookingDetailsMissing, customDetailsMissing, isAffirmativeReply, isBookingDecline, isBotQuestion, isCancelReply, isCatalogContentRequest, isCustomDecline, isCustomDetailsFinished, isGenericCancelReply, isLikelyBookingDetailReply, isLikelyCityReply, isLikelyShippingAddress, isLikelyShippingName, isMessageBurst, isPhysicalOrderDecline, isPresenceCheck, isRatingDecline, isSextingDecline, isSextingPackageFollowUp, isTrailerOfferAwaitingConfirmation, parseNameIntroduction } from "./conversation-rules";
 
 interface Env {
   ASSETS: Fetcher;
@@ -830,7 +830,8 @@ async function socialReplyFor(db: D1Database, text: string) {
 }
 
 function isProductQuestion(text: string) {
-  return /\b(blonde bombshell|trailer|buy (the )?(video|photo|content|panties|clothes|clothing)|purchase (the )?(video|photo|content|panties|clothes|clothing)|video for sale|content for sale|what.*sell|(?:what|see|show me).*(?:have|got).*(?:for sale|available)|(newest|latest|new) (video|photo|content)|most recent (video|photo|content)|panty|panties|worn clothing|clothing item|dick rating|rate my dick|rate my cock|video rating)\b/i.test(text);
+  return isCatalogContentRequest(text) ||
+    /\b(blonde bombshell|trailer|buy (the )?(video|photo|content|panties|clothes|clothing)|purchase (the )?(video|photo|content|panties|clothes|clothing)|video for sale|content for sale|what.*sell|(?:what|see|show me).*(?:have|got).*(?:for sale|available)|(newest|latest|new) (video|photo|content)|most recent (video|photo|content)|panty|panties|worn clothing|clothing item|dick rating|rate my dick|rate my cock|video rating)\b/i.test(text);
 }
 
 function isPhysicalItemQuestion(text: string) {
@@ -944,6 +945,7 @@ function isHowAreYouQuestion(text: string) {
 
 function isSextingQuestion(text: string) {
   if (isSextingDecline(text) ||
+      isProductQuestion(text) || isCatalogListQuestion(text) ||
       (isBookingQuestion(text) && !isBookingDecline(text)) ||
       (isCustomVideoQuestion(text) && !isCustomDecline(text)) ||
       (isPhysicalItemQuestion(text) && !isPhysicalOrderDecline(text)) ||
@@ -2231,8 +2233,12 @@ async function handleTelegramWebhook(request: Request, env: Env) {
 
   const activeProducts = await getActiveProducts(env.DB);
   const normalizedMessage = message.text.toLowerCase();
-  const mentionedProduct = activeProducts.find((product) =>
-    product.title.length >= 3 && normalizedMessage.includes(product.title.toLowerCase()));
+  const mentionedProduct = activeProducts.find((product) => {
+    const searchableTerms = [product.title, product.genre, product.actors,
+      ...product.genre.split(/[,/&]+/), ...product.actors.split(/[,/&]+/)]
+      .map((term) => term.trim().toLowerCase()).filter((term) => term.length >= 3);
+    return searchableTerms.some((term) => normalizedMessage.includes(term));
+  });
   if (isProductQuestion(message.text) || mentionedProduct) {
     const requestedType = isVideoRatingQuestion(message.text) ? "video_rating"
       : isPhysicalItemQuestion(message.text) ? "physical_item" : null;
