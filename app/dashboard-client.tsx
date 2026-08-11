@@ -218,7 +218,7 @@ type ConversationMessage = {
   voice_status?: "creator_review";
 };
 
-type QuickReplyCategory = "general" | "content" | "custom" | "video_chat" | "payment" | "boundaries";
+type QuickReplyCategory = "general" | "content" | "custom" | "bookings" | "video_chat" | "ratings" | "payment" | "boundaries";
 
 type PlatformOverview = {
   creator_count: number;
@@ -648,7 +648,10 @@ export default function Home() {
   function fillQuickReply(template: string) {
     const products = contentProducts.filter((product) => product.active && !["physical_item", "video_rating"].includes(product.content_type));
     const product = products.find((item) => item.id === quickReplyProductId) || products[0];
+    const ratingProduct = contentProducts.find((item) => item.active && item.content_type === "video_rating");
     const productPrice = product ? money(product.price_cents) : "";
+    const ratingPrice = ratingProduct ? money(ratingProduct.price_cents) : "$75.00";
+    const ratingStars = ratingProduct?.stars_price ? `${ratingProduct.stars_price.toLocaleString()} Stars` : "the equivalent amount in Stars";
     const catalog = products.slice(0, 8).map((item) => `${item.title} · ${money(item.price_cents)}`).join("\n");
     const replies: Record<string, string> = {
       saw_message: "Hey babe, I saw your message. What did you want to know?",
@@ -662,8 +665,15 @@ export default function Home() {
       custom_more: "Anything else you want me to add?",
       custom_review: "Got it! I'll review everything and let you know what it will cost.",
       custom_quote: "I can't quote you until I know what you want and for how long. Can you send me your idea?",
+      booking_options: "Do you wanna set something up? I offer video chats here on Telegram and fan meet and greets. Which one are you interested in?",
+      booking_schedule: "Send me your preferred date and time and tell me if you want a video chat or fan meet and greet. If it's a meet and greet, tell me what city you're in too.",
+      booking_contact: "What city are you in, babe? Send me your phone number or email and I'll reach out when I'm in your city.",
       video_chat: `Video chats happen right here on Telegram and are $${settings.video_chat_rate} per minute with a 5 minute minimum. What date and time works for you?`,
       video_chat_schedule: "Send me your preferred date, time, and how many minutes you want. I'll check my schedule and get back to you.",
+      video_chat_confirm: "Yes babe, the video chat will happen right here on Telegram. Once we confirm the date, time, and payment, I'll call you here.",
+      rating_offer: `Yes babe, I do private video ratings. It's ${ratingPrice} or ${ratingStars}. You send me a photo and I'll respond with a short private video rating.`,
+      rating_photo: "Send me the photo you want me to rate here. I'll review it after I verify your payment.",
+      rating_payment: `The private video rating is ${ratingPrice} or ${ratingStars}. You can pay with Cash App, Venmo, Zelle, or Telegram Stars. Put your Telegram username in the notes and send me a screenshot after you pay.`,
       payment_options: "I accept Cash App, Venmo, and Zelle. Tell me what you're buying and I'll send you the payment information.",
       payment_screenshot: "Please put your Telegram username in the payment notes and send me a screenshot after you send it.",
       payment_received: "Ok, thanks babe. Let me check when I get the chance and I'll send you the link!",
@@ -1607,14 +1617,16 @@ export default function Home() {
                   <div className="quickReplies">
                     <div className="quickReplyHeading"><strong>Quick replies</strong><small>Choose one to fill the message, then edit or send it.</small></div>
                     <div className="quickReplyCategories">
-                      {(["general", "content", "custom", "video_chat", "payment", "boundaries"] as QuickReplyCategory[]).map((category) => <button className={quickReplyCategory === category ? "selected" : ""} key={category} onClick={() => setQuickReplyCategory(category)} type="button">{category === "video_chat" ? "Video chat" : category}</button>)}
+                      {(["general", "content", "custom", "bookings", "video_chat", "ratings", "payment", "boundaries"] as QuickReplyCategory[]).map((category) => <button className={quickReplyCategory === category ? "selected" : ""} key={category} onClick={() => setQuickReplyCategory(category)} type="button">{category === "video_chat" ? "Video chat" : category === "ratings" ? "Dick ratings" : category}</button>)}
                     </div>
                     {quickReplyCategory === "content" && <label className="quickReplyProduct"><span>Video or content</span><select value={quickReplyProductId || quickReplyProducts[0]?.id || 0} onChange={(event) => setQuickReplyProductId(Number(event.target.value))}>{quickReplyProducts.length ? quickReplyProducts.map((product) => <option key={product.id} value={product.id}>{product.title}</option>) : <option value={0}>No active content</option>}</select></label>}
                     <div className="quickReplyOptions">
                       {quickReplyCategory === "general" && <><button onClick={() => fillQuickReply("saw_message")} type="button">Saw your message</button><button onClick={() => fillQuickReply("busy")} type="button">Busy right now</button><button onClick={() => fillQuickReply("anything_else")} type="button">Anything else</button></>}
                       {quickReplyCategory === "content" && <><button onClick={() => fillQuickReply("catalog")} type="button">Show catalog</button><button onClick={() => fillQuickReply("trailer")} type="button">Send trailer for</button><button onClick={() => fillQuickReply("product_details")} type="button">Send details</button><button onClick={() => fillQuickReply("product_payment")} type="button">Payment instructions</button></>}
                       {quickReplyCategory === "custom" && <><button onClick={() => fillQuickReply("custom_start")} type="button">Ask for idea</button><button onClick={() => fillQuickReply("custom_more")} type="button">Anything else</button><button onClick={() => fillQuickReply("custom_review")} type="button">Review request</button><button onClick={() => fillQuickReply("custom_quote")} type="button">Need details first</button></>}
-                      {quickReplyCategory === "video_chat" && <><button onClick={() => fillQuickReply("video_chat")} type="button">Rate and minimum</button><button onClick={() => fillQuickReply("video_chat_schedule")} type="button">Ask for schedule</button></>}
+                      {quickReplyCategory === "bookings" && <><button onClick={() => fillQuickReply("booking_options")} type="button">Booking options</button><button onClick={() => fillQuickReply("booking_schedule")} type="button">Date and time</button><button onClick={() => fillQuickReply("booking_contact")} type="button">City and contact</button></>}
+                      {quickReplyCategory === "video_chat" && <><button onClick={() => fillQuickReply("video_chat")} type="button">Rate and minimum</button><button onClick={() => fillQuickReply("video_chat_schedule")} type="button">Ask for schedule</button><button onClick={() => fillQuickReply("video_chat_confirm")} type="button">Confirm Telegram call</button></>}
+                      {quickReplyCategory === "ratings" && <><button onClick={() => fillQuickReply("rating_offer")} type="button">Offer video rating</button><button onClick={() => fillQuickReply("rating_photo")} type="button">Request photo</button><button onClick={() => fillQuickReply("rating_payment")} type="button">Rating payment</button></>}
                       {quickReplyCategory === "payment" && <><button onClick={() => fillQuickReply("payment_options")} type="button">Payment options</button><button onClick={() => fillQuickReply("payment_screenshot")} type="button">Request screenshot</button><button onClick={() => fillQuickReply("payment_received")} type="button">Payment received</button></>}
                       {quickReplyCategory === "boundaries" && <><button onClick={() => fillQuickReply("telegram_tos")} type="button">Telegram TOS</button><button onClick={() => fillQuickReply("unavailable")} type="button">Cannot help</button></>}
                     </div>
