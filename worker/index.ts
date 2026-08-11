@@ -1,7 +1,7 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { bookingDetailsMissing, customDetailsMissing, isAffirmativeReply, isBookingDecline, isBotQuestion, isCancelReply, isCustomDecline, isCustomDetailsFinished, isGenericCancelReply, isLikelyBookingDetailReply, isLikelyCityReply, isLikelyShippingAddress, isLikelyShippingName, isPhysicalOrderDecline, isRatingDecline, isSextingDecline, isSextingPackageFollowUp, parseNameIntroduction } from "./conversation-rules";
+import { bookingDetailsMissing, customDetailsMissing, isAffirmativeReply, isBookingDecline, isBotQuestion, isCancelReply, isCustomDecline, isCustomDetailsFinished, isGenericCancelReply, isLikelyBookingDetailReply, isLikelyCityReply, isLikelyShippingAddress, isLikelyShippingName, isMessageBurst, isPhysicalOrderDecline, isRatingDecline, isSextingDecline, isSextingPackageFollowUp, parseNameIntroduction } from "./conversation-rules";
 
 interface Env {
   ASSETS: Fetcher;
@@ -197,6 +197,16 @@ function customDetailsCheckIn(details: string) {
   ];
   const detailCount = Math.max(1, details.split(/\n+/).filter(Boolean).length);
   return variations[(detailCount - 1) % variations.length];
+}
+
+function busyBurstReply(messageId: number) {
+  const variations = [
+    "Hey, sorry I'm busy right now, but I'll reply as soon as I can. Please be patient with me.",
+    "Hey babe, I saw your messages. I'm a little busy, but I'll get back to you as soon as I can.",
+    "Give me a little time, babe. I'm busy right now, but I'll reply as soon as I can.",
+    "I saw everything you sent, babe. I'm busy right now, so please be patient and I'll reply as soon as I can.",
+  ];
+  return variations[Math.abs(messageId) % variations.length];
 }
 
 const TIFFANI_PROMPT = `Write automated chat replies for adult creator Tiffani Madison.
@@ -1616,6 +1626,28 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   const customDraft = await env.DB.prepare(`SELECT status, details, completion_mode FROM custom_drafts
     WHERE chat_id = ?`).bind(chatId).first<{ status: string; details: string; completion_mode: string }>();
   const collectingCustomDetails = customDraft?.status === "awaiting_details";
+  if (isMessageBurst(collected.count)) {
+    if (isPermanentlyRestrictedTopic(message.text)) {
+      const redirect = "I don't talk about that, babe. Let's keep it fun and positive. What else are you into?";
+      await saveMessage(env.DB, chatId, "user", message.text);
+      await saveMessage(env.DB, chatId, "assistant", redirect);
+      await sendTelegramMessage(env, message, redirect);
+      return json({ ok: true, restricted_burst: true });
+    }
+    if (collectingCustomDetails && customDraft) {
+      const burstDetails = message.text.split(/\n+/).map((part) => part.trim()).filter(Boolean)
+        .filter((part) => !isCustomDetailsFinished(part)).join("\n");
+      const savedDetails = [customDraft.details.trim(), burstDetails]
+        .filter(Boolean).join("\n").slice(0, 100000);
+      await env.DB.prepare(`UPDATE custom_drafts SET details = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE chat_id = ?`).bind(savedDetails, chatId).run();
+    }
+    const busyReply = busyBurstReply(message.message_id);
+    await saveMessage(env.DB, chatId, "user", message.text);
+    await saveMessage(env.DB, chatId, "assistant", busyReply);
+    await sendTelegramMessage(env, message, busyReply);
+    return json({ ok: true, message_burst_limited: true });
+  }
 
   // A fan can change the subject after seeing the sexting packages. Clear that
   // temporary choice before any normal conversation handler returns, otherwise

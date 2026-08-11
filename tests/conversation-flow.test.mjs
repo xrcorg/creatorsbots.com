@@ -17,6 +17,7 @@ import {
   isLikelyCustomDetailReply,
   isLikelyShippingAddress,
   isLikelyShippingName,
+  isMessageBurst,
   isPhysicalOrderDecline,
   isRatingDecline,
   isSextingDecline,
@@ -113,6 +114,12 @@ test("custom collection ends only with an explicit finished phrase", () => {
   for (const detail of ["and wear red", "one more thing", "10 minutes", "can you say my name?"]) {
     assert.equal(isCustomDetailsFinished(detail), false, detail);
   }
+});
+
+test("message bursts are limited after fifteen unanswered messages", () => {
+  assert.equal(isMessageBurst(15), false);
+  assert.equal(isMessageBurst(16), true);
+  assert.equal(isMessageBurst(100), true);
 });
 
 test("name introductions preserve the rest of the fan message", () => {

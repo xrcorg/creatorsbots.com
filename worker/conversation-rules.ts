@@ -37,6 +37,10 @@ export function isCustomDetailsFinished(text: string) {
   return /^(?:yes|yes,? that(?:'s| is) all|yes,? that(?:'s| is) everything|done|finished|all done|complete|i(?:'m| am) done|that(?:'s| is) all|that(?:'s| is) everything|that(?:'s| is) it|nothing else|no,? that(?:'s| is) everything|those are all the details)[.! ]*$/i.test(text.trim());
 }
 
+export function isMessageBurst(count: number, limit = 15) {
+  return Number.isFinite(count) && count > limit;
+}
+
 export function isAffirmativeReply(text: string) {
   return /^(yes|yes i do|yes i want to|yes please|yes babe|yeah|yeah i do|yep|sure|okay|ok|alright|i guess|okay i guess|ok i guess|let's do it|lets do it|i do|i want to|i'd love to|id love to)[.! ]*$/i.test(text.trim());
 }
