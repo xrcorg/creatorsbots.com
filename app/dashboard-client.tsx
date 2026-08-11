@@ -195,6 +195,25 @@ type PortalUser = {
   creator_name: string;
 };
 
+type LiveConversation = {
+  chat_id: string;
+  telegram_name: string;
+  age_status: "unknown" | "verified" | "blocked";
+  last_message: string;
+  last_role: "user" | "assistant" | "";
+  last_message_at: string;
+  message_count: number;
+  pending_count: number;
+  active_workflow: "chat" | "sexting" | "custom" | "booking" | "sexting checkout";
+};
+
+type ConversationMessage = {
+  id: number;
+  role: "user" | "assistant";
+  content: string;
+  created_at: string;
+};
+
 type PlatformOverview = {
   creator_count: number;
   active_creator_count: number;
@@ -315,6 +334,11 @@ export default function Home() {
   const [creatorReply, setCreatorReply] = useState("");
   const [savedAnswers, setSavedAnswers] = useState(12);
   const [livePending, setLivePending] = useState<LivePendingReply[]>([]);
+  const [conversations, setConversations] = useState<LiveConversation[]>([]);
+  const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
+  const [conversationMessages, setConversationMessages] = useState<ConversationMessage[]>([]);
+  const [conversationSearch, setConversationSearch] = useState("");
+  const [conversationStatus, setConversationStatus] = useState("");
   const [livePurchases, setLivePurchases] = useState<LivePurchase[]>([]);
   const [purchaseHistory, setPurchaseHistory] = useState<LivePurchase[]>([]);
   const [liveBookings, setLiveBookings] = useState<LiveBooking[]>([]);
@@ -372,7 +396,7 @@ export default function Home() {
   const [liveLoading, setLiveLoading] = useState(false);
   const [liveError, setLiveError] = useState("");
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
-  const [dashboardView, setDashboardView] = useState<"today" | "content" | "settings" | "history">("today");
+  const [dashboardView, setDashboardView] = useState<"today" | "inbox" | "content" | "settings" | "history">("today");
   const previousAttentionCount = useRef<number | null>(null);
   const settingsDirtyRef = useRef(false);
 
@@ -381,10 +405,11 @@ export default function Home() {
       setLiveLoading(true);
       const response = await fetch("/api/admin/pending", { cache: "no-store" });
       if (!response.ok) throw new Error("Unable to load the creator inbox");
-      const data = await response.json() as { portal_user: PortalUser; platform_overview: PlatformOverview | null; pending: LivePendingReply[]; purchases: LivePurchase[]; purchase_history: LivePurchase[]; bookings: LiveBooking[]; customs: LiveCustom[]; custom_history: LiveCustom[]; sexting_sessions: LiveSextingSession[]; sexting_history: LiveSextingSession[]; sexting_media: SextingMedia[]; sexting_scripts: SextingScript[]; daily_tasks: DailyTask[]; physical_orders: PhysicalOrder[]; physical_order_history: PhysicalOrder[]; rating_orders: RatingOrder[]; rating_order_history: RatingOrder[]; announcements: Announcement[]; social_links: SocialLink[]; training_suggestions: TrainingSuggestion[]; sale_disputes: SaleDispute[]; products: ContentProduct[]; stars: { total: number; count: number }; learned_count: number; earnings: EarningsSummary; settings: CreatorSettings };
+      const data = await response.json() as { portal_user: PortalUser; platform_overview: PlatformOverview | null; pending: LivePendingReply[]; conversations: LiveConversation[]; purchases: LivePurchase[]; purchase_history: LivePurchase[]; bookings: LiveBooking[]; customs: LiveCustom[]; custom_history: LiveCustom[]; sexting_sessions: LiveSextingSession[]; sexting_history: LiveSextingSession[]; sexting_media: SextingMedia[]; sexting_scripts: SextingScript[]; daily_tasks: DailyTask[]; physical_orders: PhysicalOrder[]; physical_order_history: PhysicalOrder[]; rating_orders: RatingOrder[]; rating_order_history: RatingOrder[]; announcements: Announcement[]; social_links: SocialLink[]; training_suggestions: TrainingSuggestion[]; sale_disputes: SaleDispute[]; products: ContentProduct[]; stars: { total: number; count: number }; learned_count: number; earnings: EarningsSummary; settings: CreatorSettings };
       setPortalUser(data.portal_user);
       setPlatformOverview(data.platform_overview);
       setLivePending(data.pending);
+      setConversations(data.conversations || []);
       setLivePurchases(data.purchases);
       setPurchaseHistory(data.purchase_history || []);
       setLiveBookings(data.bookings);
@@ -550,6 +575,42 @@ export default function Home() {
       await loadLivePending();
     } catch {
       setLiveError("The question could not be ignored. Please try again.");
+    } finally {
+      setLiveLoading(false);
+    }
+  }
+
+  async function openConversation(chatId: string) {
+    try {
+      setSelectedConversationId(chatId);
+      setConversationStatus("Loading conversation...");
+      const response = await fetch(`/api/admin/conversations/${encodeURIComponent(chatId)}`, { cache: "no-store" });
+      if (!response.ok) throw new Error("Conversation failed to load");
+      const data = await response.json() as { messages: ConversationMessage[] };
+      setConversationMessages(data.messages || []);
+      setConversationStatus("");
+    } catch {
+      setConversationMessages([]);
+      setConversationStatus("This conversation could not be loaded.");
+    }
+  }
+
+  async function resetLiveConversation(chatId: string) {
+    if (!window.confirm("Reset this chat? This clears its current bot context and unfinished conversation flows. Age verification, fan details, sales, and completed orders stay saved.")) return;
+    try {
+      setLiveLoading(true);
+      setConversationStatus("Resetting conversation...");
+      const response = await fetch("/api/admin/conversations/reset", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId }),
+      });
+      if (!response.ok) throw new Error("Conversation reset failed");
+      setConversationMessages([]);
+      setConversationStatus("Conversation reset. The next fan message will start a fresh chat.");
+      await loadLivePending();
+    } catch {
+      setConversationStatus("The conversation could not be reset. Please try again.");
     } finally {
       setLiveLoading(false);
     }
@@ -1128,6 +1189,12 @@ export default function Home() {
   }
 
   const selectedAgendaTasks = dailyTasks.filter((task) => task.scheduled_at.slice(0, 10) === agendaDate);
+  const visibleConversations = conversations.filter((conversation) => {
+    const search = conversationSearch.trim().toLowerCase();
+    return !search || conversation.telegram_name.toLowerCase().includes(search) ||
+      conversation.last_message.toLowerCase().includes(search);
+  });
+  const selectedConversation = conversations.find((conversation) => conversation.chat_id === selectedConversationId) || null;
   const openAgendaCount = selectedAgendaTasks.filter((task) => task.status === "open").length + physicalOrders.length + ratingOrders.length;
   const unscheduledCount = liveBookings.length + liveCustoms.length + livePurchases.length + sextingSessions.length + physicalOrders.length + ratingOrders.length;
   const pendingSaleDisputes = saleDisputes.filter((dispute) => dispute.status === "pending");
@@ -1297,9 +1364,9 @@ export default function Home() {
 
         <aside className="creatorPanel visible" data-dashboard-view={dashboardView}>
           <nav className="controlRoomNav" aria-label="Control room sections">
-            {(["today", "content", "settings", "history"] as const).map((view) => (
+            {(["today", "inbox", "content", "settings", "history"] as const).map((view) => (
               <button className={dashboardView === view ? "active" : ""} key={view} onClick={() => setDashboardView(view)} type="button">
-                {view === "today" ? "Today" : view === "content" ? "Content" : view === "settings" ? "Settings" : "History"}
+                {view === "today" ? "Today" : view === "inbox" ? "Inbox" : view === "content" ? "Content" : view === "settings" ? "Settings" : "History"}
               </button>
             ))}
           </nav>
@@ -1348,6 +1415,51 @@ export default function Home() {
             <span>Telegram Stars earned</span>
             <strong>⭐ {starsSummary.total.toLocaleString()}</strong>
             <small>{starsSummary.count} Star purchases</small>
+          </section>
+
+          <section className="conversationInbox dashboardSection dashboardInbox">
+            <div className="sectionHeading">
+              <div><strong>Current chats</strong><small>{conversations.length} conversations</small></div>
+              <span>{conversations.reduce((total, conversation) => total + Number(conversation.pending_count || 0), 0)} need attention</span>
+            </div>
+            <label className="conversationSearch">
+              <span>Search chats</span>
+              <input value={conversationSearch} onChange={(event) => setConversationSearch(event.target.value)} placeholder="Search by name or recent message" />
+            </label>
+            <div className="conversationWorkspace">
+              <div className="conversationList">
+                {visibleConversations.length ? visibleConversations.map((conversation) => (
+                  <button className={selectedConversationId === conversation.chat_id ? "selected" : ""} key={conversation.chat_id} onClick={() => void openConversation(conversation.chat_id)} type="button">
+                    <span className="conversationAvatar">{conversation.telegram_name.replace(/^@/, "").slice(0, 1).toUpperCase()}</span>
+                    <span className="conversationSummary">
+                      <strong>{conversation.telegram_name}</strong>
+                      <small>{conversation.last_message || "No saved messages"}</small>
+                      <time>{new Date(`${conversation.last_message_at.replace(" ", "T")}Z`).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time>
+                    </span>
+                    <span className={`workflowBadge ${conversation.active_workflow.replace(" ", "-")}`}>{conversation.active_workflow}</span>
+                    {Number(conversation.pending_count) > 0 && <b className="unreadBadge">{conversation.pending_count}</b>}
+                  </button>
+                )) : <p>No chats match that search.</p>}
+              </div>
+              <div className="conversationDetail">
+                {selectedConversation ? <>
+                  <header>
+                    <div><strong>{selectedConversation.telegram_name}</strong><small>{selectedConversation.age_status === "verified" ? "18+ confirmed" : selectedConversation.age_status} · {selectedConversation.message_count} saved messages</small></div>
+                    <button className="resetConversation" disabled={liveLoading} onClick={() => void resetLiveConversation(selectedConversation.chat_id)} type="button">Reset chat</button>
+                  </header>
+                  <div className="conversationTranscript">
+                    {conversationMessages.length ? conversationMessages.map((message) => (
+                      <article className={message.role} key={message.id}>
+                        <span>{message.role === "user" ? selectedConversation.telegram_name : "Tiffani"}</span>
+                        <p>{message.content}</p>
+                        <time>{new Date(`${message.created_at.replace(" ", "T")}Z`).toLocaleString()}</time>
+                      </article>
+                    )) : <p className="conversationPlaceholder">{conversationStatus || "No saved messages in this conversation."}</p>}
+                  </div>
+                  {conversationStatus && conversationMessages.length > 0 && <p className="conversationNotice">{conversationStatus}</p>}
+                </> : <div className="conversationPlaceholder">Choose a chat to view its recent messages and controls.</div>}
+              </div>
+            </div>
           </section>
 
           <section className="announcementCenter dashboardSection dashboardToday">

@@ -1224,7 +1224,43 @@ async function resetConversationState(db: D1Database, chatId: string) {
       WHERE chat_id = ? AND status = 'pending'`).bind(chatId),
     db.prepare(`DELETE FROM inbound_message_buffer WHERE chat_id = ?`).bind(chatId),
     db.prepare(`DELETE FROM product_interest WHERE chat_id = ?`).bind(chatId),
+    db.prepare(`DELETE FROM chat_messages WHERE chat_id = ?`).bind(chatId),
   ]);
+}
+
+async function handleAdminConversations(request: Request, env: Env, url: URL) {
+  const portalUser = await getPortalUser(request, env);
+  if (!portalUser) return json({ error: "Sign in required" }, 401);
+  await prepareDatabase(env.DB);
+
+  const match = url.pathname.match(/^\/api\/admin\/conversations\/([^/]+)$/);
+  if (request.method === "GET" && match) {
+    const chatId = decodeURIComponent(match[1]);
+    const conversation = await env.DB.prepare(`SELECT fan_sessions.chat_id,
+      COALESCE(telegram_contacts.username, telegram_contacts.display_name, fan_profiles.name, 'Telegram fan') AS telegram_name,
+      fan_sessions.age_status
+      FROM fan_sessions
+      LEFT JOIN telegram_contacts ON telegram_contacts.chat_id = fan_sessions.chat_id
+      LEFT JOIN fan_profiles ON fan_profiles.chat_id = fan_sessions.chat_id
+      WHERE fan_sessions.chat_id = ?`).bind(chatId).first();
+    if (!conversation) return json({ error: "Conversation not found" }, 404);
+    const messages = await env.DB.prepare(`SELECT id, role, content, created_at
+      FROM chat_messages WHERE chat_id = ? ORDER BY id DESC LIMIT 100`).bind(chatId).all();
+    return json({ conversation, messages: messages.results.reverse() });
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/admin/conversations/reset") {
+    const body = await request.json<{ chat_id?: string }>();
+    const chatId = String(body.chat_id || "").trim();
+    if (!chatId) return json({ error: "A conversation is required" }, 400);
+    const exists = await env.DB.prepare("SELECT chat_id FROM fan_sessions WHERE chat_id = ?")
+      .bind(chatId).first();
+    if (!exists) return json({ error: "Conversation not found" }, 404);
+    await resetConversationState(env.DB, chatId);
+    return json({ ok: true });
+  }
+
+  return json({ error: "Conversation request not found" }, 404);
 }
 
 function randomResponseDelayMs(activeSexting: boolean) {
@@ -2485,6 +2521,29 @@ async function handleAdminPending(request: Request, env: Env) {
     FROM creator_social_links ORDER BY id ASC`).all();
   const trainingSuggestions = await env.DB.prepare(`SELECT id, category, suggestion, created_at
     FROM conversation_training ORDER BY category ASC, id ASC`).all();
+  const conversations = await env.DB.prepare(`SELECT fan_sessions.chat_id,
+    COALESCE(telegram_contacts.username, telegram_contacts.display_name, fan_profiles.name, 'Telegram fan') AS telegram_name,
+    fan_sessions.age_status,
+    COALESCE((SELECT content FROM chat_messages WHERE chat_messages.chat_id = fan_sessions.chat_id
+      ORDER BY id DESC LIMIT 1), '') AS last_message,
+    COALESCE((SELECT role FROM chat_messages WHERE chat_messages.chat_id = fan_sessions.chat_id
+      ORDER BY id DESC LIMIT 1), '') AS last_role,
+    COALESCE((SELECT created_at FROM chat_messages WHERE chat_messages.chat_id = fan_sessions.chat_id
+      ORDER BY id DESC LIMIT 1), fan_sessions.updated_at) AS last_message_at,
+    (SELECT COUNT(*) FROM chat_messages WHERE chat_messages.chat_id = fan_sessions.chat_id) AS message_count,
+    (SELECT COUNT(*) FROM pending_replies WHERE pending_replies.chat_id = fan_sessions.chat_id
+      AND pending_replies.status = 'pending') AS pending_count,
+    CASE
+      WHEN EXISTS (SELECT 1 FROM sexting_sessions WHERE sexting_sessions.chat_id = fan_sessions.chat_id AND status = 'active') THEN 'sexting'
+      WHEN EXISTS (SELECT 1 FROM custom_drafts WHERE custom_drafts.chat_id = fan_sessions.chat_id AND status = 'awaiting_details') THEN 'custom'
+      WHEN EXISTS (SELECT 1 FROM booking_drafts WHERE booking_drafts.chat_id = fan_sessions.chat_id AND status = 'awaiting_details') THEN 'booking'
+      WHEN EXISTS (SELECT 1 FROM sexting_drafts WHERE sexting_drafts.chat_id = fan_sessions.chat_id AND status IN ('awaiting_package', 'invoice_sent')) THEN 'sexting checkout'
+      ELSE 'chat'
+    END AS active_workflow
+    FROM fan_sessions
+    LEFT JOIN telegram_contacts ON telegram_contacts.chat_id = fan_sessions.chat_id
+    LEFT JOIN fan_profiles ON fan_profiles.chat_id = fan_sessions.chat_id
+    ORDER BY datetime(last_message_at) DESC LIMIT 200`).all();
   const saleDisputes = await env.DB.prepare(`SELECT id, creator_key, earnings_event_id, source_type,
     source_id, description, amount_cents, stars, occurred_at, requester_email, reason, proof, status,
     reviewed_by, created_at, reviewed_at FROM sale_disputes
@@ -2576,6 +2635,7 @@ async function handleAdminPending(request: Request, env: Env) {
     announcements: announcements.results,
     social_links: socialLinks.results,
     training_suggestions: trainingSuggestions.results,
+    conversations: conversations.results,
     sale_disputes: saleDisputes.results,
     learned_count: learned?.count || 0,
     earnings: {
@@ -3569,6 +3629,10 @@ const worker = {
 
     if (url.pathname === "/api/admin/pending" && request.method === "GET") {
       return handleAdminPending(request, env);
+    }
+
+    if (url.pathname.startsWith("/api/admin/conversations")) {
+      return handleAdminConversations(request, env, url);
     }
 
     if (url.pathname === "/api/admin/reply" && request.method === "POST") {

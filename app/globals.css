@@ -198,15 +198,49 @@ button { cursor: pointer; }
 
 .creatorPanel { min-width: 0; overflow: auto; background: white; }
 .creatorHeader { justify-content: space-between; margin-bottom: 22px; }
-.controlRoomNav { position: sticky; top: 0; z-index: 8; display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 0 0 16px; padding: 6px; border: 1px solid #efd9e4; border-radius: 14px; background: rgba(255,255,255,.94); box-shadow: 0 8px 24px rgba(93,35,64,.08); backdrop-filter: blur(12px); }
+.controlRoomNav { position: sticky; top: 0; z-index: 8; display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin: 0 0 16px; padding: 6px; border: 1px solid #efd9e4; border-radius: 14px; background: rgba(255,255,255,.94); box-shadow: 0 8px 24px rgba(93,35,64,.08); backdrop-filter: blur(12px); }
 .controlRoomNav button { border: 0; border-radius: 10px; padding: 10px 8px; background: transparent; color: var(--muted); font-size: 10px; font-weight: 800; }
 .controlRoomNav button.active { background: var(--pink); color: white; box-shadow: 0 5px 14px rgba(237,79,154,.24); }
 .creatorPanel .dashboardSection { display: none; }
 .creatorPanel[data-dashboard-view="today"] .dashboardToday,
+.creatorPanel[data-dashboard-view="inbox"] .dashboardInbox,
 .creatorPanel[data-dashboard-view="content"] .dashboardContent,
 .creatorPanel[data-dashboard-view="settings"] .dashboardSettings,
 .creatorPanel[data-dashboard-view="history"] .dashboardHistory { display: block; }
 .creatorHeader h2 { margin: 0; font-family: Georgia, serif; font-size: 24px; }
+.conversationInbox { padding: 16px; border: 1px solid var(--line); border-radius: 18px; background: #fffafd; }
+.conversationInbox .sectionHeading > div { display: grid; gap: 3px; }
+.conversationInbox .sectionHeading small { color: var(--muted); font-size: 8px; font-weight: 500; }
+.conversationSearch { display: block; margin: 12px 0; }
+.conversationSearch span { display: block; margin-bottom: 5px; color: var(--muted); font-size: 9px; font-weight: 750; }
+.conversationSearch input { width: 100%; border: 1px solid var(--line); border-radius: 11px; padding: 10px 12px; background: white; color: var(--ink); font-size: 10px; }
+.conversationWorkspace { min-height: 460px; display: grid; grid-template-columns: minmax(250px, .85fr) minmax(0, 1.4fr); overflow: hidden; border: 1px solid #eddde5; border-radius: 15px; background: white; }
+.conversationList { max-height: 620px; overflow: auto; border-right: 1px solid #eddde5; }
+.conversationList > button { width: 100%; display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 11px; border: 0; border-bottom: 1px solid #f3e9ee; background: white; color: var(--ink); text-align: left; }
+.conversationList > button.selected { background: #fff0f7; }
+.conversationAvatar { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; background: linear-gradient(145deg, #ff76b7, #ce2374); color: white; font-size: 12px; font-weight: 900; }
+.conversationSummary { min-width: 0; display: grid; gap: 3px; }
+.conversationSummary strong { overflow: hidden; text-overflow: ellipsis; font-size: 10px; white-space: nowrap; }
+.conversationSummary small { overflow: hidden; color: var(--muted); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.conversationSummary time { color: #a9959f; font-size: 7px; }
+.workflowBadge { grid-column: 3; border-radius: 999px; padding: 4px 6px; background: #f3eef1; color: var(--muted); font-size: 7px; font-weight: 850; text-transform: capitalize; }
+.workflowBadge.sexting, .workflowBadge.sexting-checkout { background: #fff0f7; color: var(--deep-pink); }
+.workflowBadge.custom, .workflowBadge.booking { background: #fff8de; color: #83620b; }
+.unreadBadge { grid-column: 3; justify-self: end; min-width: 18px; height: 18px; display: grid; place-items: center; border-radius: 999px; background: var(--pink); color: white; font-size: 8px; }
+.conversationDetail { min-width: 0; display: flex; flex-direction: column; }
+.conversationDetail > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border-bottom: 1px solid #eddde5; }
+.conversationDetail > header div { display: grid; gap: 3px; }
+.conversationDetail > header strong { font-size: 11px; }
+.conversationDetail > header small { color: var(--muted); font-size: 8px; }
+.resetConversation { border: 1px solid #e1a6b7; border-radius: 9px; padding: 7px 9px; background: #fff7f8; color: #a02c4d; font-size: 8px; font-weight: 850; }
+.conversationTranscript { flex: 1; max-height: 560px; overflow: auto; display: flex; flex-direction: column; gap: 9px; padding: 14px; background: #fcfafb; }
+.conversationTranscript article { max-width: 82%; padding: 9px 11px; border-radius: 12px; }
+.conversationTranscript article.user { align-self: flex-start; background: white; border: 1px solid #eadfe4; }
+.conversationTranscript article.assistant { align-self: flex-end; background: #ffe8f3; }
+.conversationTranscript article span, .conversationTranscript article time { display: block; color: var(--muted); font-size: 7px; }
+.conversationTranscript article p { margin: 4px 0; font-size: 9px; line-height: 1.45; white-space: pre-wrap; }
+.conversationPlaceholder { margin: auto; padding: 24px; color: var(--muted); font-size: 10px; line-height: 1.5; text-align: center; }
+.conversationNotice { margin: 0; padding: 9px 12px; border-top: 1px solid #eddde5; background: #f5fff8; color: #28744a; font-size: 8px; }
 .liveBadge { background: #f1fff6; padding: 7px 10px; }
 .earningsOverview { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
 .earningsOverview > button { padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: #fff8fb; text-align: left; }
@@ -445,8 +479,11 @@ button { cursor: pointer; }
   .workspace { display: block; min-height: auto; border-radius: 22px; }
   .sidePanel { display: none; }
   .creatorPanel { position: static; width: 100%; max-height: none; padding: 18px; }
-  .controlRoomNav { top: 8px; grid-template-columns: repeat(4, max-content); overflow-x: auto; justify-content: start; }
+  .controlRoomNav { top: 8px; grid-template-columns: repeat(5, max-content); overflow-x: auto; justify-content: start; }
   .controlRoomNav button { min-width: 78px; }
+  .conversationWorkspace { grid-template-columns: 1fr; }
+  .conversationList { max-height: 320px; border-right: 0; border-bottom: 1px solid #eddde5; }
+  .conversationDetail { min-height: 380px; }
   .footerNote { display: none; }
 }
 
