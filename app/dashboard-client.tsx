@@ -1749,6 +1749,7 @@ export default function Home() {
 
           <section className="mediaLibrary dashboardSection dashboardContent">
             <div className="sectionHeading"><strong>Sexting media library</strong><span>{sextingMedia.length}</span></div>
+            <p className="queueNote">Returning fans receive media they have not seen first. Keep adding new photos and clips regularly so repeat sessions stay fresh.</p>
             <form onSubmit={uploadSextingMedia}>
               <label><span>Optional label</span><input onChange={(event) => setMediaLabel(event.target.value)} placeholder="Lingerie tease" value={mediaLabel} /></label>
               <label><span>Upload approved photos or videos</span><input key={mediaUploadKey} accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,video/mp4,video/quicktime,video/webm" multiple onChange={(event) => setMediaFiles(Array.from(event.target.files || []))} type="file" /></label>

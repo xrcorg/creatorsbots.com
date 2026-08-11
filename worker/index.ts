@@ -825,10 +825,19 @@ async function maybeSendSextingMedia(env: Env, message: TelegramMessage, session
   const replyCount = Number(replies?.count || 0);
   if (replyCount < 2 || replyCount % 2 !== 0) return false;
 
-  const media = await env.DB.prepare(`SELECT id, label, media_type, file_name, mime_type, r2_key
-    FROM sexting_media WHERE active = 1 AND id NOT IN
+  const media = await env.DB.prepare(`SELECT sexting_media.id, sexting_media.label,
+    sexting_media.media_type, sexting_media.file_name, sexting_media.mime_type,
+    sexting_media.r2_key, MAX(previous_sends.created_at) AS last_sent_at
+    FROM sexting_media
+    LEFT JOIN sexting_media_sends AS previous_sends
+      ON previous_sends.media_id = sexting_media.id AND previous_sends.chat_id = ?
+    WHERE sexting_media.active = 1 AND sexting_media.id NOT IN
       (SELECT media_id FROM sexting_media_sends WHERE session_id = ?)
-    ORDER BY RANDOM() LIMIT 1`).bind(session.id).first<SextingMediaFile>();
+    GROUP BY sexting_media.id, sexting_media.label, sexting_media.media_type,
+      sexting_media.file_name, sexting_media.mime_type, sexting_media.r2_key
+    ORDER BY CASE WHEN MAX(previous_sends.created_at) IS NULL THEN 0 ELSE 1 END,
+      MAX(previous_sends.created_at) ASC, RANDOM() LIMIT 1`)
+    .bind(String(message.chat.id), session.id).first<SextingMediaFile>();
   if (!media) return false;
 
   const object = await env.MEDIA.get(media.r2_key);
