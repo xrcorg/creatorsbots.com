@@ -1228,6 +1228,19 @@ export default function Home() {
         </div>
         <div className="topActions">
           {portalUser && <span className="accountBadge">{portalUser.role === "owner" ? "Owner" : "Creator"} · {portalUser.email}</span>}
+          {portalUser?.role === "owner" && (
+            <button
+              className="adminInboxButton"
+              onClick={() => {
+                setDashboardView("inbox");
+                window.setTimeout(() => document.getElementById("creator-control-room")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+              }}
+              type="button"
+            >
+              Inbox
+              {conversations.length > 0 && <span>{conversations.length}</span>}
+            </button>
+          )}
           <span className={`statusPill ${livePending.length || livePurchases.length || liveBookings.length || liveCustoms.length || sextingSessions.length ? "needsReply" : ""}`}>
             <i /> {statusText}
           </span>
