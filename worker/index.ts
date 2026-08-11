@@ -1821,7 +1821,7 @@ async function createAIReply(env: Env, chatId: string, incoming: string) {
         .map((item) => `Fan question: ${item.question}\nApproved answer: ${item.answer}`)
         .join("\n\n")}`,
       input,
-      max_output_tokens: 220,
+      max_output_tokens: 800,
     }),
   });
 
@@ -1830,13 +1830,23 @@ async function createAIReply(env: Env, chatId: string, incoming: string) {
   }
 
   const result = await response.json() as {
+    status?: string;
+    incomplete_details?: { reason?: string } | null;
     output_text?: string;
     output?: Array<{ content?: Array<{ type?: string; text?: string }> }>;
   };
-  const reply = result.output_text?.trim() || result.output
+  const combinedOutput = result.output
     ?.flatMap((item) => item.content || [])
-    .find((item) => item.type === "output_text")
-    ?.text?.trim();
+    .filter((item) => item.type === "output_text" && item.text)
+    .map((item) => item.text || "")
+    .join("")
+    .trim();
+  const reply = result.output_text?.trim() || combinedOutput;
+
+  if (result.status === "incomplete") {
+    console.error("OpenAI response was incomplete", result.incomplete_details?.reason || "unknown reason");
+    return CREATOR_TAKEOVER;
+  }
 
   return reply || CREATOR_TAKEOVER;
 }
