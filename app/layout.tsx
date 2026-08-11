@@ -14,7 +14,7 @@ export async function generateMetadata(): Promise<Metadata> {
     icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
     openGraph: {
       title: "Tiffani Madison · Private Telegram Chat Pilot",
-      description: "Test the age gate, fan chat, shop, booking, and creator takeover experience.",
+      description: "Manage fan chats, content, bookings, sales, and creator takeover in one place.",
       images: [{ url: image, width: 1200, height: 630, alt: "Tiffani Madison private Telegram chat pilot" }],
     },
     twitter: {

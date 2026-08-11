@@ -1564,7 +1564,7 @@ export default function Home() {
               <div className="conversationDetail">
                 {selectedConversation ? <>
                   <header>
-                    <div><strong>{selectedConversation.telegram_name}</strong><small>{selectedConversation.age_status === "verified" ? "18+ confirmed" : selectedConversation.age_status} · {selectedConversation.message_count} saved messages · {selectedConversation.control_mode === "human" ? "Creator replying" : "Bot active"}</small></div>
+                    <div><strong>{selectedConversation.telegram_name}</strong><small>{selectedConversation.message_count} saved messages · {selectedConversation.control_mode === "human" ? "Creator replying" : "Bot active"}</small></div>
                     <div className="conversationHeaderActions">
                       <label className="botReplySwitch">
                         <span>Bot replies</span>
@@ -1980,7 +1980,6 @@ export default function Home() {
             <div className="rateSetting"><span>Sexting minimum minutes</span><label><input aria-label="Minimum sexting session length" inputMode="numeric" min="1" max="9" onChange={(event) => changeSetting("sexting_min_minutes", event.target.value)} type="number" value={settings.sexting_min_minutes} /></label></div>
             <div className="rateSetting"><span>{settings.sexting_min_minutes || "5"} minute Stars price</span><label>⭐<input aria-label="Minimum sexting package price in Stars" inputMode="numeric" min="1" onChange={(event) => changeSetting("sexting_5_stars", event.target.value)} type="number" value={settings.sexting_5_stars} /></label></div>
             <div className="rateSetting"><span>10 minute Stars price</span><label>⭐<input aria-label="10 minute sexting price in Stars" inputMode="numeric" min="1" onChange={(event) => changeSetting("sexting_10_stars", event.target.value)} type="number" value={settings.sexting_10_stars} /></label></div>
-            <div><span>Age gate</span><strong>Required</strong></div>
             <button className="primaryAction" disabled={liveLoading || !settingsDirty} onClick={() => void saveCreatorSettings()} type="button">{liveLoading ? "Saving..." : "Save changes"}</button>
             {settingsSaveStatus && <small className={settingsDirty ? "settingsUnsaved" : "settingsSaved"}>{settingsSaveStatus}</small>}
           </div>
