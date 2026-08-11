@@ -767,6 +767,29 @@ export default function Home() {
     }
   }
 
+  async function clearAllTestChats() {
+    if (!window.confirm("Clear every Tiffani fan chat and start testing from the age check again? This removes chat history, fan names, voice memos, and unfinished chat flows. Catalog content, uploads, completed orders, earnings, and creator settings stay saved.")) return;
+    try {
+      setLiveLoading(true);
+      setConversationStatus("Clearing test chats...");
+      const response = await fetch("/api/admin/conversations/clear-all", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ confirmation: "CLEAR ALL TEST CHATS" }),
+      });
+      if (!response.ok) throw new Error("Test chat cleanup failed");
+      setConversations([]);
+      setSelectedConversationId("");
+      setConversationMessages([]);
+      setConversationStatus("All test chats were cleared. The next message starts at the age check.");
+      await loadLivePending();
+    } catch {
+      setConversationStatus("The test chats could not be cleared. Please try again.");
+    } finally {
+      setLiveLoading(false);
+    }
+  }
+
   async function resolvePurchase(action: "approve" | "decline" | "close_unpaid") {
     const current = livePurchases[0];
     if (!current) return;
@@ -1563,7 +1586,10 @@ export default function Home() {
           <section className="conversationInbox dashboardSection dashboardInbox">
             <div className="sectionHeading">
               <div><strong>Current chats</strong><small>{conversations.length} conversations</small></div>
-              <span>{conversations.reduce((total, conversation) => total + Number(conversation.pending_count || 0), 0)} need attention</span>
+              <div className="conversationInboxActions">
+                <span>{conversations.reduce((total, conversation) => total + Number(conversation.pending_count || 0), 0)} need attention</span>
+                {portalUser?.role === "owner" && <button className="clearAllConversations" disabled={liveLoading || conversations.length === 0} onClick={() => void clearAllTestChats()} type="button">Clear all test chats</button>}
+              </div>
             </div>
             <label className="conversationSearch">
               <span>Search chats</span>

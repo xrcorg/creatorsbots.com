@@ -1460,10 +1460,23 @@ async function sendSavedReply(env: Env, message: TelegramMessage, chatId: string
 }
 
 async function queueCreatorReply(db: D1Database, message: TelegramMessage, source = "creator") {
-  await db.prepare(`INSERT INTO pending_replies
-    (chat_id, business_connection_id, question, source) VALUES (?, ?, ?, ?)`)
-    .bind(String(message.chat.id), message.business_connection_id || null, message.text || "", source)
-    .run();
+  const chatId = String(message.chat.id);
+  const statements = [
+    db.prepare(`INSERT INTO pending_replies
+      (chat_id, business_connection_id, question, source) VALUES (?, ?, ?, ?)`)
+      .bind(chatId, message.business_connection_id || null, message.text || "", source),
+  ];
+  // Sleep messages are replayed automatically in the morning. Every other
+  // creator handoff must stop the bot until a human explicitly resumes it.
+  if (source !== "sleep") {
+    statements.push(db.prepare(`INSERT INTO conversation_controls
+      (chat_id, control_mode, taken_over_by, updated_at)
+      VALUES (?, 'human', ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(chat_id) DO UPDATE SET control_mode = 'human',
+      taken_over_by = excluded.taken_over_by, updated_at = CURRENT_TIMESTAMP`)
+      .bind(chatId, source));
+  }
+  await db.batch(statements);
 }
 
 async function processWakeReplies(env: Env) {
@@ -1544,6 +1557,36 @@ async function resetConversationState(db: D1Database, chatId: string) {
   ]);
 }
 
+async function clearAllTestConversations(db: D1Database) {
+  const existing = await db.prepare("SELECT COUNT(*) AS count FROM fan_sessions")
+    .first<{ count: number }>();
+  await db.batch([
+    db.prepare(`UPDATE sexting_drafts SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+      WHERE status IN ('awaiting_package', 'invoice_sent')`),
+    db.prepare(`UPDATE sexting_sessions SET status = 'completed', completed_at = COALESCE(completed_at, CURRENT_TIMESTAMP)
+      WHERE status = 'active'`),
+    db.prepare(`UPDATE booking_drafts SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+      WHERE status = 'awaiting_details'`),
+    db.prepare(`UPDATE custom_drafts SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+      WHERE status = 'awaiting_details'`),
+    db.prepare(`UPDATE physical_orders SET status = 'cancelled'
+      WHERE status IN ('awaiting_name', 'awaiting_address')`),
+    db.prepare(`UPDATE rating_orders SET status = 'cancelled'
+      WHERE status = 'awaiting_photo'`),
+    db.prepare("DELETE FROM inbound_message_buffer"),
+    db.prepare("DELETE FROM product_interest"),
+    db.prepare("DELETE FROM pending_replies"),
+    db.prepare("DELETE FROM chat_messages"),
+    db.prepare("DELETE FROM voice_notes"),
+    db.prepare("DELETE FROM conversation_controls"),
+    db.prepare("DELETE FROM fan_profiles"),
+    db.prepare("DELETE FROM telegram_contacts"),
+    db.prepare("DELETE FROM adult_verifications"),
+    db.prepare("DELETE FROM fan_sessions"),
+  ]);
+  return Number(existing?.count || 0);
+}
+
 async function handleAdminConversations(request: Request, env: Env, url: URL) {
   const portalUser = await getPortalUser(request, env);
   if (!portalUser) return json({ error: "Sign in required" }, 401);
@@ -1621,6 +1664,16 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
     if (!exists) return json({ error: "Conversation not found" }, 404);
     await resetConversationState(env.DB, chatId);
     return json({ ok: true });
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/admin/conversations/clear-all") {
+    if (portalUser.role !== "owner") return json({ error: "Owner access required" }, 403);
+    const body = await request.json<{ confirmation?: string }>();
+    if (body.confirmation !== "CLEAR ALL TEST CHATS") {
+      return json({ error: "Confirmation did not match" }, 400);
+    }
+    const cleared = await clearAllTestConversations(env.DB);
+    return json({ ok: true, cleared });
   }
 
   if (request.method === "POST" && url.pathname === "/api/admin/conversations/reply") {
