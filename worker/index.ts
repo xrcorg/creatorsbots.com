@@ -1523,6 +1523,18 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   if (!collected) return json({ ok: true, combined_with_newer_message: true });
   message.text = collected.text;
 
+  // A fan can change the subject after seeing the sexting packages. Clear that
+  // temporary choice before any normal conversation handler returns, otherwise
+  // a later follow up can be mistaken for another package response.
+  if (pendingSextingDraft?.status === "awaiting_package" &&
+      !isCancelReply(message.text) &&
+      !isSextingPaymentQuestion(message.text) &&
+      !isSextingPackageFollowUp(message.text)) {
+    await env.DB.prepare(`UPDATE sexting_drafts SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+      WHERE chat_id = ?`).bind(chatId).run();
+    pendingSextingDraft.status = "cancelled";
+  }
+
   if (/^\/(terms|paysupport)\b/i.test(message.text)) {
     await sendTelegramMessage(env, message, PAYMENT_TERMS);
     return json({ ok: true });
