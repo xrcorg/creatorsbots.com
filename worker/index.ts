@@ -1,7 +1,7 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { bookingDetailsMissing, customDetailsMissing, isAffirmativeReply, isBookingDecline, isBotQuestion, isCancelReply, isCatalogContentRequest, isCustomDecline, isCustomDetailsFinished, isGenericCancelReply, isLikelyBookingDetailReply, isLikelyCityReply, isLikelyShippingAddress, isLikelyShippingName, isMessageBurst, isPhysicalOrderDecline, isPresenceCheck, isRatingDecline, isSextingDecline, isSextingPackageFollowUp, isTrailerOfferAwaitingConfirmation, parseNameIntroduction } from "./conversation-rules";
+import { bookingDetailsMissing, customDetailsMissing, isAffirmativeReply, isBookingDecline, isBotQuestion, isCancelReply, isCatalogContentRequest, isConversationReset, isCustomDecline, isCustomDetailsFinished, isGenericCancelReply, isLikelyBookingDetailReply, isLikelyCityReply, isLikelyShippingAddress, isLikelyShippingName, isMessageBurst, isPhysicalOrderDecline, isPresenceCheck, isRatingDecline, isSextingDecline, isSextingPackageFollowUp, isTrailerOfferAwaitingConfirmation, parseNameIntroduction } from "./conversation-rules";
 
 interface Env {
   ASSETS: Fetcher;
@@ -1200,6 +1200,33 @@ async function queueCreatorReply(db: D1Database, message: TelegramMessage) {
     .run();
 }
 
+async function clearSextingState(db: D1Database, chatId: string) {
+  await db.batch([
+    db.prepare(`UPDATE sexting_drafts SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+      WHERE chat_id = ? AND status IN ('awaiting_package', 'invoice_sent')`).bind(chatId),
+    db.prepare(`UPDATE sexting_sessions SET status = 'completed', completed_at = CURRENT_TIMESTAMP
+      WHERE chat_id = ? AND status = 'active'`).bind(chatId),
+    db.prepare(`DELETE FROM inbound_message_buffer WHERE chat_id = ?`).bind(chatId),
+  ]);
+}
+
+async function resetConversationState(db: D1Database, chatId: string) {
+  await db.batch([
+    db.prepare(`UPDATE sexting_drafts SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+      WHERE chat_id = ? AND status IN ('awaiting_package', 'invoice_sent')`).bind(chatId),
+    db.prepare(`UPDATE sexting_sessions SET status = 'completed', completed_at = CURRENT_TIMESTAMP
+      WHERE chat_id = ? AND status = 'active'`).bind(chatId),
+    db.prepare(`UPDATE booking_drafts SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+      WHERE chat_id = ? AND status = 'awaiting_details'`).bind(chatId),
+    db.prepare(`UPDATE custom_drafts SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+      WHERE chat_id = ? AND status = 'awaiting_details'`).bind(chatId),
+    db.prepare(`UPDATE pending_replies SET status = 'ignored', answered_at = CURRENT_TIMESTAMP
+      WHERE chat_id = ? AND status = 'pending'`).bind(chatId),
+    db.prepare(`DELETE FROM inbound_message_buffer WHERE chat_id = ?`).bind(chatId),
+    db.prepare(`DELETE FROM product_interest WHERE chat_id = ?`).bind(chatId),
+  ]);
+}
+
 function randomResponseDelayMs(activeSexting: boolean) {
   if (IMMEDIATE_TEST_RESPONSES) return 0;
   const minimumSeconds = activeSexting ? 20 : 25;
@@ -1570,6 +1597,21 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     await sendTelegramMessage(env, message, greeting);
     if (!remainder) return json({ ok: true });
     message.text = remainder;
+  }
+
+  if (isConversationReset(message.text)) {
+    await resetConversationState(env.DB, chatId);
+    await sendSavedReply(env, message, chatId, "Okay babe, we're starting fresh. What do you want to talk about?");
+    return json({ ok: true, conversation_reset: true });
+  }
+
+  if (isSextingDecline(message.text)) {
+    await clearSextingState(env.DB, chatId);
+    const replacementFlow = requestedConversationFlow(message.text);
+    if (!replacementFlow || replacementFlow === "sexting") {
+      await sendSavedReply(env, message, chatId, "No problem, babe. We can talk about something else. What's on your mind?");
+      return json({ ok: true, sexting_cancelled: true });
+    }
   }
 
   const physicalOrder = await env.DB.prepare(`SELECT id, status FROM physical_orders

@@ -65,6 +65,10 @@ export function isCatalogContentRequest(text: string) {
     /\b(?:any|some)\s+(?:[a-z0-9&/]+\s+){1,5}(?:videos?|photos?|content|sets?|bundles?)\b/i.test(text);
 }
 
+export function isConversationReset(text: string) {
+  return /^(?:\/reset|reset(?: the)? chat|reset conversation|start over|start fresh|normal chat|exit sexting|leave sexting)[?!. ]*$/i.test(text.trim());
+}
+
 export function isGenericCancelReply(text: string) {
   return /\b(cancel|cancel that|cancel this|never mind|nevermind|not now|maybe later|no thanks|no thank you|forget it|not interested|changed my mind|don't want it|dont want it|do not want it|not anymore|stop this)\b/i.test(text) ||
     /^(?:no|nope|neither)(?:\s+(?:thanks|thank you|sorry))?[.! ]*$/i.test(text.trim());

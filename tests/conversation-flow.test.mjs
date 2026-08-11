@@ -9,6 +9,7 @@ import {
   isBotQuestion,
   isCancelReply,
   isCatalogContentRequest,
+  isConversationReset,
   isConversationQuestion,
   isCustomDecline,
   isCustomDetailsFinished,
@@ -51,6 +52,13 @@ test("specific catalog searches win over stray sexting words", () => {
     assert.equal(isCatalogContentRequest(message), true, message);
   }
   assert.equal(isCatalogContentRequest("Sext"), false);
+});
+
+test("a fan can explicitly reset a stuck conversation", () => {
+  for (const message of ["/reset", "reset chat", "start over", "normal chat", "exit sexting"]) {
+    assert.equal(isConversationReset(message), true, message);
+  }
+  assert.equal(isConversationReset("reset my password"), false);
 });
 
 test("natural trailer offers preserve the next affirmative reply", () => {
