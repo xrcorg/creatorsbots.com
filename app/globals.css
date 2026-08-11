@@ -246,7 +246,9 @@ button { cursor: pointer; }
 .conversationDetail > header div { display: grid; gap: 3px; }
 .conversationDetail > header strong { font-size: 11px; }
 .conversationDetail > header small { color: var(--muted); font-size: 8px; }
+.conversationHeaderActions { display: flex !important; grid-auto-flow: column; align-items: center; gap: 7px; }
 .resetConversation { border: 1px solid #e1a6b7; border-radius: 9px; padding: 7px 9px; background: #fff7f8; color: #a02c4d; font-size: 8px; font-weight: 850; }
+.resumeConversation { border: 1px solid #9ed8b4; border-radius: 9px; padding: 7px 9px; background: #f1fff6; color: #28744a; font-size: 8px; font-weight: 850; }
 .conversationTranscript { flex: 1; max-height: 560px; overflow: auto; display: flex; flex-direction: column; gap: 9px; padding: 14px; background: #fcfafb; }
 .conversationTranscript article { max-width: 82%; padding: 9px 11px; border-radius: 12px; }
 .conversationTranscript article.user { align-self: flex-start; background: white; border: 1px solid #eadfe4; }
@@ -255,6 +257,10 @@ button { cursor: pointer; }
 .conversationTranscript article p { margin: 4px 0; font-size: 9px; line-height: 1.45; white-space: pre-wrap; }
 .conversationPlaceholder { margin: auto; padding: 24px; color: var(--muted); font-size: 10px; line-height: 1.5; text-align: center; }
 .conversationNotice { margin: 0; padding: 9px 12px; border-top: 1px solid #eddde5; background: #f5fff8; color: #28744a; font-size: 8px; }
+.conversationReplyForm { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding: 12px; border-top: 1px solid #eddde5; background: white; }
+.conversationReplyForm textarea { min-height: 64px; resize: vertical; border: 1px solid var(--line); border-radius: 10px; padding: 10px; color: var(--ink); font: inherit; font-size: 10px; }
+.conversationReplyForm .primaryAction { align-self: stretch; margin: 0; padding-inline: 18px; }
+.conversationReplyForm small { grid-column: 1 / -1; color: var(--muted); font-size: 8px; }
 .liveBadge { background: #f1fff6; padding: 7px 10px; }
 .earningsOverview { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
 .earningsOverview > button { padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: #fff8fb; text-align: left; }

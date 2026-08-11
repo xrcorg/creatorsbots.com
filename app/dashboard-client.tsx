@@ -205,6 +205,7 @@ type LiveConversation = {
   message_count: number;
   pending_count: number;
   active_workflow: "chat" | "sexting" | "custom" | "booking" | "sexting checkout";
+  control_mode: "bot" | "human";
 };
 
 type ConversationMessage = {
@@ -339,6 +340,7 @@ export default function Home() {
   const [conversationMessages, setConversationMessages] = useState<ConversationMessage[]>([]);
   const [conversationSearch, setConversationSearch] = useState("");
   const [conversationStatus, setConversationStatus] = useState("");
+  const [conversationReply, setConversationReply] = useState("");
   const [livePurchases, setLivePurchases] = useState<LivePurchase[]>([]);
   const [purchaseHistory, setPurchaseHistory] = useState<LivePurchase[]>([]);
   const [liveBookings, setLiveBookings] = useState<LiveBooking[]>([]);
@@ -588,10 +590,53 @@ export default function Home() {
       if (!response.ok) throw new Error("Conversation failed to load");
       const data = await response.json() as { messages: ConversationMessage[] };
       setConversationMessages(data.messages || []);
+      setConversationReply("");
       setConversationStatus("");
     } catch {
       setConversationMessages([]);
       setConversationStatus("This conversation could not be loaded.");
+    }
+  }
+
+  async function sendConversationReply(event: FormEvent) {
+    event.preventDefault();
+    if (!selectedConversation || !conversationReply.trim()) return;
+    try {
+      setLiveLoading(true);
+      setConversationStatus("Sending reply...");
+      const response = await fetch("/api/admin/conversations/reply", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ chat_id: selectedConversation.chat_id, text: conversationReply.trim(), action: "send" }),
+      });
+      const data = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(data.error || "Reply failed");
+      setConversationReply("");
+      await loadLivePending();
+      await openConversation(selectedConversation.chat_id);
+      setConversationStatus("Reply sent. The bot is paused for this chat.");
+    } catch (error) {
+      setConversationStatus(error instanceof Error ? error.message : "The reply could not be sent.");
+    } finally {
+      setLiveLoading(false);
+    }
+  }
+
+  async function returnConversationToBot(chatId: string) {
+    try {
+      setLiveLoading(true);
+      const response = await fetch("/api/admin/conversations/reply", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, action: "resume" }),
+      });
+      if (!response.ok) throw new Error("Resume failed");
+      setConversationStatus("The bot will answer the next message.");
+      await loadLivePending();
+    } catch {
+      setConversationStatus("The bot could not be resumed. Please try again.");
+    } finally {
+      setLiveLoading(false);
     }
   }
 
@@ -1483,8 +1528,11 @@ export default function Home() {
               <div className="conversationDetail">
                 {selectedConversation ? <>
                   <header>
-                    <div><strong>{selectedConversation.telegram_name}</strong><small>{selectedConversation.age_status === "verified" ? "18+ confirmed" : selectedConversation.age_status} · {selectedConversation.message_count} saved messages</small></div>
-                    <button className="resetConversation" disabled={liveLoading} onClick={() => void resetLiveConversation(selectedConversation.chat_id)} type="button">Reset chat</button>
+                    <div><strong>{selectedConversation.telegram_name}</strong><small>{selectedConversation.age_status === "verified" ? "18+ confirmed" : selectedConversation.age_status} · {selectedConversation.message_count} saved messages · {selectedConversation.control_mode === "human" ? "Creator replying" : "Bot active"}</small></div>
+                    <div className="conversationHeaderActions">
+                      {selectedConversation.control_mode === "human" && <button className="resumeConversation" disabled={liveLoading} onClick={() => void returnConversationToBot(selectedConversation.chat_id)} type="button">Return to bot</button>}
+                      <button className="resetConversation" disabled={liveLoading} onClick={() => void resetLiveConversation(selectedConversation.chat_id)} type="button">Reset chat</button>
+                    </div>
                   </header>
                   <div className="conversationTranscript">
                     {conversationMessages.length ? conversationMessages.map((message) => (
@@ -1496,6 +1544,11 @@ export default function Home() {
                     )) : <p className="conversationPlaceholder">{conversationStatus || "No saved messages in this conversation."}</p>}
                   </div>
                   {conversationStatus && conversationMessages.length > 0 && <p className="conversationNotice">{conversationStatus}</p>}
+                  <form className="conversationReplyForm" onSubmit={sendConversationReply}>
+                    <textarea maxLength={4000} value={conversationReply} onChange={(event) => setConversationReply(event.target.value)} placeholder={`Reply to ${selectedConversation.telegram_name}`} />
+                    <button className="primaryAction" disabled={liveLoading || !conversationReply.trim()}>Send reply</button>
+                    <small>Sending a reply pauses automatic responses for this chat until you select Return to bot.</small>
+                  </form>
                 </> : <div className="conversationPlaceholder">Choose a chat to view its recent messages and controls.</div>}
               </div>
             </div>

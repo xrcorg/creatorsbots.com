@@ -340,6 +340,12 @@ async function prepareDatabase(db: D1Database) {
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS chat_messages_chat_id_idx
       ON chat_messages(chat_id, id)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS conversation_controls (
+      chat_id TEXT PRIMARY KEY,
+      control_mode TEXT NOT NULL DEFAULT 'bot',
+      taken_over_by TEXT,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS fan_profiles (
       chat_id TEXT PRIMARY KEY,
       name TEXT,
@@ -1225,6 +1231,10 @@ async function resetConversationState(db: D1Database, chatId: string) {
     db.prepare(`DELETE FROM inbound_message_buffer WHERE chat_id = ?`).bind(chatId),
     db.prepare(`DELETE FROM product_interest WHERE chat_id = ?`).bind(chatId),
     db.prepare(`DELETE FROM chat_messages WHERE chat_id = ?`).bind(chatId),
+    db.prepare(`INSERT INTO conversation_controls (chat_id, control_mode, taken_over_by, updated_at)
+      VALUES (?, 'bot', NULL, CURRENT_TIMESTAMP)
+      ON CONFLICT(chat_id) DO UPDATE SET control_mode = 'bot', taken_over_by = NULL,
+      updated_at = CURRENT_TIMESTAMP`).bind(chatId),
   ]);
 }
 
@@ -1238,10 +1248,12 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
     const chatId = decodeURIComponent(match[1]);
     const conversation = await env.DB.prepare(`SELECT fan_sessions.chat_id,
       COALESCE(telegram_contacts.username, telegram_contacts.display_name, fan_profiles.name, 'Telegram fan') AS telegram_name,
-      fan_sessions.age_status
+      fan_sessions.age_status,
+      COALESCE(conversation_controls.control_mode, 'bot') AS control_mode
       FROM fan_sessions
       LEFT JOIN telegram_contacts ON telegram_contacts.chat_id = fan_sessions.chat_id
       LEFT JOIN fan_profiles ON fan_profiles.chat_id = fan_sessions.chat_id
+      LEFT JOIN conversation_controls ON conversation_controls.chat_id = fan_sessions.chat_id
       WHERE fan_sessions.chat_id = ?`).bind(chatId).first();
     if (!conversation) return json({ error: "Conversation not found" }, 404);
     const messages = await env.DB.prepare(`SELECT id, role, content, created_at
@@ -1258,6 +1270,51 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
     if (!exists) return json({ error: "Conversation not found" }, 404);
     await resetConversationState(env.DB, chatId);
     return json({ ok: true });
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/admin/conversations/reply") {
+    const body = await request.json<{ chat_id?: string; text?: string; action?: "send" | "resume" }>();
+    const chatId = String(body.chat_id || "").trim();
+    if (!chatId) return json({ error: "A conversation is required" }, 400);
+    const conversation = await env.DB.prepare(`SELECT fan_sessions.chat_id,
+      fan_sessions.business_connection_id FROM fan_sessions WHERE fan_sessions.chat_id = ?`)
+      .bind(chatId).first<{ chat_id: string; business_connection_id: string | null }>();
+    if (!conversation) return json({ error: "Conversation not found" }, 404);
+
+    if (body.action === "resume") {
+      await env.DB.batch([
+        env.DB.prepare(`INSERT INTO conversation_controls (chat_id, control_mode, taken_over_by, updated_at)
+          VALUES (?, 'bot', NULL, CURRENT_TIMESTAMP)
+          ON CONFLICT(chat_id) DO UPDATE SET control_mode = 'bot', taken_over_by = NULL,
+          updated_at = CURRENT_TIMESTAMP`).bind(chatId),
+        env.DB.prepare(`UPDATE sexting_sessions SET control_mode = 'bot', taken_over_at = NULL
+          WHERE chat_id = ? AND status = 'active' AND ends_at IS NOT NULL
+          AND ends_at > CURRENT_TIMESTAMP`).bind(chatId),
+      ]);
+      return json({ ok: true, control_mode: "bot" });
+    }
+
+    const reply = String(body.text || "").trim();
+    if (!reply) return json({ error: "Write a reply first" }, 400);
+    if (reply.length > 4000) return json({ error: "Telegram replies must be 4,000 characters or fewer" }, 400);
+    const telegramMessage: TelegramMessage = {
+      message_id: 0,
+      chat: { id: Number(chatId) },
+      ...(conversation.business_connection_id ? { business_connection_id: conversation.business_connection_id } : {}),
+    };
+    await sendTelegramMessage(env, telegramMessage, reply);
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO conversation_controls (chat_id, control_mode, taken_over_by, updated_at)
+        VALUES (?, 'human', ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(chat_id) DO UPDATE SET control_mode = 'human', taken_over_by = excluded.taken_over_by,
+        updated_at = CURRENT_TIMESTAMP`).bind(chatId, portalUser.email),
+      env.DB.prepare(`INSERT INTO chat_messages (chat_id, role, content) VALUES (?, 'assistant', ?)`)
+        .bind(chatId, reply),
+      env.DB.prepare(`UPDATE sexting_sessions SET control_mode = 'human', taken_over_at = CURRENT_TIMESTAMP
+        WHERE chat_id = ? AND status = 'active' AND ends_at IS NOT NULL
+        AND ends_at > CURRENT_TIMESTAMP`).bind(chatId),
+    ]);
+    return json({ ok: true, control_mode: "human" });
   }
 
   return json({ error: "Conversation request not found" }, 404);
@@ -1518,6 +1575,10 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   // owner's sender id. Bot-authored business messages carry sender_business_bot.
   // Treat a personal creator reply as an immediate handoff for an active session.
   if (isCreatorBusinessReply) {
+    await env.DB.prepare(`INSERT INTO conversation_controls (chat_id, control_mode, taken_over_by, updated_at)
+      VALUES (?, 'human', 'telegram', CURRENT_TIMESTAMP)
+      ON CONFLICT(chat_id) DO UPDATE SET control_mode = 'human', taken_over_by = 'telegram',
+      updated_at = CURRENT_TIMESTAMP`).bind(chatId).run();
     const takeover = await env.DB.prepare(`UPDATE sexting_sessions
       SET control_mode = 'human', taken_over_at = CURRENT_TIMESTAMP
       WHERE id = (SELECT id FROM sexting_sessions WHERE chat_id = ? AND status = 'active'
@@ -1527,7 +1588,8 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       await saveMessage(env.DB, chatId, "assistant", message.text);
       return json({ ok: true, creator_takeover: true });
     }
-    return json({ ok: true, creator_message: true });
+    await saveMessage(env.DB, chatId, "assistant", message.text);
+    return json({ ok: true, creator_message: true, creator_takeover: true });
   }
 
   await env.DB.prepare(`INSERT INTO fan_sessions
@@ -1577,6 +1639,13 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     await saveMessage(env.DB, chatId, "user", message.text);
     await queueCreatorReply(env.DB, message);
     return json({ ok: true });
+  }
+
+  const conversationControl = await env.DB.prepare(`SELECT control_mode FROM conversation_controls
+    WHERE chat_id = ?`).bind(chatId).first<{ control_mode: string }>();
+  if (conversationControl?.control_mode === "human") {
+    await saveMessage(env.DB, chatId, "user", message.text);
+    return json({ ok: true, creator_controlling_conversation: true });
   }
 
   if (session?.age_status !== "verified") {
@@ -2524,6 +2593,7 @@ async function handleAdminPending(request: Request, env: Env) {
   const conversations = await env.DB.prepare(`SELECT fan_sessions.chat_id,
     COALESCE(telegram_contacts.username, telegram_contacts.display_name, fan_profiles.name, 'Telegram fan') AS telegram_name,
     fan_sessions.age_status,
+    COALESCE(conversation_controls.control_mode, 'bot') AS control_mode,
     COALESCE((SELECT content FROM chat_messages WHERE chat_messages.chat_id = fan_sessions.chat_id
       ORDER BY id DESC LIMIT 1), '') AS last_message,
     COALESCE((SELECT role FROM chat_messages WHERE chat_messages.chat_id = fan_sessions.chat_id
@@ -2543,6 +2613,7 @@ async function handleAdminPending(request: Request, env: Env) {
     FROM fan_sessions
     LEFT JOIN telegram_contacts ON telegram_contacts.chat_id = fan_sessions.chat_id
     LEFT JOIN fan_profiles ON fan_profiles.chat_id = fan_sessions.chat_id
+    LEFT JOIN conversation_controls ON conversation_controls.chat_id = fan_sessions.chat_id
     ORDER BY datetime(last_message_at) DESC LIMIT 200`).all();
   const saleDisputes = await env.DB.prepare(`SELECT id, creator_key, earnings_event_id, source_type,
     source_id, description, amount_cents, stars, occurred_at, requester_email, reason, proof, status,
