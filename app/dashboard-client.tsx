@@ -446,9 +446,25 @@ export default function Home() {
 
   useEffect(() => {
     void loadLivePending();
-    const timer = window.setInterval(() => void loadLivePending(), 15000);
+    const timer = window.setInterval(() => void loadLivePending(), 10000);
     return () => window.clearInterval(timer);
   }, [loadLivePending]);
+
+  useEffect(() => {
+    if (!selectedConversationId) return;
+    const refreshTranscript = async () => {
+      try {
+        const response = await fetch(`/api/admin/conversations/${encodeURIComponent(selectedConversationId)}`, { cache: "no-store" });
+        if (!response.ok) return;
+        const data = await response.json() as { messages: ConversationMessage[] };
+        setConversationMessages(data.messages || []);
+      } catch {
+        // Keep the current transcript visible if a background refresh fails.
+      }
+    };
+    const timer = window.setInterval(() => void refreshTranscript(), 3000);
+    return () => window.clearInterval(timer);
+  }, [selectedConversationId]);
 
   const statusText = useMemo(() => {
     if (blocked) return "Conversation closed";
