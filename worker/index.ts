@@ -188,12 +188,12 @@ function customVideoPrompt(_settings: Record<string, string>) {
 
 function customDetailsCheckIn(details: string) {
   const variations = [
-    "Got it, babe. Is that everything, or do you want to add more?",
-    "I've got that. Does that cover everything, or is there more you want included?",
-    "Okay babe, I added it. Is that your full idea, or do you have more details?",
-    "Got it. Have I got everything, or do you want to keep going?",
-    "I have that part. Is that everything you want included, or is there more?",
-    "Okay, I'm following you. Is that everything, or is there more?",
+    { text: "Is that everything?", completionMode: "yes_done" },
+    { text: "Anything else you want to add?", completionMode: "no_done" },
+    { text: "Okay, you sure that's everything?", completionMode: "yes_done" },
+    { text: "Anything else?", completionMode: "no_done" },
+    { text: "Got it. Is there more?", completionMode: "no_done" },
+    { text: "Okay babe, does that cover everything?", completionMode: "yes_done" },
   ];
   const detailCount = Math.max(1, details.split(/\n+/).filter(Boolean).length);
   return variations[(detailCount - 1) % variations.length];
@@ -448,6 +448,7 @@ async function prepareDatabase(db: D1Database) {
       business_connection_id TEXT,
       status TEXT NOT NULL DEFAULT 'awaiting_details',
       details TEXT NOT NULL DEFAULT '',
+      completion_mode TEXT NOT NULL DEFAULT 'yes_done',
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS custom_fulfillments (
@@ -679,6 +680,9 @@ async function prepareDatabase(db: D1Database) {
   const customDraftColumns = await db.prepare("PRAGMA table_info(custom_drafts)").all<{ name: string }>();
   if (!customDraftColumns.results.some((column) => column.name === "details")) {
     await db.prepare("ALTER TABLE custom_drafts ADD COLUMN details TEXT NOT NULL DEFAULT ''").run();
+  }
+  if (!customDraftColumns.results.some((column) => column.name === "completion_mode")) {
+    await db.prepare("ALTER TABLE custom_drafts ADD COLUMN completion_mode TEXT NOT NULL DEFAULT 'yes_done'").run();
   }
   const contentColumns = await db.prepare("PRAGMA table_info(content_products)").all<{ name: string }>();
   if (!contentColumns.results.some((column) => column.name === "stars_price")) {
@@ -1609,8 +1613,8 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   if (!collected) return json({ ok: true, combined_with_newer_message: true });
   message.text = collected.text;
   const requestedFlow = requestedConversationFlow(message.text);
-  const customDraft = await env.DB.prepare(`SELECT status, details FROM custom_drafts
-    WHERE chat_id = ?`).bind(chatId).first<{ status: string; details: string }>();
+  const customDraft = await env.DB.prepare(`SELECT status, details, completion_mode FROM custom_drafts
+    WHERE chat_id = ?`).bind(chatId).first<{ status: string; details: string; completion_mode: string }>();
   const collectingCustomDetails = customDraft?.status === "awaiting_details";
 
   // A fan can change the subject after seeing the sexting packages. Clear that
@@ -1838,8 +1842,18 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       WHERE chat_id = ?`).bind(chatId).run();
     customDraft.status = "cancelled";
   }
-  const continueCustomDraft = /^(?:no|nope|not yet|i(?:'m| am) not done|i have more|let me add more|one more thing)[.! ]*$/i.test(message.text.trim());
-  const cancelCustomDraft = !continueCustomDraft && (isGenericCancelReply(message.text) || isCustomDecline(message.text));
+  const customParts = message.text.split(/\n+/).map((part) => part.trim()).filter(Boolean);
+  const lastCustomReply = customParts[customParts.length - 1] || "";
+  const bareCustomYes = /^(?:yes|yeah|yep|sure)[.! ]*$/i.test(lastCustomReply);
+  const bareCustomNo = /^(?:no|nope)[.! ]*$/i.test(lastCustomReply);
+  const explicitCustomFinish = isCustomDetailsFinished(lastCustomReply) && !bareCustomYes;
+  const finishFromCheckIn = customDraft?.completion_mode === "no_done" ? bareCustomNo : bareCustomYes;
+  const finishedWithBatch = explicitCustomFinish || finishFromCheckIn;
+  const continueFromCheckIn = customDraft?.completion_mode === "no_done" ? bareCustomYes : bareCustomNo;
+  const continueCustomDraft = continueFromCheckIn ||
+    /^(?:not yet|i(?:'m| am) not done|i have more|let me add more|one more thing)[.! ]*$/i.test(lastCustomReply);
+  const cancelCustomDraft = !finishedWithBatch && !continueCustomDraft &&
+    (isGenericCancelReply(message.text) || isCustomDecline(message.text));
   if (customDraft?.status === "awaiting_details") {
     if (cancelCustomDraft) {
       await env.DB.prepare(`UPDATE custom_drafts SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
@@ -1866,8 +1880,6 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       await sendSavedReply(env, message, chatId, customPriceReply);
       return json({ ok: true });
     }
-    const customParts = message.text.split(/\n+/).map((part) => part.trim()).filter(Boolean);
-    const finishedWithBatch = customParts.length > 0 && isCustomDetailsFinished(customParts[customParts.length - 1]);
     const newCustomDetails = finishedWithBatch ? customParts.slice(0, -1).join("\n") : message.text.trim();
     const combinedCustomDetails = [customDraft.details.trim(), newCustomDetails]
       .filter(Boolean).join("\n").slice(0, 100000);
@@ -1892,13 +1904,13 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       await sendTelegramMessage(env, message, received);
       return json({ ok: true });
     }
-    await env.DB.prepare(`UPDATE custom_drafts
-      SET details = ?, updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?`)
-      .bind(combinedCustomDetails, chatId).run();
     const acknowledgement = customDetailsCheckIn(combinedCustomDetails);
+    await env.DB.prepare(`UPDATE custom_drafts
+      SET details = ?, completion_mode = ?, updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?`)
+      .bind(combinedCustomDetails, acknowledgement.completionMode, chatId).run();
     await saveMessage(env.DB, chatId, "user", message.text);
-    await saveMessage(env.DB, chatId, "assistant", acknowledgement);
-    await sendTelegramMessage(env, message, acknowledgement);
+    await saveMessage(env.DB, chatId, "assistant", acknowledgement.text);
+    await sendTelegramMessage(env, message, acknowledgement.text);
     return json({ ok: true });
   }
 
@@ -1920,9 +1932,10 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     const initialCustomDetails = !initialCustomMissing.description || !initialCustomMissing.duration
       ? message.text.trim()
       : "";
-    await env.DB.prepare(`INSERT INTO custom_drafts (chat_id, business_connection_id, status, details)
-      VALUES (?, ?, 'awaiting_details', ?) ON CONFLICT(chat_id) DO UPDATE SET
-      business_connection_id = excluded.business_connection_id, status = 'awaiting_details', details = excluded.details, updated_at = CURRENT_TIMESTAMP`)
+    await env.DB.prepare(`INSERT INTO custom_drafts (chat_id, business_connection_id, status, details, completion_mode)
+      VALUES (?, ?, 'awaiting_details', ?, 'yes_done') ON CONFLICT(chat_id) DO UPDATE SET
+      business_connection_id = excluded.business_connection_id, status = 'awaiting_details', details = excluded.details,
+      completion_mode = 'yes_done', updated_at = CURRENT_TIMESTAMP`)
       .bind(chatId, message.business_connection_id || null, initialCustomDetails).run();
     await saveMessage(env.DB, chatId, "user", message.text);
     const prompt = customVideoPrompt(settings);
@@ -2228,10 +2241,10 @@ async function handleAdminPending(request: Request, env: Env) {
     }>();
   for (const item of misplacedCustoms.results.filter((entry) => isCustomVideoQuestion(entry.question))) {
     await env.DB.batch([
-      env.DB.prepare(`INSERT INTO custom_drafts (chat_id, business_connection_id, status, details)
-        VALUES (?, ?, 'awaiting_details', '') ON CONFLICT(chat_id) DO UPDATE SET
+      env.DB.prepare(`INSERT INTO custom_drafts (chat_id, business_connection_id, status, details, completion_mode)
+        VALUES (?, ?, 'awaiting_details', '', 'yes_done') ON CONFLICT(chat_id) DO UPDATE SET
         business_connection_id = excluded.business_connection_id, status = 'awaiting_details',
-        details = '', updated_at = CURRENT_TIMESTAMP`).bind(item.chat_id, item.business_connection_id),
+        details = '', completion_mode = 'yes_done', updated_at = CURRENT_TIMESTAMP`).bind(item.chat_id, item.business_connection_id),
       env.DB.prepare(`UPDATE pending_replies SET status = 'routed', answered_at = CURRENT_TIMESTAMP
         WHERE id = ? AND status = 'pending'`).bind(item.id),
     ]);
