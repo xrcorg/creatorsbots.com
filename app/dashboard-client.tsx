@@ -254,6 +254,8 @@ type CreatorSettings = {
   video_chat_rate: string;
   custom_content_rate: string;
   in_person_rate: string;
+  video_rating_rate: string;
+  video_rating_stars: string;
   preferred_topics: string;
   avoid_topics: string;
   tone_guidance: string;
@@ -399,7 +401,7 @@ export default function Home() {
   const [bookingType, setBookingType] = useState<"video_chat" | "custom_content" | "in_person">("video_chat");
   const [bookingDuration, setBookingDuration] = useState("");
   const [bookingAmount, setBookingAmount] = useState("");
-  const [settings, setSettings] = useState<CreatorSettings>({ flirty_level: "very", human_takeover: "on", learning: "approval", custom_approval: "required", video_chat_rate: "50", custom_content_rate: "50", in_person_rate: "1500", preferred_topics: "", avoid_topics: "", tone_guidance: "Short, blunt, warm, confident, flirty, and natural", creator_feedback: "", sexting_enabled: "on", sexting_intensity: "soft", sexting_rate: "10", sexting_min_minutes: "5", sexting_5_stars: "500", sexting_10_stars: "1000", sleep_hours_enabled: "on", sleep_start: "02:00", sleep_end: "08:00" });
+  const [settings, setSettings] = useState<CreatorSettings>({ flirty_level: "very", human_takeover: "on", learning: "approval", custom_approval: "required", video_chat_rate: "50", custom_content_rate: "50", in_person_rate: "1500", video_rating_rate: "75", video_rating_stars: "5000", preferred_topics: "", avoid_topics: "", tone_guidance: "Short, blunt, warm, confident, flirty, and natural", creator_feedback: "", sexting_enabled: "on", sexting_intensity: "soft", sexting_rate: "10", sexting_min_minutes: "5", sexting_5_stars: "500", sexting_10_stars: "1000", sleep_hours_enabled: "on", sleep_start: "02:00", sleep_end: "08:00" });
   const [settingsDirty, setSettingsDirty] = useState(false);
   const [settingsSaveStatus, setSettingsSaveStatus] = useState("");
   const [liveLoading, setLiveLoading] = useState(false);
@@ -644,10 +646,9 @@ export default function Home() {
   function fillQuickReply(template: string) {
     const products = contentProducts.filter((product) => product.active && !["physical_item", "video_rating"].includes(product.content_type));
     const product = products.find((item) => item.id === quickReplyProductId) || products[0];
-    const ratingProduct = contentProducts.find((item) => item.active && item.content_type === "video_rating");
     const productPrice = product ? money(product.price_cents) : "";
-    const ratingPrice = ratingProduct ? money(ratingProduct.price_cents) : "$75.00";
-    const ratingStars = ratingProduct?.stars_price ? `${ratingProduct.stars_price.toLocaleString()} Stars` : "the equivalent amount in Stars";
+    const ratingPrice = `$${Number(settings.video_rating_rate || 75).toFixed(2)}`;
+    const ratingStars = `${Number(settings.video_rating_stars || 5000).toLocaleString()} Stars`;
     const catalog = products.slice(0, 8).map((item) => `${item.title} · ${money(item.price_cents)}`).join("\n");
     const replies: Record<string, string> = {
       saw_message: "Hey babe, I saw your message. What did you want to know?",
@@ -1938,6 +1939,8 @@ export default function Home() {
             <div><span>Sexting intensity</span><section>{(["soft", "hard", "hot"] as const).map((value) => <button className={settings.sexting_intensity === value ? "selected" : ""} key={value} onClick={() => changeSetting("sexting_intensity", value)}>{value}</button>)}</section></div>
             <div className="rateSetting"><span>Video chat per minute</span><label>$<input aria-label="Video chat rate per minute" inputMode="decimal" min="1" onChange={(event) => changeSetting("video_chat_rate", event.target.value)} type="number" value={settings.video_chat_rate} /></label></div>
             <div className="rateSetting"><span>In person meet per hour</span><label>$<input aria-label="In person meet rate per hour" inputMode="decimal" min="1" onChange={(event) => changeSetting("in_person_rate", event.target.value)} type="number" value={settings.in_person_rate} /></label></div>
+            <div className="rateSetting"><span>Dick rating price</span><label>$<input aria-label="Dick rating price" inputMode="decimal" min="1" onChange={(event) => changeSetting("video_rating_rate", event.target.value)} step="0.01" type="number" value={settings.video_rating_rate} /></label></div>
+            <div className="rateSetting"><span>Dick rating Stars price</span><label>⭐<input aria-label="Dick rating price in Telegram Stars" inputMode="numeric" min="1" onChange={(event) => changeSetting("video_rating_stars", event.target.value)} step="1" type="number" value={settings.video_rating_stars} /></label></div>
             <div className="rateSetting"><span>Sexting per minute</span><label>$<input aria-label="Sexting rate per minute" inputMode="decimal" min="1" onChange={(event) => changeSetting("sexting_rate", event.target.value)} type="number" value={settings.sexting_rate} /></label></div>
             <div className="rateSetting"><span>Sexting minimum minutes</span><label><input aria-label="Minimum sexting session length" inputMode="numeric" min="1" max="9" onChange={(event) => changeSetting("sexting_min_minutes", event.target.value)} type="number" value={settings.sexting_min_minutes} /></label></div>
             <div className="rateSetting"><span>{settings.sexting_min_minutes || "5"} minute Stars price</span><label>⭐<input aria-label="Minimum sexting package price in Stars" inputMode="numeric" min="1" onChange={(event) => changeSetting("sexting_5_stars", event.target.value)} type="number" value={settings.sexting_5_stars} /></label></div>

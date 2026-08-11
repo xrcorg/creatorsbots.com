@@ -668,6 +668,8 @@ async function prepareDatabase(db: D1Database) {
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('video_chat_rate', '50')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('custom_content_rate', '50')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('in_person_rate', '1500')"),
+    db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('video_rating_rate', '75')"),
+    db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('video_rating_stars', '5000')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('preferred_topics', '')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('avoid_topics', '')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('tone_guidance', 'Short, blunt, warm, confident, flirty, and natural')"),
@@ -3086,6 +3088,16 @@ async function handleAdminProducts(request: Request, env: Env, url: URL) {
         .bind(contentType, title.slice(0, 180), priceCents, starsPrice,
           String(body.genre || "").trim().slice(0, 180),
           String(body.actors || "").trim().slice(0, 300), trailerUrl, deliveryUrl).run();
+      if (contentType === "video_rating") {
+        await env.DB.batch([
+          env.DB.prepare(`INSERT INTO app_settings (key, value, updated_at) VALUES ('video_rating_rate', ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`)
+            .bind(String(priceCents / 100)),
+          env.DB.prepare(`INSERT INTO app_settings (key, value, updated_at) VALUES ('video_rating_stars', ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`)
+            .bind(String(starsPrice)),
+        ]);
+      }
       return json({ ok: true, id: result.meta.last_row_id });
     } catch {
       return json({ error: "A product with that title already exists" }, 409);
@@ -3126,6 +3138,16 @@ async function handleAdminProducts(request: Request, env: Env, url: URL) {
           WHERE product_title = ? AND status = 'pending'`)
           .bind(title.slice(0, 180), `$${(priceCents / 100).toFixed(2)}`, existing.title),
       ]);
+      if (contentType === "video_rating") {
+        await env.DB.batch([
+          env.DB.prepare(`INSERT INTO app_settings (key, value, updated_at) VALUES ('video_rating_rate', ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`)
+            .bind(String(priceCents / 100)),
+          env.DB.prepare(`INSERT INTO app_settings (key, value, updated_at) VALUES ('video_rating_stars', ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`)
+            .bind(String(starsPrice)),
+        ]);
+      }
     } catch {
       return json({ error: "A product with that title already exists" }, 409);
     }
@@ -3796,8 +3818,8 @@ async function handleAdminSettings(request: Request, env: Env) {
     sexting_intensity: ["soft", "hard", "hot"],
     sleep_hours_enabled: ["on", "off"],
   };
-  const rateKeys = ["video_chat_rate", "custom_content_rate", "in_person_rate", "sexting_rate"];
-  const starKeys = ["sexting_5_stars", "sexting_10_stars"];
+  const rateKeys = ["video_chat_rate", "custom_content_rate", "in_person_rate", "video_rating_rate", "sexting_rate"];
+  const starKeys = ["video_rating_stars", "sexting_5_stars", "sexting_10_stars"];
   const minuteKeys = ["sexting_min_minutes"];
   const textKeys = ["preferred_topics", "avoid_topics", "tone_guidance", "creator_feedback"];
   const timeKeys = ["sleep_start", "sleep_end"];
@@ -3816,6 +3838,16 @@ async function handleAdminSettings(request: Request, env: Env) {
   await env.DB.prepare(`INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`)
     .bind(body.key, body.value).run();
+  if (body.key === "video_rating_rate") {
+    await env.DB.prepare(`UPDATE content_products SET price_cents = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE content_type = 'video_rating' AND active = 1`)
+      .bind(Math.round(Number(body.value) * 100)).run();
+  }
+  if (body.key === "video_rating_stars") {
+    await env.DB.prepare(`UPDATE content_products SET stars_price = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE content_type = 'video_rating' AND active = 1`)
+      .bind(Math.round(Number(body.value))).run();
+  }
   return json({ ok: true, settings: await getSettings(env.DB) });
 }
 
