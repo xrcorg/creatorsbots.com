@@ -146,7 +146,7 @@ function productOffer(product: ContentProduct) {
     return `I can give you a private video rating for ${videoRatingStars(product).toLocaleString()} Telegram Stars, babe. It's listed at ${productPrice(product)}. After payment, send me your photo and I'll respond with a short video clip. Do you want one?`;
   }
   const trailer = product.trailer_url ? `\n\nDo you want to buy it? Here's a trailer I have as well:\n${product.trailer_url}` : "\n\nDo you want to buy it?";
-  return `My newest ${product.content_type.replaceAll("_", " ")} is ${product.title}${product.actors ? `, starring ${product.actors}` : ""}.${product.genre ? ` It's ${product.genre}.` : ""} It's ${productPrice(product)}.${trailer}`;
+  return `I have ${product.title}${product.actors ? `, starring ${product.actors}` : ""}.${product.genre ? ` Tags: ${product.genre}.` : ""} It's ${productPrice(product)}.${trailer}`;
 }
 
 function productPaymentOptions(product: ContentProduct) {
@@ -253,7 +253,7 @@ Her favorite date is dinner. She appreciates supportive fans and dislikes time w
 Answer known profile questions directly and naturally. Never ask Tiffani to answer when the profile already contains the answer.
 When asked what you can do, explain that fans can book private video chats with me on Telegram and professional fan meet and greets, buy photo and video content, request custom content, or have a private sexting session with me.
 You may help collect a booking or purchase request, but Tiffani must approve the final availability, payment, and delivery.
-The current video for sale is Blonde Bombshell After Dark, starring Tiffani Madison and Mauvius Garcon. The genre is BBC and the price is $24.99.
+The current video for sale is Blonde Bombshell After Dark, starring Tiffani Madison and Mauvius Garcon. Its tags include BBC and the price is $24.99.
 Never reveal the private full video link. The application releases it only after Tiffani approves a payment.
 Never say submit a purchase request. Ask if the fan wants to buy it, show the trailer, and provide payment options after they express interest.
 For video chats and professional fan meet and greets, ask for the preferred date, time, service type, and city for an in person meeting. Always explain that video chats happen directly through Telegram. Never promise availability before Tiffani checks her calendar.
@@ -2623,12 +2623,13 @@ async function handleTelegramWebhook(request: Request, env: Env) {
 
   const activeProducts = await getActiveProducts(env.DB);
   const normalizedMessage = message.text.toLowerCase();
-  const mentionedProduct = activeProducts.find((product) => {
+  const matchingProducts = activeProducts.filter((product) => {
     const searchableTerms = [product.title, product.genre, product.actors,
-      ...product.genre.split(/[,/&]+/), ...product.actors.split(/[,/&]+/)]
+      ...product.genre.split(/[,/&;|]+/), ...product.actors.split(/[,/&;|]+/)]
       .map((term) => term.trim().toLowerCase()).filter((term) => term.length >= 3);
     return searchableTerms.some((term) => normalizedMessage.includes(term));
   });
+  const mentionedProduct = matchingProducts[0];
   if (isProductQuestion(message.text) || mentionedProduct) {
     const requestedType = isVideoRatingQuestion(message.text) ? "video_rating"
       : isPhysicalItemQuestion(message.text) ? "physical_item" : null;
@@ -2644,6 +2645,16 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       await saveMessage(env.DB, chatId, "assistant", unavailable);
       await sendTelegramMessage(env, message, unavailable);
       return json({ ok: true });
+    }
+    if (matchingProducts.length > 1 && !requestedType) {
+      const matchingCatalog = matchingProducts.slice(0, 10)
+        .map((item) => `${item.title} · ${productPrice(item)}${item.genre ? ` · ${item.genre}` : ""}`)
+        .join("\n");
+      const reply = `I have these that match what you're looking for, babe:\n\n${matchingCatalog}\n\nWhich one do you want to see?`;
+      await saveMessage(env.DB, chatId, "user", message.text);
+      await saveMessage(env.DB, chatId, "assistant", reply);
+      await sendTelegramMessage(env, message, reply);
+      return json({ ok: true, tag_matches: matchingProducts.length });
     }
     await rememberProductInterest(env.DB, chatId, connectionId, product.id);
     const offer = productOffer(product);

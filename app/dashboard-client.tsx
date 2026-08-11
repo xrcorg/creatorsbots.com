@@ -690,7 +690,7 @@ export default function Home() {
       anything_else: "Got it! Lmk if there's anything else you want!",
       catalog: catalog ? `Here's what I have available right now:\n\n${catalog}\n\nTell me which one you want and I'll send you the details.` : "I'm adding new content soon, babe. What kind of content do you want to see?",
       trailer: product?.trailer_url ? `Here's the trailer for ${product.title}, babe:\n${product.trailer_url}\n\nThe full video is ${productPrice}. Do you want to buy it?` : product ? `I have ${product.title}, babe. I don't have a trailer link ready here, but the full video is ${productPrice}. Do you want the details?` : "Which video did you want the trailer for, babe?",
-      product_details: product ? `I have ${product.title}${product.actors ? ` starring ${product.actors}` : ""}.${product.genre ? ` It's ${product.genre}.` : ""} It's ${productPrice}. Do you want to buy it?` : "Which video did you want more details about, babe?",
+      product_details: product ? `I have ${product.title}${product.actors ? ` starring ${product.actors}` : ""}.${product.genre ? ` Tags: ${product.genre}.` : ""} It's ${productPrice}. Do you want to buy it?` : "Which video did you want more details about, babe?",
       product_payment: product ? `Please send ${productPrice} and put your Telegram username in the notes. Send me a screenshot after you send it and I'll verify it before I send you ${product.title}.` : "Tell me which video you want and I'll send you the payment details.",
       custom_start: "Yeah babe, I make customs. Tell me what you want and how long you want it to be.",
       custom_more: "Anything else you want me to add?",
@@ -1729,7 +1729,7 @@ export default function Home() {
               </article>
               <article className={contentProducts.length > 0 ? "complete" : ""}>
                 <span>{contentProducts.length > 0 ? "✓" : contentProducts.length}</span>
-                <div><strong>Sale catalog</strong><p>Add every photo set, video, or bundle being offered, including its title, price, genre, actors, preview link, and private Dropbox delivery link.</p><small>{contentProducts.length} product{contentProducts.length === 1 ? "" : "s"} added</small></div>
+                <div><strong>Sale catalog</strong><p>Add every photo set, video, or bundle being offered, including its title, price, searchable tags, actors, preview link, and private Dropbox delivery link.</p><small>{contentProducts.length} product{contentProducts.length === 1 ? "" : "s"} added</small></div>
               </article>
             </div>
             <p className="onboardingConsent">Only upload media the creator owns or is authorized to use. Every depicted participant must be an adult and have consented to the content and its distribution.</p>
@@ -1790,7 +1790,7 @@ export default function Home() {
               <label><span>Title</span><input required value={productForm.title} onChange={(event) => setProductForm((current) => ({ ...current, title: event.target.value }))} placeholder="Content title" /></label>
               <label><span>Price</span><input inputMode="decimal" min="1" required type="number" step="0.01" value={productForm.price} onChange={(event) => setProductForm((current) => ({ ...current, price: event.target.value }))} placeholder="24.99" /></label>
               {productForm.content_type === "video_rating" && <label><span>Telegram Stars price</span><input inputMode="numeric" min="1" required type="number" step="1" value={productForm.stars_price} onChange={(event) => setProductForm((current) => ({ ...current, stars_price: event.target.value }))} placeholder="5000" /><small>Set this separately from the listed dollar value because Telegram’s Star exchange rate can vary.</small></label>}
-              <label><span>Genre</span><input value={productForm.genre} onChange={(event) => setProductForm((current) => ({ ...current, genre: event.target.value }))} placeholder="Genre" /></label>
+              <label><span>Tags</span><input value={productForm.genre} onChange={(event) => setProductForm((current) => ({ ...current, genre: event.target.value }))} placeholder="solo, BBC, interracial" /><small>Separate tags with commas so fans can find content by type.</small></label>
               <label><span>Actors</span><input value={productForm.actors} onChange={(event) => setProductForm((current) => ({ ...current, actors: event.target.value }))} placeholder="Names separated by commas" /></label>
               <label><span>Trailer or preview link</span><input type="url" value={productForm.trailer_url} onChange={(event) => setProductForm((current) => ({ ...current, trailer_url: event.target.value }))} placeholder="https://..." /></label>
               <label><span>{["physical_item", "video_rating"].includes(productForm.content_type) ? "Delivery link not needed" : "Dropbox delivery link (optional when uploading files)"}</span><input disabled={["physical_item", "video_rating"].includes(productForm.content_type)} type="url" value={productForm.delivery_url} onChange={(event) => setProductForm((current) => ({ ...current, delivery_url: event.target.value }))} placeholder="https://..." /></label>
@@ -1801,7 +1801,7 @@ export default function Home() {
             <div className="catalogList">
               {contentProducts.map((product) => (
                 <article className={product.active ? "" : "inactive"} key={product.id}>
-                  <div><strong>{product.title}</strong><small>{product.content_type.replaceAll("_", " ")} · {money(product.price_cents)}{product.content_type === "video_rating" ? ` · ⭐ ${product.stars_price.toLocaleString()}` : ""}{product.media_count ? ` · ${product.media_count} uploaded file${product.media_count === 1 ? "" : "s"}` : ""}</small></div>
+                  <div><strong>{product.title}</strong><small>{product.content_type.replaceAll("_", " ")} · {money(product.price_cents)}{product.content_type === "video_rating" ? ` · ⭐ ${product.stars_price.toLocaleString()}` : ""}{product.genre ? ` · Tags: ${product.genre}` : ""}{product.media_count ? ` · ${product.media_count} uploaded file${product.media_count === 1 ? "" : "s"}` : ""}</small></div>
                   <span>{product.active ? "Active" : "Hidden"}</span>
                   <button type="button" onClick={() => editContentProduct(product)}>Edit</button>
                   <button type="button" onClick={() => void updateContentProduct(product.id, "toggle", Boolean(product.active))}>{product.active ? "Hide" : "Activate"}</button>
