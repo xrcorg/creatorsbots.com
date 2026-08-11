@@ -121,6 +121,15 @@ type ProductMedia = {
   r2_key: string;
 };
 
+type SextingMediaFile = {
+  id: number;
+  label: string;
+  media_type: "image" | "video";
+  file_name: string;
+  mime_type: string;
+  r2_key: string;
+};
+
 function manualPaymentMethods(intro: string) {
   return `${intro}\nCash App: $playmatexoxo\nVenmo: @barbiedoll10\nZelle: valleyvillageconsulting@gmail.com\n\nPut your Telegram username in the payment notes and send me a screenshot after you pay.`;
 }
@@ -567,6 +576,16 @@ async function prepareDatabase(db: D1Database) {
       active INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS sexting_media_sends (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id INTEGER NOT NULL,
+      chat_id TEXT NOT NULL,
+      media_id INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(session_id, media_id)
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS sexting_media_sends_session_idx
+      ON sexting_media_sends(session_id, id)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS sexting_scripts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       stage TEXT NOT NULL,
@@ -790,6 +809,51 @@ async function sendTelegramProductMedia(env: Env, message: TelegramMessage, medi
     body: form,
   });
   if (!response.ok) throw new Error(`Telegram media send failed with status ${response.status}`);
+}
+
+async function maybeSendSextingMedia(env: Env, message: TelegramMessage, session: {
+  id: number; duration_minutes: number; started_at: string;
+}) {
+  const maximumMedia = session.duration_minutes >= 10 ? 4 : 2;
+  const sent = await env.DB.prepare(`SELECT COUNT(*) AS count FROM sexting_media_sends
+    WHERE session_id = ?`).bind(session.id).first<{ count: number }>();
+  if (Number(sent?.count || 0) >= maximumMedia) return false;
+
+  const replies = await env.DB.prepare(`SELECT COUNT(*) AS count FROM chat_messages
+    WHERE chat_id = ? AND role = 'assistant' AND content NOT LIKE 'Sent private %' AND created_at >= ?`)
+    .bind(String(message.chat.id), session.started_at).first<{ count: number }>();
+  const replyCount = Number(replies?.count || 0);
+  if (replyCount < 2 || replyCount % 2 !== 0) return false;
+
+  const media = await env.DB.prepare(`SELECT id, label, media_type, file_name, mime_type, r2_key
+    FROM sexting_media WHERE active = 1 AND id NOT IN
+      (SELECT media_id FROM sexting_media_sends WHERE session_id = ?)
+    ORDER BY RANDOM() LIMIT 1`).bind(session.id).first<SextingMediaFile>();
+  if (!media) return false;
+
+  const object = await env.MEDIA.get(media.r2_key);
+  if (!object) {
+    console.error(`Stored sexting media ${media.id} was not found`);
+    return false;
+  }
+  const form = new FormData();
+  form.set("chat_id", String(message.chat.id));
+  if (message.business_connection_id) form.set("business_connection_id", message.business_connection_id);
+  const method = media.media_type === "video" ? "sendVideo" : "sendPhoto";
+  const field = media.media_type === "video" ? "video" : "photo";
+  form.set(field, new File([await object.arrayBuffer()], media.file_name, { type: media.mime_type }));
+  const response = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/${method}`, {
+    method: "POST",
+    body: form,
+  });
+  if (!response.ok) throw new Error(`Telegram sexting media send failed with status ${response.status}`);
+  await env.DB.batch([
+    env.DB.prepare(`INSERT OR IGNORE INTO sexting_media_sends (session_id, chat_id, media_id)
+      VALUES (?, ?, ?)`).bind(session.id, String(message.chat.id), media.id),
+    env.DB.prepare(`INSERT INTO chat_messages (chat_id, role, content) VALUES (?, 'assistant', ?)`)
+      .bind(String(message.chat.id), `Sent private ${media.media_type}: ${media.label}`),
+  ]);
+  return true;
 }
 
 async function answerPreCheckout(env: Env, queryId: string, ok: boolean, errorMessage?: string) {
@@ -1929,10 +1993,10 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     completed_at = COALESCE(completed_at, CURRENT_TIMESTAMP)
     WHERE chat_id = ? AND status = 'active' AND (ends_at IS NULL OR ends_at <= CURRENT_TIMESTAMP)`)
     .bind(chatId).run();
-  const activeSextingSession = await env.DB.prepare(`SELECT id, control_mode FROM sexting_sessions
+  const activeSextingSession = await env.DB.prepare(`SELECT id, control_mode, duration_minutes, started_at FROM sexting_sessions
     WHERE chat_id = ? AND status = 'active' AND ends_at IS NOT NULL AND ends_at > CURRENT_TIMESTAMP
     ORDER BY id DESC LIMIT 1`)
-    .bind(chatId).first<{ id: number; control_mode: string }>();
+    .bind(chatId).first<{ id: number; control_mode: string; duration_minutes: number; started_at: string }>();
   const pendingSextingDraft = await env.DB.prepare(`SELECT status,
     CASE WHEN status = 'awaiting_package' AND updated_at < datetime('now', '-15 minutes') THEN 1 ELSE 0 END AS stale
     FROM sexting_drafts WHERE chat_id = ?`)
@@ -2043,7 +2107,13 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     }
     await saveMessage(env.DB, chatId, "assistant", sextingReply);
     await sendTelegramMessage(env, message, sextingReply);
-    return json({ ok: true, active_sexting: true });
+    let mediaSent = false;
+    try {
+      mediaSent = await maybeSendSextingMedia(env, message, activeSextingSession);
+    } catch (error) {
+      console.error("Active sexting media send failed", error);
+    }
+    return json({ ok: true, active_sexting: true, media_sent: mediaSent });
   }
 
   if (isPresenceCheck(message.text)) {
