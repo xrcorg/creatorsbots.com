@@ -44,7 +44,7 @@ type LiveCustom = {
   delivery_url?: string;
   completion_comment?: string;
   completed_at?: string;
-  status?: "awaiting_fulfillment" | "completed" | "cancelled" | "closed_unpaid";
+  status?: "awaiting_payment" | "payment_review" | "awaiting_fulfillment" | "completed" | "cancelled" | "closed_unpaid";
 };
 
 type LiveSextingSession = {
@@ -363,6 +363,7 @@ export default function Home() {
   const [earningsView, setEarningsView] = useState<"weekly" | "all" | null>(null);
   const [bookingType, setBookingType] = useState<"video_chat" | "custom_content" | "in_person">("video_chat");
   const [bookingDuration, setBookingDuration] = useState("");
+  const [bookingAmount, setBookingAmount] = useState("");
   const [settings, setSettings] = useState<CreatorSettings>({ flirty_level: "very", human_takeover: "on", learning: "approval", custom_approval: "required", video_chat_rate: "50", custom_content_rate: "50", in_person_rate: "1500", preferred_topics: "", avoid_topics: "", tone_guidance: "Short, blunt, warm, confident, flirty, and natural", creator_feedback: "", sexting_enabled: "on", sexting_intensity: "soft", sexting_rate: "10", sexting_min_minutes: "5", sexting_5_stars: "500", sexting_10_stars: "1000", sleep_hours_enabled: "on", sleep_start: "02:00", sleep_end: "08:00" });
   const [settingsDirty, setSettingsDirty] = useState(false);
   const [settingsSaveStatus, setSettingsSaveStatus] = useState("");
@@ -577,16 +578,18 @@ export default function Home() {
     const answer = creatorReply.trim();
     if (action !== "ignore" && action !== "close_unpaid" && !answer) return;
     if (action === "approve" && !bookingDuration.trim()) return;
+    if (action === "approve" && bookingType === "custom_content" && !bookingAmount.trim()) return;
     try {
       setLiveLoading(true);
       const response = await fetch("/api/admin/booking", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ id: current.id, action, answer, service_type: bookingType, duration: bookingDuration }),
+        body: JSON.stringify({ id: current.id, action, answer, service_type: bookingType, duration: bookingDuration, amount: bookingAmount }),
       });
       if (!response.ok) throw new Error("Booking update failed");
       setCreatorReply("");
       setBookingDuration("");
+      setBookingAmount("");
       await loadLivePending();
     } catch {
       setLiveError("The booking update was not sent. Please try again.");
@@ -628,6 +631,40 @@ export default function Home() {
       await loadLivePending();
     } catch {
       setLiveError("The custom could not be cancelled. Please try again.");
+    } finally {
+      setLiveLoading(false);
+    }
+  }
+
+  async function closeCustomUnpaid(id: number) {
+    try {
+      setLiveLoading(true);
+      const response = await fetch("/api/admin/custom", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id, action: "close_unpaid" }),
+      });
+      if (!response.ok) throw new Error("Custom follow up failed");
+      await loadLivePending();
+    } catch {
+      setLiveError("The unpaid custom could not be closed. Please try again.");
+    } finally {
+      setLiveLoading(false);
+    }
+  }
+
+  async function reviewCustomPayment(id: number, approved: boolean) {
+    try {
+      setLiveLoading(true);
+      const response = await fetch("/api/admin/custom", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id, action: approved ? "approve_payment" : "payment_not_verified" }),
+      });
+      if (!response.ok) throw new Error("Custom payment review failed");
+      await loadLivePending();
+    } catch {
+      setLiveError("The custom payment update was not sent. Please try again.");
     } finally {
       setLiveLoading(false);
     }
@@ -818,7 +855,7 @@ export default function Home() {
     try {
       setLiveLoading(true);
       setSettingsSaveStatus("Saving changes...");
-      const entries = Object.entries(settings).filter(([key]) => key !== "human_takeover");
+      const entries = Object.entries(settings).filter(([key]) => !["human_takeover", "custom_content_rate"].includes(key));
       const responses = await Promise.all(entries.map(([key, value]) => fetch("/api/admin/settings", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -1490,7 +1527,7 @@ export default function Home() {
 
           <section className="customQueue dashboardSection dashboardToday">
             <div className="sectionHeading">
-              <strong>Customs to fulfill</strong>
+              <strong>Custom orders</strong>
               <span>{liveCustoms.length}</span>
             </div>
             {liveCustoms.length ? liveCustoms.map((custom) => (
@@ -1500,7 +1537,16 @@ export default function Home() {
                   <span>{custom.duration_minutes} minutes · {money(custom.amount_cents)}</span>
                 </div>
                 <p>{custom.description}</p>
-                <label className="amountField">
+                {custom.status === "awaiting_payment" && <>
+                  <p className="queueNote">Quote sent. Waiting for the fan to send payment.</p>
+                  <button className="ignoreAction" disabled={liveLoading} onClick={() => void closeCustomUnpaid(custom.id)}>Close unpaid and follow up</button>
+                </>}
+                {custom.status === "payment_review" && <>
+                  <p className="queueNote">The fan says payment was sent. Verify it before starting the custom.</p>
+                  <button className="primaryAction" disabled={liveLoading} onClick={() => void reviewCustomPayment(custom.id, true)}>Approve payment</button>
+                  <button className="secondaryAction" disabled={liveLoading} onClick={() => void reviewCustomPayment(custom.id, false)}>Payment not verified</button>
+                </>}
+                {custom.status === "awaiting_fulfillment" && <><label className="amountField">
                   <span>Finished custom link</span>
                   <input
                     aria-label={`Delivery link for ${custom.telegram_name}`}
@@ -1523,11 +1569,12 @@ export default function Home() {
                 <button className="primaryAction" disabled={liveLoading || !customLinks[custom.id]?.trim()} onClick={() => void completeCustom(custom.id)}>
                   Finish custom and send
                 </button>
+                </>}
                 <button className="secondaryAction" disabled={liveLoading} onClick={() => void cancelCustom(custom.id)}>
                   Cancel custom
                 </button>
               </div>
-            )) : <p className="queueNote">No customs waiting to be fulfilled.</p>}
+            )) : <p className="queueNote">No custom orders waiting.</p>}
           </section>
 
           {livePurchases.length ? (
@@ -1570,14 +1617,17 @@ export default function Home() {
               </label>
               <label className="amountField">
                 <span>{bookingType === "in_person" ? "Hours" : "Minutes"}</span>
-                <input inputMode="decimal" min={bookingType === "in_person" ? "1" : "5"} onChange={(event) => setBookingDuration(event.target.value)} placeholder={bookingType === "in_person" ? "1" : "5"} value={bookingDuration} />
+                <input inputMode="decimal" min={bookingType === "video_chat" ? "5" : "1"} onChange={(event) => setBookingDuration(event.target.value)} placeholder={bookingType === "video_chat" ? "5" : "1"} value={bookingDuration} />
               </label>
-              <div className="calculatedTotal">
-                Total: {money(Math.round(Number(bookingDuration || 0) * Number(bookingType === "in_person" ? settings.in_person_rate : bookingType === "custom_content" ? settings.custom_content_rate : settings.video_chat_rate) * 100))}
+              {bookingType === "custom_content" ? <label className="amountField">
+                <span>Custom quote total</span>
+                <input inputMode="decimal" min="1" onChange={(event) => setBookingAmount(event.target.value)} placeholder="Enter the amount Tiffani wants to charge" type="number" value={bookingAmount} />
+              </label> : <div className="calculatedTotal">
+                Total: {money(Math.round(Number(bookingDuration || 0) * Number(bookingType === "in_person" ? settings.in_person_rate : settings.video_chat_rate) * 100))}
                 {bookingType === "in_person" && <small>Excluded from earnings</small>}
-              </div>
+              </div>}
               <button className="primaryAction" disabled={liveLoading} onClick={() => void resolveBooking("approve")}>
-                {bookingType === "custom_content" ? "Accept custom" : "Approve booking and send"}
+                {bookingType === "custom_content" ? "Accept custom and send quote" : "Approve booking and send"}
               </button>
               <button className="secondaryAction" disabled={liveLoading} onClick={() => void resolveBooking("decline")}>
                 Decline and send reply
@@ -1641,7 +1691,6 @@ export default function Home() {
             <div className="rateSetting"><span>Wake time</span><label><input aria-label="Wake time" onChange={(event) => changeSetting("sleep_end", event.target.value)} type="time" value={settings.sleep_end} /></label></div>
             <div><span>Sexting intensity</span><section>{(["soft", "hard", "hot"] as const).map((value) => <button className={settings.sexting_intensity === value ? "selected" : ""} key={value} onClick={() => changeSetting("sexting_intensity", value)}>{value}</button>)}</section></div>
             <div className="rateSetting"><span>Video chat per minute</span><label>$<input aria-label="Video chat rate per minute" inputMode="decimal" min="1" onChange={(event) => changeSetting("video_chat_rate", event.target.value)} type="number" value={settings.video_chat_rate} /></label></div>
-            <div className="rateSetting"><span>Custom content per minute</span><label>$<input aria-label="Custom content rate per minute" inputMode="decimal" min="1" onChange={(event) => changeSetting("custom_content_rate", event.target.value)} type="number" value={settings.custom_content_rate} /></label></div>
             <div className="rateSetting"><span>In person meet per hour</span><label>$<input aria-label="In person meet rate per hour" inputMode="decimal" min="1" onChange={(event) => changeSetting("in_person_rate", event.target.value)} type="number" value={settings.in_person_rate} /></label></div>
             <div className="rateSetting"><span>Sexting per minute</span><label>$<input aria-label="Sexting rate per minute" inputMode="decimal" min="1" onChange={(event) => changeSetting("sexting_rate", event.target.value)} type="number" value={settings.sexting_rate} /></label></div>
             <div className="rateSetting"><span>Sexting minimum minutes</span><label><input aria-label="Minimum sexting session length" inputMode="numeric" min="1" max="9" onChange={(event) => changeSetting("sexting_min_minutes", event.target.value)} type="number" value={settings.sexting_min_minutes} /></label></div>

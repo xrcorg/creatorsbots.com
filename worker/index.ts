@@ -182,8 +182,7 @@ function bookingPrompt(settings: Record<string, string>, requestText = "") {
   return "Yeah babe. Did you want a video chat with me here on Telegram or an in person meet?";
 }
 
-function customVideoPrompt(settings: Record<string, string>) {
-  void settings;
+function customVideoPrompt(_settings: Record<string, string>) {
   return "Yeah babe, I make customs. What did you have in mind, and how long do you want it to be?";
 }
 
@@ -1241,7 +1240,7 @@ async function createAIReply(env: Env, chatId: string, incoming: string) {
     },
     body: JSON.stringify({
       model: env.OPENAI_MODEL || "gpt-5.6",
-      instructions: `${TIFFANI_PROMPT}\nCurrent time context: ${pacificTimeContext()} Use this context in every reply. Keep activities, greetings, meals, sleep references, tense, and plans appropriate for the actual Pacific time and weekday. Do not claim to be at a public event, holiday celebration, appointment, trip, movie, or scheduled engagement unless it appears in the creator's approved information or recent conversation. Never contradict a plan already stated in the conversation.\nThe fan's name is ${profile?.name || "unknown"}. Use their name naturally and occasionally, not in every response.\nCurrent flirty level: ${settings.flirty_level || "very"}.\nCurrent rates: video chat ${dollars(settings.video_chat_rate, 50)} per minute with a 5 minute minimum, custom content ${dollars(settings.custom_content_rate, 50)} per minute with a 5 minute minimum, and in person meetings ${dollars(settings.in_person_rate, 1500)} per hour.\nCreator approved topics to discuss: ${settings.preferred_topics || "No additional topics supplied."}\nCreator topics to avoid: ${settings.avoid_topics || "No additional topics supplied."}\nCreator tone guidance: ${settings.tone_guidance || "Short, blunt, warm, confident, flirty, and natural."}\nCreator feedback about my habits: ${settings.creator_feedback || "No additional feedback supplied."}\n${activeSexting ? `An approved ${activeSexting.duration_minutes} minute sexting session is active now. You may respond explicitly between consenting adults. Current creator selected intensity: ${settings.sexting_intensity || "soft"}. Soft means intimate, playful, and gently explicit. Hard means direct and assertive while remaining clearly consensual. Hot means highly explicit while still consensual and within the creator's approved boundaries. At every intensity, exclude age coded roleplay, incest, choking, breath restriction, injury, forced activity, threats, humiliation that was not specifically approved, or language suggesting ignored boundaries. Use the approved playbook below as guidance, adapt it naturally to the fan's replies, never repeat a line mechanically, and never claim to send media unless the application actually sends it.\nApproved sexting playbook:\n${sextingScripts.results.map((item) => `${item.stage}: ${item.title}\n${item.script_text}${item.media_label ? `\nSuggested creator media: ${item.media_label}` : ""}`).join("\n\n")}` : "No sexting session is active. Do not provide a free explicit sexting session. Flirt naturally and offer a private sexting session. Do not mention payment or Stars until the fan asks about price, selects five or ten minutes, asks how to pay, or says they are ready."}\nFollow creator preferences unless they conflict with safety, age restrictions, privacy, or the fixed business rules above.\nApproved learned answers:\n${settings.learning === "off" ? "Learning is off." : learned.results
+      instructions: `${TIFFANI_PROMPT}\nCurrent time context: ${pacificTimeContext()} Use this context in every reply. Keep activities, greetings, meals, sleep references, tense, and plans appropriate for the actual Pacific time and weekday. Do not claim to be at a public event, holiday celebration, appointment, trip, movie, or scheduled engagement unless it appears in the creator's approved information or recent conversation. Never contradict a plan already stated in the conversation.\nThe fan's name is ${profile?.name || "unknown"}. Use their name naturally and occasionally, not in every response.\nCurrent flirty level: ${settings.flirty_level || "very"}.\nCurrent rates: video chat ${dollars(settings.video_chat_rate, 50)} per minute with a 5 minute minimum and in person meetings ${dollars(settings.in_person_rate, 1500)} per hour. Custom content never has a universal rate. Collect the fan's idea and requested length, then say I will review it and provide a quote. Never invent or estimate a custom price.\nCreator approved topics to discuss: ${settings.preferred_topics || "No additional topics supplied."}\nCreator topics to avoid: ${settings.avoid_topics || "No additional topics supplied."}\nCreator tone guidance: ${settings.tone_guidance || "Short, blunt, warm, confident, flirty, and natural."}\nCreator feedback about my habits: ${settings.creator_feedback || "No additional feedback supplied."}\n${activeSexting ? `An approved ${activeSexting.duration_minutes} minute sexting session is active now. You may respond explicitly between consenting adults. Current creator selected intensity: ${settings.sexting_intensity || "soft"}. Soft means intimate, playful, and gently explicit. Hard means direct and assertive while remaining clearly consensual. Hot means highly explicit while still consensual and within the creator's approved boundaries. At every intensity, exclude age coded roleplay, incest, choking, breath restriction, injury, forced activity, threats, humiliation that was not specifically approved, or language suggesting ignored boundaries. Use the approved playbook below as guidance, adapt it naturally to the fan's replies, never repeat a line mechanically, and never claim to send media unless the application actually sends it.\nApproved sexting playbook:\n${sextingScripts.results.map((item) => `${item.stage}: ${item.title}\n${item.script_text}${item.media_label ? `\nSuggested creator media: ${item.media_label}` : ""}`).join("\n\n")}` : "No sexting session is active. Do not provide a free explicit sexting session. Flirt naturally and offer a private sexting session. Do not mention payment or Stars until the fan asks about price, selects five or ten minutes, asks how to pay, or says they are ready."}\nFollow creator preferences unless they conflict with safety, age restrictions, privacy, or the fixed business rules above.\nApproved learned answers:\n${settings.learning === "off" ? "Learning is off." : learned.results
         .map((item) => `Fan question: ${item.question}\nApproved answer: ${item.answer}`)
         .join("\n\n")}`,
       input,
@@ -1831,14 +1830,14 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       return json({ ok: true });
     }
     if (isManualPaymentQuestion(message.text)) {
-      const paymentReply = manualPaymentMethods(`Once I approve your custom and confirm the total, you can pay using one of these, babe. Customs are ${dollars(settings.custom_content_rate, 50)} per minute with a 5 minute minimum.`);
+      const paymentReply = "I need to know what you want and for how long before I can quote it, babe. Send me your idea and I'll check it first.";
       await saveMessage(env.DB, chatId, "user", message.text);
       await saveMessage(env.DB, chatId, "assistant", paymentReply);
       await sendTelegramMessage(env, message, paymentReply);
       return json({ ok: true });
     }
     if (isPriceQuestion(message.text)) {
-      const customPriceReply = `Customs are ${dollars(settings.custom_content_rate, 50)} per minute with a 5 minute minimum. What did you have in mind?`;
+      const customPriceReply = "I can't quote you until I know what you want and for how long. Can you send me your idea?";
       await sendSavedReply(env, message, chatId, customPriceReply);
       return json({ ok: true });
     }
@@ -2094,6 +2093,18 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   }
 
   if (isPaymentSent(message.text)) {
+    const quotedCustom = await env.DB.prepare(`SELECT id FROM custom_fulfillments
+      WHERE chat_id = ? AND status = 'awaiting_payment' ORDER BY id DESC LIMIT 1`)
+      .bind(chatId).first<{ id: number }>();
+    if (quotedCustom) {
+      await env.DB.prepare(`UPDATE custom_fulfillments SET status = 'payment_review' WHERE id = ?`)
+        .bind(quotedCustom.id).run();
+      const confirmation = "Ok, thanks babe. Let me check when I get the chance and I'll let you know when I can start it!";
+      await saveMessage(env.DB, chatId, "user", message.text);
+      await saveMessage(env.DB, chatId, "assistant", confirmation);
+      await sendTelegramMessage(env, message, confirmation);
+      return json({ ok: true, custom_payment_review: true });
+    }
     const product = await getInterestedProduct(env.DB, chatId) || await getNewestProduct(env.DB);
     if (!product) {
       await sendTelegramMessage(env, message, "Tell me which content you paid for so I can check it, babe.");
@@ -2211,7 +2222,8 @@ async function handleAdminPending(request: Request, env: Env) {
     LEFT JOIN fan_profiles ON fan_profiles.chat_id = booking_requests.chat_id
     WHERE booking_requests.status = 'pending' ORDER BY booking_requests.id ASC LIMIT 100`).all();
   const customs = await env.DB.prepare(`SELECT id, telegram_name, duration_minutes, description,
-    amount_cents, completion_comment, status, created_at FROM custom_fulfillments WHERE status = 'awaiting_fulfillment'
+    amount_cents, completion_comment, status, created_at FROM custom_fulfillments
+    WHERE status IN ('awaiting_payment', 'payment_review', 'awaiting_fulfillment')
     ORDER BY id ASC LIMIT 100`).all();
   const customHistory = await env.DB.prepare(`SELECT id, telegram_name, duration_minutes, description,
     amount_cents, delivery_url, completion_comment, status, created_at, completed_at FROM custom_fulfillments
@@ -2701,6 +2713,7 @@ async function handleAdminBooking(request: Request, env: Env) {
     answer?: string;
     service_type?: "video_chat" | "custom_content" | "in_person";
     duration?: string;
+    amount?: string;
   };
   if (!body.id || !body.action) return json({ error: "Booking action is required" }, 400);
   if (!["approve", "decline", "ignore", "close_unpaid"].includes(body.action)) {
@@ -2743,20 +2756,27 @@ async function handleAdminBooking(request: Request, env: Env) {
   const answer = body.answer?.trim();
   if (!answer) return json({ error: "Booking reply is required" }, 400);
   const duration = Number(body.duration || 0);
+  const quotedAmount = Number(body.amount || 0);
   if (body.action === "approve" && (!body.service_type || !Number.isFinite(duration) || duration <= 0)) {
     return json({ error: "A valid service and duration are required" }, 400);
   }
-  if (body.action === "approve" && body.service_type !== "in_person" && duration < 5) {
-    return json({ error: "Video chat and custom content require at least 5 minutes" }, 400);
+  if (body.action === "approve" && body.service_type === "video_chat" && duration < 5) {
+    return json({ error: "Video chat requires at least 5 minutes" }, 400);
+  }
+  if (body.action === "approve" && body.service_type === "custom_content" &&
+      (!Number.isFinite(quotedAmount) || quotedAmount <= 0 || quotedAmount > 100000)) {
+    return json({ error: "Enter the total custom quote" }, 400);
   }
   const rate = body.service_type === "in_person"
     ? Number(settings.in_person_rate || 1500)
-    : body.service_type === "custom_content"
-      ? Number(settings.custom_content_rate || 50)
-      : Number(settings.video_chat_rate || 50);
-  const amountCents = Math.round(duration * rate * 100);
+    : Number(settings.video_chat_rate || 50);
+  const amountCents = body.service_type === "custom_content"
+    ? Math.round(quotedAmount * 100)
+    : Math.round(duration * rate * 100);
   const fanAnswer = body.action === "approve" && body.service_type === "video_chat" && !/\btelegram\b/i.test(answer)
     ? `${answer}\n\nWe'll do the video chat right here on Telegram.`
+    : body.action === "approve" && body.service_type === "custom_content"
+      ? manualPaymentMethods(`${answer}\n\nThe total for your custom will be ${dollars(String(amountCents / 100), 0)}.`)
     : answer;
   await sendTelegramMessage(env, {
     message_id: 0,
@@ -2766,20 +2786,19 @@ async function handleAdminBooking(request: Request, env: Env) {
   await saveMessage(env.DB, booking.chat_id, "assistant", fanAnswer);
   await env.DB.prepare(`UPDATE booking_requests SET status = ?, resolved_at = CURRENT_TIMESTAMP
     WHERE id = ?`).bind(body.action === "approve" ? "approved" : "declined", booking.id).run();
-  if (body.action === "approve" && body.service_type !== "in_person") {
-    const description = body.service_type === "custom_content" ? "Custom content" : "Video chat session";
+  if (body.action === "approve" && body.service_type === "video_chat") {
     await env.DB.prepare(`INSERT OR IGNORE INTO earnings_events
       (source_type, source_id, description, amount_cents) VALUES (?, ?, ?, ?)`)
-      .bind(body.service_type, String(booking.id), description, amountCents)
+      .bind(body.service_type, String(booking.id), "Video chat session", amountCents)
       .run();
-    if (body.service_type === "custom_content") {
-      await env.DB.prepare(`INSERT OR IGNORE INTO custom_fulfillments
-        (booking_request_id, chat_id, business_connection_id, telegram_name, duration_minutes,
-        description, amount_cents) VALUES (?, ?, ?, ?, ?, ?, ?)`)
-        .bind(booking.id, booking.chat_id, booking.business_connection_id, booking.telegram_name,
-          Math.round(duration), booking.details.replace(/^Custom content request:\s*/i, ""), amountCents)
-        .run();
-    }
+  }
+  if (body.action === "approve" && body.service_type === "custom_content") {
+    await env.DB.prepare(`INSERT OR IGNORE INTO custom_fulfillments
+      (booking_request_id, chat_id, business_connection_id, telegram_name, duration_minutes,
+      description, amount_cents, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'awaiting_payment')`)
+      .bind(booking.id, booking.chat_id, booking.business_connection_id, booking.telegram_name,
+        Math.round(duration), booking.details.replace(/^Custom content request:\s*/i, ""), amountCents)
+      .run();
   }
   return json({ ok: true });
 }
@@ -2791,7 +2810,7 @@ async function handleAdminCustom(request: Request, env: Env) {
     id?: number;
     delivery_url?: string;
     comment?: string;
-    action?: "complete" | "cancel" | "close_unpaid";
+    action?: "complete" | "cancel" | "close_unpaid" | "approve_payment" | "payment_not_verified";
   };
   const deliveryUrl = body.delivery_url?.trim();
   const action = body.action || "complete";
@@ -2799,17 +2818,43 @@ async function handleAdminCustom(request: Request, env: Env) {
   if (!body.id || (action === "complete" && (!deliveryUrl || !/^https?:\/\//i.test(deliveryUrl)))) {
     return json({ error: "A valid delivery link is required" }, 400);
   }
-  const custom = await env.DB.prepare(`SELECT id, booking_request_id, chat_id, business_connection_id
-    FROM custom_fulfillments WHERE id = ? AND status = 'awaiting_fulfillment'`)
+  const custom = await env.DB.prepare(`SELECT id, booking_request_id, chat_id, business_connection_id,
+    telegram_name, amount_cents, status FROM custom_fulfillments
+    WHERE id = ? AND status IN ('awaiting_payment', 'payment_review', 'awaiting_fulfillment')`)
     .bind(body.id)
-    .first<{ id: number; booking_request_id: number; chat_id: string; business_connection_id: string | null }>();
+    .first<{ id: number; booking_request_id: number; chat_id: string; business_connection_id: string | null;
+      telegram_name: string; amount_cents: number; status: string }>();
   if (!custom) return json({ error: "Custom request is no longer awaiting fulfillment" }, 404);
+  if (action === "complete" && custom.status !== "awaiting_fulfillment") {
+    return json({ error: "Confirm payment before completing this custom" }, 409);
+  }
 
   const telegramMessage: TelegramMessage = {
     message_id: 0,
     chat: { id: Number(custom.chat_id) },
     business_connection_id: custom.business_connection_id || undefined,
   };
+  if (action === "approve_payment") {
+    if (custom.status !== "payment_review") return json({ error: "No custom payment is awaiting review" }, 409);
+    const confirmation = "Your payment is confirmed, babe. I'll get started on your custom and send it here when it's ready!";
+    await sendTelegramMessage(env, telegramMessage, confirmation);
+    await saveMessage(env.DB, custom.chat_id, "assistant", confirmation);
+    await env.DB.batch([
+      env.DB.prepare(`UPDATE custom_fulfillments SET status = 'awaiting_fulfillment' WHERE id = ?`).bind(custom.id),
+      env.DB.prepare(`INSERT OR IGNORE INTO earnings_events
+        (source_type, source_id, description, amount_cents) VALUES ('custom_content', ?, ?, ?)`)
+        .bind(String(custom.booking_request_id), `Custom content for ${custom.telegram_name}`, custom.amount_cents),
+    ]);
+    return json({ ok: true });
+  }
+  if (action === "payment_not_verified") {
+    if (custom.status !== "payment_review") return json({ error: "No custom payment is awaiting review" }, 409);
+    const retry = "I couldn't verify that payment yet, babe. Check the payment details and send me the method and sender name you used.";
+    await sendTelegramMessage(env, telegramMessage, retry);
+    await saveMessage(env.DB, custom.chat_id, "assistant", retry);
+    await env.DB.prepare(`UPDATE custom_fulfillments SET status = 'awaiting_payment' WHERE id = ?`).bind(custom.id).run();
+    return json({ ok: true });
+  }
   if (action === "cancel") {
     const cancellation = "I'm sorry babe, I can't complete this custom. I'll message you about the next step.";
     await sendTelegramMessage(env, telegramMessage, cancellation);
