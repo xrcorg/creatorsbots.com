@@ -112,6 +112,7 @@ export function isLikelyCustomDetailReply(text: string) {
 
 export function isSextingPackageFollowUp(text: string) {
   const value = text.trim();
+  if (isSextingDecline(value)) return false;
   return isAffirmativeReply(value) ||
     /\b(sext|sexting|package|option|stars?|minutes?)\b/i.test(value) ||
     /^(?:5|five|10|ten)[.! ]*$/i.test(value) ||
@@ -119,7 +120,7 @@ export function isSextingPackageFollowUp(text: string) {
 }
 
 export function isSextingDecline(text: string) {
-  return /\b(?:i\s+)?(?:do not|don't|dont|no longer)\s+(?:want\s+(?:to\s+)?)?(?:sext|sexting)\b|\b(?:not interested in|no)\s+sexting\b/i.test(text);
+  return /\b(?:i\s+)?(?:do not|don't|dont|no longer)\s+(?:(?:want|wanna)\s+(?:to\s+)?)?(?:sext|sexting)\b|\b(?:not interested in|no|not)\s+sexting\b|\b(?:stop|quit)\s+(?:asking\s+(?:me\s+)?about\s+)?sexting\b/i.test(text);
 }
 
 export function parseNameIntroduction(text: string) {

@@ -79,7 +79,11 @@ test("stale sexting offers do not hijack a changed subject", () => {
 test("declining sexting can route directly to another service", () => {
   assert.equal(isSextingDecline("I don't want sexting, how much is your video chat?"), true);
   assert.equal(isSextingDecline("I do not want to sext anymore"), true);
+  assert.equal(isSextingDecline("I don't wanna sext"), true);
+  assert.equal(isSextingDecline("not sexting"), true);
+  assert.equal(isSextingDecline("stop asking me about sexting"), true);
   assert.equal(isSextingDecline("I want to sext"), false);
+  assert.equal(isSextingPackageFollowUp("I don't wanna sext"), false);
 });
 
 test("service declines are recognized without losing the replacement request", () => {

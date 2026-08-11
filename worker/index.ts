@@ -785,7 +785,7 @@ function isAdultNo(text: string) {
 }
 
 function isCapabilitiesQuestion(text: string) {
-  return /\b(what can you do|what do you offer|what are you offering|services|menu)\b/i.test(text);
+  return /\b(what can you do|what do you offer|what are you offering|services|menu|what (?:else )?can we (?:talk about|discuss)|what else (?:is there|do you do))\b/i.test(text);
 }
 
 function isGreeting(text: string) {
