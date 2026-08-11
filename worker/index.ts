@@ -2507,7 +2507,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   }
 
   const explicitCustomFlowSwitch = requestedFlow && requestedFlow !== "custom" &&
-    /\b(?:instead|actually|rather|change|switch|never mind|nevermind)\b/i.test(message.text);
+    /\b(?:instead|actually|rather|change|switch|never mind|nevermind|forget it)\b/i.test(message.text);
   if (customDraft?.status === "awaiting_details" && explicitCustomFlowSwitch) {
     await env.DB.prepare(`UPDATE custom_drafts SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
       WHERE chat_id = ?`).bind(chatId).run();

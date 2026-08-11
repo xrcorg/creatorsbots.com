@@ -53,6 +53,8 @@ test("specific catalog searches win over stray sexting words", () => {
     "I wanna see if you have any BBC videos",
     "Do you have lesbian content?",
     "I would like to see some interracial video sets",
+    "I want to buy a video",
+    "Can I just buy a video?",
   ]) {
     assert.equal(isCatalogContentRequest(message), true, message);
   }
