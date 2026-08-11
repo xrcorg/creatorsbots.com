@@ -1993,13 +1993,7 @@ export default function Home() {
                 Open inbox
               </button>
             </div>
-          ) : (
-            <div className="emptyQueue dashboardSection dashboardToday">
-              <span>✓</span>
-              <h3>{liveLoading ? "Checking live messages" : "You're all caught up"}</h3>
-              <p>{liveError || "Unanswered questions and payment approvals will appear here automatically."}</p>
-            </div>
-          )}
+          ) : null}
 
           <div className="testPrompts dashboardSection dashboardSettings">
             <strong>Quick test prompts</strong>
