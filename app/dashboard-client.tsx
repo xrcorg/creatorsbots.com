@@ -83,6 +83,7 @@ type ContentProduct = {
   trailer_url: string;
   delivery_url: string;
   active: number;
+  media_count: number;
   created_at: string;
 };
 
@@ -345,6 +346,8 @@ export default function Home() {
   const [scriptForm, setScriptForm] = useState({ stage: "warmup" as SextingScript["stage"], title: "", script_text: "", media_label: "" });
   const [productForm, setProductForm] = useState({ content_type: "video" as ContentProduct["content_type"], title: "", price: "", stars_price: "", genre: "", actors: "", trailer_url: "", delivery_url: "" });
   const [editingProductId, setEditingProductId] = useState<number | null>(null);
+  const [productFiles, setProductFiles] = useState<File[]>([]);
+  const [productUploadKey, setProductUploadKey] = useState(0);
   const [mediaLabel, setMediaLabel] = useState("");
   const [mediaFile, setMediaFile] = useState<File | null>(null);
   const [customLinks, setCustomLinks] = useState<Record<number, string>>({});
@@ -719,6 +722,14 @@ export default function Home() {
     event.preventDefault();
     try {
       setLiveLoading(true);
+      setLiveError("");
+      const digitalProduct = !["physical_item", "video_rating"].includes(productForm.content_type);
+      const existingMediaCount = editingProductId
+        ? contentProducts.find((product) => product.id === editingProductId)?.media_count || 0
+        : 0;
+      if (digitalProduct && !productForm.delivery_url.trim() && !productFiles.length && !existingMediaCount) {
+        throw new Error("Add a Dropbox delivery link or choose at least one file to upload");
+      }
       const response = await fetch(editingProductId ? `/api/admin/products/${editingProductId}` : "/api/admin/products", {
         method: editingProductId ? "PATCH" : "POST",
         headers: { "content-type": "application/json" },
@@ -728,8 +739,21 @@ export default function Home() {
         const data = await response.json() as { error?: string };
         throw new Error(data.error || "Product could not be added");
       }
+      const saved = await response.json() as { id?: number };
+      const productId = editingProductId || saved.id;
+      if (productFiles.length && productId) {
+        const files = new FormData();
+        productFiles.forEach((file) => files.append("files", file));
+        const upload = await fetch(`/api/admin/products/${productId}/media`, { method: "POST", body: files });
+        if (!upload.ok) {
+          const data = await upload.json() as { error?: string };
+          throw new Error(data.error || "The product was saved, but its files could not be uploaded");
+        }
+      }
       setProductForm({ content_type: "video", title: "", price: "", stars_price: "", genre: "", actors: "", trailer_url: "", delivery_url: "" });
       setEditingProductId(null);
+      setProductFiles([]);
+      setProductUploadKey((current) => current + 1);
       await loadLivePending();
     } catch (error) {
       setLiveError(error instanceof Error ? error.message : "The content could not be added. Please try again.");
@@ -740,6 +764,8 @@ export default function Home() {
 
   function editContentProduct(product: ContentProduct) {
     setEditingProductId(product.id);
+    setProductFiles([]);
+    setProductUploadKey((current) => current + 1);
     setProductForm({
       content_type: product.content_type,
       title: product.title,
@@ -755,6 +781,8 @@ export default function Home() {
   function cancelContentEdit() {
     setEditingProductId(null);
     setProductForm({ content_type: "video", title: "", price: "", stars_price: "", genre: "", actors: "", trailer_url: "", delivery_url: "" });
+    setProductFiles([]);
+    setProductUploadKey((current) => current + 1);
   }
 
   async function updateContentProduct(id: number, action: "toggle" | "remove", active = true) {
@@ -1424,14 +1452,15 @@ export default function Home() {
               <label><span>Genre</span><input value={productForm.genre} onChange={(event) => setProductForm((current) => ({ ...current, genre: event.target.value }))} placeholder="Genre" /></label>
               <label><span>Actors</span><input value={productForm.actors} onChange={(event) => setProductForm((current) => ({ ...current, actors: event.target.value }))} placeholder="Names separated by commas" /></label>
               <label><span>Trailer or preview link</span><input type="url" value={productForm.trailer_url} onChange={(event) => setProductForm((current) => ({ ...current, trailer_url: event.target.value }))} placeholder="https://..." /></label>
-              <label><span>{["physical_item", "video_rating"].includes(productForm.content_type) ? "Delivery link not needed" : "Full delivery link"}</span><input required={!['physical_item', 'video_rating'].includes(productForm.content_type)} disabled={["physical_item", "video_rating"].includes(productForm.content_type)} type="url" value={productForm.delivery_url} onChange={(event) => setProductForm((current) => ({ ...current, delivery_url: event.target.value }))} placeholder="https://..." /></label>
+              <label><span>{["physical_item", "video_rating"].includes(productForm.content_type) ? "Delivery link not needed" : "Dropbox delivery link (optional when uploading files)"}</span><input disabled={["physical_item", "video_rating"].includes(productForm.content_type)} type="url" value={productForm.delivery_url} onChange={(event) => setProductForm((current) => ({ ...current, delivery_url: event.target.value }))} placeholder="https://..." /></label>
+              {!['physical_item', 'video_rating'].includes(productForm.content_type) && <label><span>Upload one or multiple files</span><input accept="image/*,video/*" key={productUploadKey} multiple onChange={(event) => setProductFiles(Array.from(event.target.files || []))} type="file" /><small>{productFiles.length ? `${productFiles.length} file${productFiles.length === 1 ? "" : "s"} selected` : "Choose all photos or videos belonging to this product at once."}</small></label>}
               <button className="primaryAction" disabled={liveLoading}>{editingProductId ? "Save changes" : "Add content"}</button>
               {editingProductId && <button className="secondaryAction" type="button" onClick={cancelContentEdit}>Cancel editing</button>}
             </form>
             <div className="catalogList">
               {contentProducts.map((product) => (
                 <article className={product.active ? "" : "inactive"} key={product.id}>
-                  <div><strong>{product.title}</strong><small>{product.content_type.replaceAll("_", " ")} · {money(product.price_cents)}{product.content_type === "video_rating" ? ` · ⭐ ${product.stars_price.toLocaleString()}` : ""}</small></div>
+                  <div><strong>{product.title}</strong><small>{product.content_type.replaceAll("_", " ")} · {money(product.price_cents)}{product.content_type === "video_rating" ? ` · ⭐ ${product.stars_price.toLocaleString()}` : ""}{product.media_count ? ` · ${product.media_count} uploaded file${product.media_count === 1 ? "" : "s"}` : ""}</small></div>
                   <span>{product.active ? "Active" : "Hidden"}</span>
                   <button type="button" onClick={() => editContentProduct(product)}>Edit</button>
                   <button type="button" onClick={() => void updateContentProduct(product.id, "toggle", Boolean(product.active))}>{product.active ? "Hide" : "Activate"}</button>

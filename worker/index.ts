@@ -103,6 +103,15 @@ type ContentProduct = {
   created_at: string;
 };
 
+type ProductMedia = {
+  id: number;
+  product_id: number;
+  media_type: "image" | "video";
+  file_name: string;
+  mime_type: string;
+  r2_key: string;
+};
+
 function manualPaymentMethods(intro: string) {
   return `${intro}\nCash App: $playmatexoxo\nVenmo: @barbiedoll10\nZelle: valleyvillageconsulting@gmail.com\n\nPut your Telegram username in the payment notes and send me a screenshot after you pay.`;
 }
@@ -356,6 +365,17 @@ async function prepareDatabase(db: D1Database) {
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_content_products_active_created
       ON content_products(active, created_at)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS content_product_media (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      product_id INTEGER NOT NULL,
+      media_type TEXT NOT NULL,
+      file_name TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      r2_key TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_content_product_media_product
+      ON content_product_media(product_id, id)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS product_interest (
       chat_id TEXT PRIMARY KEY,
       product_id INTEGER NOT NULL,
@@ -671,6 +691,22 @@ async function sendTelegramMessage(env: Env, message: TelegramMessage, text: str
   if (!response.ok) {
     throw new Error(`Telegram send failed with status ${response.status}`);
   }
+}
+
+async function sendTelegramProductMedia(env: Env, message: TelegramMessage, media: ProductMedia) {
+  const object = await env.MEDIA.get(media.r2_key);
+  if (!object) throw new Error(`Stored product file ${media.id} was not found`);
+  const form = new FormData();
+  form.set("chat_id", String(message.chat.id));
+  if (message.business_connection_id) form.set("business_connection_id", message.business_connection_id);
+  const method = media.media_type === "video" ? "sendVideo" : "sendPhoto";
+  const field = media.media_type === "video" ? "video" : "photo";
+  form.set(field, new File([await object.arrayBuffer()], media.file_name, { type: media.mime_type }));
+  const response = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/${method}`, {
+    method: "POST",
+    body: form,
+  });
+  if (!response.ok) throw new Error(`Telegram media send failed with status ${response.status}`);
 }
 
 async function answerPreCheckout(env: Env, queryId: string, ok: boolean, errorMessage?: string) {
@@ -2195,9 +2231,10 @@ async function handleAdminPending(request: Request, env: Env) {
     )`).first<{ total_stars: number; transaction_count: number }>();
   const sextingMedia = await env.DB.prepare(`SELECT id, label, media_type, file_name,
     mime_type, active, created_at FROM sexting_media ORDER BY id DESC LIMIT 100`).all();
-  const contentProducts = await env.DB.prepare(`SELECT id, content_type, title, price_cents, stars_price,
-    genre, actors, trailer_url, delivery_url, active, created_at
-    FROM content_products ORDER BY id DESC LIMIT 200`).all();
+  const contentProducts = await env.DB.prepare(`SELECT content_products.id, content_type, title, price_cents, stars_price,
+    genre, actors, trailer_url, delivery_url, active, content_products.created_at,
+    (SELECT COUNT(*) FROM content_product_media WHERE product_id = content_products.id) AS media_count
+    FROM content_products ORDER BY content_products.id DESC LIMIT 200`).all();
   const sextingScripts = await env.DB.prepare(`SELECT id, stage, title, script_text,
     media_label, active, created_at FROM sexting_scripts ORDER BY id ASC LIMIT 200`).all();
   const dailyTasks = await env.DB.prepare(`SELECT id, title, task_type, scheduled_at,
@@ -2392,7 +2429,50 @@ function validHttpUrl(value: string, required = false) {
 async function handleAdminProducts(request: Request, env: Env, url: URL) {
   if (!await isAdminRequest(request, env)) return json({ error: "Sign in required" }, 401);
   await prepareDatabase(env.DB);
+  const mediaMatch = url.pathname.match(/^\/api\/admin\/products\/(\d+)\/media(?:\/(\d+))?(?:\/file)?$/);
   const match = url.pathname.match(/^\/api\/admin\/products\/(\d+)$/);
+  if (mediaMatch) {
+    const productId = Number(mediaMatch[1]);
+    const mediaId = mediaMatch[2] ? Number(mediaMatch[2]) : null;
+    const product = await env.DB.prepare("SELECT id FROM content_products WHERE id = ?").bind(productId).first();
+    if (!product) return json({ error: "Content was not found" }, 404);
+    if (request.method === "POST" && !mediaId) {
+      const form = await request.formData();
+      const files = form.getAll("files").filter((item): item is File => item instanceof File && item.size > 0);
+      if (!files.length) return json({ error: "Choose at least one photo or video" }, 400);
+      if (files.length > 50) return json({ error: "Upload no more than 50 files at once" }, 400);
+      if (files.some((file) => !file.type.startsWith("image/") && !file.type.startsWith("video/"))) {
+        return json({ error: "Only image and video files are supported" }, 400);
+      }
+      for (const file of files) {
+        const mediaType = file.type.startsWith("video/") ? "video" : "image";
+        const safeName = file.name.replace(/[^a-zA-Z0-9._]/g, "_").slice(-120);
+        const r2Key = `catalog/${productId}/${crypto.randomUUID()}-${safeName}`;
+        await env.MEDIA.put(r2Key, file.stream(), { httpMetadata: { contentType: file.type } });
+        await env.DB.prepare(`INSERT INTO content_product_media
+          (product_id, media_type, file_name, mime_type, r2_key) VALUES (?, ?, ?, ?, ?)`)
+          .bind(productId, mediaType, file.name.slice(0, 255), file.type, r2Key).run();
+      }
+      return json({ ok: true, uploaded: files.length });
+    }
+    if (request.method === "GET" && mediaId && url.pathname.endsWith("/file")) {
+      const media = await env.DB.prepare(`SELECT r2_key, mime_type FROM content_product_media
+        WHERE id = ? AND product_id = ?`).bind(mediaId, productId).first<{ r2_key: string; mime_type: string }>();
+      if (!media) return json({ error: "Product file not found" }, 404);
+      const object = await env.MEDIA.get(media.r2_key);
+      if (!object) return json({ error: "Stored file not found" }, 404);
+      return new Response(object.body, { headers: { "content-type": media.mime_type, "cache-control": "private, max-age=3600" } });
+    }
+    if (request.method === "DELETE" && mediaId) {
+      const media = await env.DB.prepare(`SELECT r2_key FROM content_product_media
+        WHERE id = ? AND product_id = ?`).bind(mediaId, productId).first<{ r2_key: string }>();
+      if (!media) return json({ error: "Product file not found" }, 404);
+      await env.MEDIA.delete(media.r2_key);
+      await env.DB.prepare("DELETE FROM content_product_media WHERE id = ?").bind(mediaId).run();
+      return json({ ok: true });
+    }
+    return json({ error: "Product media request not found" }, 404);
+  }
   if (request.method === "POST" && url.pathname === "/api/admin/products") {
     const body = await request.json() as Partial<ContentProduct> & { price?: string; stars_price?: number | string };
     const title = String(body.title || "").trim();
@@ -2402,24 +2482,23 @@ async function handleAdminProducts(request: Request, env: Env, url: URL) {
     const trailerUrl = String(body.trailer_url || "").trim();
     const deliveryUrl = String(body.delivery_url || "").trim();
     const allowedTypes = ["photo", "photo_package", "video", "video_bundle", "physical_item", "video_rating"];
-    const needsDeliveryLink = !["physical_item", "video_rating"].includes(contentType);
     if (!title || !allowedTypes.includes(contentType) ||
       !Number.isFinite(priceCents) || priceCents < 100 || priceCents > 10000000 ||
       (contentType === "video_rating" && (!Number.isFinite(starsPrice) || starsPrice < 1 || starsPrice > 1000000)) ||
-      !validHttpUrl(trailerUrl) || !validHttpUrl(deliveryUrl, needsDeliveryLink)) {
-      return json({ error: "Complete the title, type, price, and valid delivery link" }, 400);
+      !validHttpUrl(trailerUrl) || !validHttpUrl(deliveryUrl)) {
+      return json({ error: "Complete the title, type, price, and use valid links" }, 400);
     }
     try {
-      await env.DB.prepare(`INSERT INTO content_products
+      const result = await env.DB.prepare(`INSERT INTO content_products
         (content_type, title, price_cents, stars_price, genre, actors, trailer_url, delivery_url)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
         .bind(contentType, title.slice(0, 180), priceCents, starsPrice,
           String(body.genre || "").trim().slice(0, 180),
           String(body.actors || "").trim().slice(0, 300), trailerUrl, deliveryUrl).run();
+      return json({ ok: true, id: result.meta.last_row_id });
     } catch {
       return json({ error: "A product with that title already exists" }, 409);
     }
-    return json({ ok: true });
   }
   if (match && request.method === "PATCH") {
     const body = await request.json() as Partial<ContentProduct> & { price?: string; stars_price?: number | string; active?: boolean };
@@ -2439,12 +2518,11 @@ async function handleAdminProducts(request: Request, env: Env, url: URL) {
     const trailerUrl = String(body.trailer_url || "").trim();
     const deliveryUrl = String(body.delivery_url || "").trim();
     const allowedTypes = ["photo", "photo_package", "video", "video_bundle", "physical_item", "video_rating"];
-    const needsDeliveryLink = !["physical_item", "video_rating"].includes(contentType);
     if (!title || !allowedTypes.includes(contentType) ||
       !Number.isFinite(priceCents) || priceCents < 100 || priceCents > 10000000 ||
       (contentType === "video_rating" && (!Number.isFinite(starsPrice) || starsPrice < 1 || starsPrice > 1000000)) ||
-      !validHttpUrl(trailerUrl) || !validHttpUrl(deliveryUrl, needsDeliveryLink)) {
-      return json({ error: "Complete the title, type, price, and valid delivery link" }, 400);
+      !validHttpUrl(trailerUrl) || !validHttpUrl(deliveryUrl)) {
+      return json({ error: "Complete the title, type, price, and use valid links" }, 400);
     }
     try {
       await env.DB.batch([
@@ -2470,6 +2548,10 @@ async function handleAdminProducts(request: Request, env: Env, url: URL) {
       await env.DB.prepare(`UPDATE content_products SET active = 0, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?`).bind(Number(match[1])).run();
     } else {
+      const media = await env.DB.prepare(`SELECT r2_key FROM content_product_media WHERE product_id = ?`)
+        .bind(Number(match[1])).all<{ r2_key: string }>();
+      for (const item of media.results) await env.MEDIA.delete(item.r2_key);
+      await env.DB.prepare("DELETE FROM content_product_media WHERE product_id = ?").bind(Number(match[1])).run();
       await env.DB.prepare("DELETE FROM content_products WHERE id = ?").bind(Number(match[1])).run();
     }
     return json({ ok: true });
@@ -2527,7 +2609,7 @@ async function handleAdminPurchase(request: Request, env: Env) {
   }
   const purchase = await env.DB.prepare(`SELECT purchase_requests.id, purchase_requests.chat_id,
     purchase_requests.business_connection_id, purchase_requests.product_title,
-    purchase_requests.price, content_products.delivery_url, content_products.price_cents,
+    purchase_requests.price, content_products.id AS product_id, content_products.delivery_url, content_products.price_cents,
     content_products.content_type
     FROM purchase_requests LEFT JOIN content_products
       ON content_products.title = purchase_requests.product_title
@@ -2537,6 +2619,7 @@ async function handleAdminPurchase(request: Request, env: Env) {
       business_connection_id: string | null;
       product_title: string;
       price: string;
+      product_id: number | null;
       delivery_url: string | null;
       price_cents: number | null;
       content_type: string | null;
@@ -2549,13 +2632,22 @@ async function handleAdminPurchase(request: Request, env: Env) {
     return json({ error: "Video ratings must be purchased through a Telegram Stars invoice in chat" }, 409);
   }
   const needsDeliveryLink = !["physical_item", "video_rating"].includes(fulfillmentType);
-  if (approved && needsDeliveryLink && !purchase.delivery_url) return json({ error: "This product needs a delivery link" }, 409);
+  const uploadedMedia = approved && needsDeliveryLink && purchase.product_id
+    ? await env.DB.prepare(`SELECT id, product_id, media_type, file_name, mime_type, r2_key
+        FROM content_product_media WHERE product_id = ? ORDER BY id ASC`)
+      .bind(purchase.product_id).all<ProductMedia>()
+    : { results: [] as ProductMedia[] };
+  if (approved && needsDeliveryLink && !purchase.delivery_url && !uploadedMedia.results.length) {
+    return json({ error: "This product needs a Dropbox link or uploaded files" }, 409);
+  }
   const responseText = body.action === "close_unpaid"
     ? `Hey babe, do you still want ${purchase.product_title}? I know you'll love it, but I still need you to send the payment so I can send it over. Lmk if you still want it.`
     : approved
     ? fulfillmentType === "physical_item"
       ? `Payment approved, babe. What's the full name you want me to use for shipping?`
-      : `Payment approved. Here is ${purchase.product_title}:\n${purchase.delivery_url}`
+      : purchase.delivery_url
+        ? `Payment approved. Here is ${purchase.product_title}:\n${purchase.delivery_url}`
+        : `Payment approved. I'm sending ${purchase.product_title} here now.`
     : "I could not verify that payment yet. Please check the payment details and send me the method and sender name you used.";
   await sendTelegramMessage(env, {
     message_id: 0,
@@ -2563,6 +2655,15 @@ async function handleAdminPurchase(request: Request, env: Env) {
     business_connection_id: purchase.business_connection_id || undefined,
   }, responseText);
   await saveMessage(env.DB, purchase.chat_id, "assistant", responseText);
+  if (approved && needsDeliveryLink && !purchase.delivery_url) {
+    for (const media of uploadedMedia.results) {
+      await sendTelegramProductMedia(env, {
+        message_id: 0,
+        chat: { id: Number(purchase.chat_id) },
+        business_connection_id: purchase.business_connection_id || undefined,
+      }, media);
+    }
+  }
   if (approved && needsDeliveryLink) {
     const followUp = "I hope you enjoy it! Lmk what you think";
     await sendTelegramMessage(env, {
