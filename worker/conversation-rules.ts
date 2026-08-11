@@ -93,6 +93,12 @@ export function isCatalogContentRequest(text: string) {
     /\b(?:any|some)\s+(?:[a-z0-9&/]+\s+){1,5}(?:videos?|photos?|content|sets?|bundles?)\b/i.test(value);
 }
 
+export function isCatalogBrowseRequest(text: string) {
+  const value = normalizeCasualText(text);
+  return /\b(?:any|some|more|other|different|additional)\s+(?:other\s+)?(?:videos?|photos?|content|sets?|bundles?)\b/i.test(value) ||
+    /\b(?:do you have|have you got|you got)\s+(?:any\s+)?(?:more|other|different|additional)\s+(?:videos?|photos?|content|sets?|bundles?)\b/i.test(value);
+}
+
 export function isCatalogFollowUpQuestion(text: string) {
   const value = text.trim();
   return /^(?:what|anything|something)\s+else\s+(?:(?:do|have)\s+)?you\s+(?:have|got)(?:\s+(?:for sale|available))?[?!. ]*$/i.test(value) ||

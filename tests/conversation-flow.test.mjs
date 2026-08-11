@@ -9,6 +9,7 @@ import {
   isBookingDecline,
   isBotQuestion,
   isCancelReply,
+  isCatalogBrowseRequest,
   isCatalogContentRequest,
   isCatalogFollowUpQuestion,
   isConversationReset,
@@ -73,6 +74,13 @@ test("catalog follow ups stay in the active shopping flow", () => {
     assert.equal(isCatalogFollowUpQuestion(message), true, message);
   }
   assert.equal(isCatalogFollowUpQuestion("What else do you like?"), false);
+});
+
+test("requests for other products open the whole catalog instead of becoming a tag", () => {
+  for (const message of ["Any other videos?", "Do you have other videos?", "More content?", "Any different videos?"]) {
+    assert.equal(isCatalogBrowseRequest(message), true, message);
+  }
+  assert.equal(isCatalogBrowseRequest("Do you have BBC videos?"), false);
 });
 
 test("a fan can explicitly reset a stuck conversation", () => {

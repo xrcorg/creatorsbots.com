@@ -1,7 +1,7 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { bookingDetailsMissing, casualMessageIntent, customDetailsMissing, isAffirmativeReply, isBookingDecline, isBotQuestion, isCancelReply, isCatalogContentRequest, isCatalogFollowUpQuestion, isConversationReset, isCustomDecline, isCustomDetailsFinished, isGenericCancelReply, isLikelyBookingDetailReply, isLikelyCityReply, isLikelyShippingAddress, isLikelyShippingName, isMessageBurst, isPhysicalOrderDecline, isPresenceCheck, isRatingDecline, isSextingDecline, isSextingPackageFollowUp, isTrailerOfferAwaitingConfirmation, normalizeCasualText, parseNameIntroduction } from "./conversation-rules";
+import { bookingDetailsMissing, casualMessageIntent, customDetailsMissing, isAffirmativeReply, isBookingDecline, isBotQuestion, isCancelReply, isCatalogBrowseRequest, isCatalogContentRequest, isCatalogFollowUpQuestion, isConversationReset, isCustomDecline, isCustomDetailsFinished, isGenericCancelReply, isLikelyBookingDetailReply, isLikelyCityReply, isLikelyShippingAddress, isLikelyShippingName, isMessageBurst, isPhysicalOrderDecline, isPresenceCheck, isRatingDecline, isSextingDecline, isSextingPackageFollowUp, isTrailerOfferAwaitingConfirmation, normalizeCasualText, parseNameIntroduction } from "./conversation-rules";
 
 interface Env {
   ASSETS: Fetcher;
@@ -1029,7 +1029,7 @@ function requestedCatalogTag(text: string) {
   ];
   for (const pattern of patterns) {
     const value = text.match(pattern)?.[1]?.trim().replace(/^(?:any|some|your)\s+/i, "");
-    if (value && !/^(?:new|newest|latest|recent|more|available)$/i.test(value)) return value;
+    if (value && !/^(?:new|newest|latest|recent|more|other|different|additional|available|else)$/i.test(value)) return value;
   }
   return null;
 }
@@ -1047,7 +1047,8 @@ function isFreeContentQuestion(text: string) {
 }
 
 function isCatalogListQuestion(text: string) {
-  return /\b(what|which|show me).*(videos|photos|content|packages|bundles).*(have|sell|available)|\b(?:what|see|show me).*(?:have|got).*(?:for sale|available)|\b(?:do you have|got|have you got)\s+(?:any\s+)?(?:videos|photos|content|packages|bundles)\b|\b(?:any|some)\s+(?:videos|photos|content|packages|bundles)(?:\s+(?:for sale|available))?\b|\b(content menu|catalog|shop menu)\b/i.test(text);
+  return isCatalogBrowseRequest(text) ||
+    /\b(what|which|show me).*(videos|photos|content|packages|bundles).*(have|sell|available)|\b(?:what|see|show me).*(?:have|got).*(?:for sale|available)|\b(?:do you have|got|have you got)\s+(?:any\s+)?(?:videos|photos|content|packages|bundles)\b|\b(?:any|some)\s+(?:videos|photos|content|packages|bundles)(?:\s+(?:for sale|available))?\b|\b(content menu|catalog|shop menu)\b/i.test(text);
 }
 
 function askedToShowTrailer(text: string) {
@@ -2781,7 +2782,10 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   const catalogFollowUp = isCatalogFollowUpQuestion(message.text) &&
     Boolean(await getInterestedProduct(env.DB, chatId));
   if (isCatalogListQuestion(message.text) || catalogFollowUp) {
-    const catalog = catalogReply(await getActiveProducts(env.DB));
+    const baseCatalog = catalogReply(await getActiveProducts(env.DB));
+    const catalog = isCustomVideoQuestion(message.text)
+      ? `${baseCatalog}\n\nI make customs too. Send me your idea and how long you want it to be, and I'll review everything and give you a quote.`
+      : baseCatalog;
     await saveMessage(env.DB, chatId, "user", message.text);
     await saveMessage(env.DB, chatId, "assistant", catalog);
     await sendTelegramMessage(env, message, catalog);
