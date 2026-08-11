@@ -441,6 +441,7 @@ async function prepareDatabase(env: Env) {
       chat_id TEXT NOT NULL,
       business_connection_id TEXT,
       question TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'creator',
       status TEXT NOT NULL DEFAULT 'pending',
       answer TEXT,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -805,6 +806,10 @@ async function prepareDatabase(env: Env) {
   }
   await db.prepare(`UPDATE content_products SET stars_price = 5000
     WHERE content_type = 'video_rating' AND stars_price = 0`).run();
+  const pendingReplyColumns = await db.prepare("PRAGMA table_info(pending_replies)").all<{ name: string }>();
+  if (!pendingReplyColumns.results.some((column) => column.name === "source")) {
+    await db.prepare("ALTER TABLE pending_replies ADD COLUMN source TEXT NOT NULL DEFAULT 'creator'").run();
+  }
 }
 
 async function sendTelegramMessage(env: Env, message: TelegramMessage, text: string) {
@@ -1441,11 +1446,57 @@ async function sendSavedReply(env: Env, message: TelegramMessage, chatId: string
   await sendTelegramMessage(env, message, reply);
 }
 
-async function queueCreatorReply(db: D1Database, message: TelegramMessage) {
+async function queueCreatorReply(db: D1Database, message: TelegramMessage, source = "creator") {
   await db.prepare(`INSERT INTO pending_replies
-    (chat_id, business_connection_id, question) VALUES (?, ?, ?)`)
-    .bind(String(message.chat.id), message.business_connection_id || null, message.text || "")
+    (chat_id, business_connection_id, question, source) VALUES (?, ?, ?, ?)`)
+    .bind(String(message.chat.id), message.business_connection_id || null, message.text || "", source)
     .run();
+}
+
+async function processWakeReplies(env: Env) {
+  await prepareDatabase(env);
+  const settings = await getSettings(env.DB);
+  if (settings.response_test_mode !== "on" && isTiffaniSleeping(settings)) {
+    return { processed: 0, sleeping: true };
+  }
+  const chats = await env.DB.prepare(`SELECT chat_id, MAX(business_connection_id) AS business_connection_id
+    FROM pending_replies WHERE status = 'pending' AND source = 'sleep'
+    GROUP BY chat_id ORDER BY MIN(id) ASC LIMIT 50`).all<{
+      chat_id: string;
+      business_connection_id: string | null;
+    }>();
+  let processed = 0;
+  for (const chat of chats.results) {
+    const pending = await env.DB.prepare(`SELECT id, question FROM pending_replies
+      WHERE chat_id = ? AND status = 'pending' AND source = 'sleep'
+      ORDER BY id ASC LIMIT 100`).bind(chat.chat_id).all<{ id: number; question: string }>();
+    if (!pending.results.length) continue;
+    const questions = pending.results.map((item) => item.question.trim()).filter(Boolean).join("\n");
+    let answer = "I saw your messages. What did you want to talk about?";
+    try {
+      const generated = await createAIReply(env, chat.chat_id, questions);
+      if (generated !== CREATOR_TAKEOVER) answer = generated;
+    } catch (error) {
+      console.error("Wake reply generation failed", error);
+    }
+    const reply = `Good morning! Sorry I was sleeping. ${answer}`;
+    const telegramMessage: TelegramMessage = {
+      message_id: 0,
+      chat: { id: Number(chat.chat_id) },
+      business_connection_id: chat.business_connection_id || undefined,
+      text: questions,
+    };
+    await sendTelegramMessage(env, telegramMessage, reply);
+    await saveMessage(env.DB, chat.chat_id, "assistant", reply);
+    const ids = pending.results.map((item) => item.id);
+    for (const id of ids) {
+      await env.DB.prepare(`UPDATE pending_replies SET status = 'answered', answer = ?,
+        answered_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'`)
+        .bind(reply, id).run();
+    }
+    processed += 1;
+  }
+  return { processed, sleeping: false };
 }
 
 async function clearSextingState(db: D1Database, chatId: string) {
@@ -1972,7 +2023,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   }
   if (settings.response_test_mode !== "on" && isTiffaniSleeping(settings)) {
     await saveMessage(env.DB, chatId, "user", message.text);
-    await queueCreatorReply(env.DB, message);
+    await queueCreatorReply(env.DB, message, "sleep");
     return json({ ok: true });
   }
 
@@ -4066,6 +4117,14 @@ async function handleSaleDisputes(request: Request, env: Env) {
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+
+    if (url.pathname === "/api/system/wake-replies" && request.method === "POST") {
+      if (!env.TELEGRAM_WEBHOOK_SECRET ||
+          request.headers.get("x-internal-wake-token") !== env.TELEGRAM_WEBHOOK_SECRET) {
+        return json({ error: "Unauthorized" }, 401);
+      }
+      return json(await processWakeReplies(env));
+    }
 
     if (url.pathname === "/api/telegram/webhook" && request.method === "POST") {
       ctx.waitUntil(handleTelegramWebhook(request.clone(), env).catch((error) => {

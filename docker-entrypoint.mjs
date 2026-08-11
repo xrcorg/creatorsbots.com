@@ -35,7 +35,23 @@ const child = spawn("pnpm", ["exec", "wrangler", "dev", "--config", "dist/server
   env: process.env,
 });
 
+const wakeReplies = async () => {
+  try {
+    await fetch("http://127.0.0.1:3000/api/system/wake-replies", {
+      method: "POST",
+      headers: { "x-internal-wake-token": process.env.TELEGRAM_WEBHOOK_SECRET },
+    });
+  } catch {
+    // The local worker may still be starting. The next check will retry.
+  }
+};
+const wakeTimer = setInterval(wakeReplies, 60_000);
+setTimeout(wakeReplies, 15_000);
+
 for (const signal of ["SIGTERM", "SIGINT"]) {
-  process.on(signal, () => child.kill(signal));
+  process.on(signal, () => {
+    clearInterval(wakeTimer);
+    child.kill(signal);
+  });
 }
 child.on("exit", (code) => process.exit(code ?? 1));
