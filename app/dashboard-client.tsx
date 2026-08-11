@@ -88,6 +88,16 @@ type ContentProduct = {
   created_at: string;
 };
 
+function productTags(value: string) {
+  const seen = new Set<string>();
+  return value.split(/[,;|]+/).map((tag) => tag.trim()).filter((tag) => {
+    const key = tag.toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 type PhysicalOrder = {
   id: number;
   product_title: string;
@@ -381,6 +391,7 @@ export default function Home() {
   const [taskForm, setTaskForm] = useState({ title: "", task_type: "video_chat" as DailyTask["task_type"], scheduled_at: "", fan_name: "", details: "", amount: "" });
   const [scriptForm, setScriptForm] = useState({ stage: "warmup" as SextingScript["stage"], title: "", script_text: "", media_label: "" });
   const [productForm, setProductForm] = useState({ content_type: "video" as ContentProduct["content_type"], title: "", price: "", stars_price: "", genre: "", actors: "", trailer_url: "", delivery_url: "" });
+  const [productTagDraft, setProductTagDraft] = useState("");
   const [editingProductId, setEditingProductId] = useState<number | null>(null);
   const [productFiles, setProductFiles] = useState<File[]>([]);
   const [productUploadKey, setProductUploadKey] = useState(0);
@@ -992,10 +1003,11 @@ export default function Home() {
       if (digitalProduct && !productForm.delivery_url.trim() && !productFiles.length && !existingMediaCount) {
         throw new Error("Add a Dropbox delivery link or choose at least one file to upload");
       }
+      const submittedTags = productTags(`${productForm.genre},${productTagDraft}`).join(", ");
       const response = await fetch(editingProductId ? `/api/admin/products/${editingProductId}` : "/api/admin/products", {
         method: editingProductId ? "PATCH" : "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(productForm),
+        body: JSON.stringify({ ...productForm, genre: submittedTags }),
       });
       if (!response.ok) {
         const data = await response.json() as { error?: string };
@@ -1013,6 +1025,7 @@ export default function Home() {
         }
       }
       setProductForm({ content_type: "video", title: "", price: "", stars_price: "", genre: "", actors: "", trailer_url: "", delivery_url: "" });
+      setProductTagDraft("");
       setEditingProductId(null);
       setProductFiles([]);
       setProductUploadKey((current) => current + 1);
@@ -1028,6 +1041,7 @@ export default function Home() {
     setEditingProductId(product.id);
     setProductFiles([]);
     setProductUploadKey((current) => current + 1);
+    setProductTagDraft("");
     setProductForm({
       content_type: product.content_type,
       title: product.title,
@@ -1043,8 +1057,22 @@ export default function Home() {
   function cancelContentEdit() {
     setEditingProductId(null);
     setProductForm({ content_type: "video", title: "", price: "", stars_price: "", genre: "", actors: "", trailer_url: "", delivery_url: "" });
+    setProductTagDraft("");
     setProductFiles([]);
     setProductUploadKey((current) => current + 1);
+  }
+
+  function addProductTag() {
+    const tags = productTags(`${productForm.genre},${productTagDraft}`);
+    setProductForm((current) => ({ ...current, genre: tags.join(", ") }));
+    setProductTagDraft("");
+  }
+
+  function removeProductTag(index: number) {
+    setProductForm((current) => ({
+      ...current,
+      genre: productTags(current.genre).filter((_, tagIndex) => tagIndex !== index).join(", "),
+    }));
   }
 
   async function updateContentProduct(id: number, action: "toggle" | "remove", active = true) {
@@ -1790,7 +1818,27 @@ export default function Home() {
               <label><span>Title</span><input required value={productForm.title} onChange={(event) => setProductForm((current) => ({ ...current, title: event.target.value }))} placeholder="Content title" /></label>
               <label><span>Price</span><input inputMode="decimal" min="1" required type="number" step="0.01" value={productForm.price} onChange={(event) => setProductForm((current) => ({ ...current, price: event.target.value }))} placeholder="24.99" /></label>
               {productForm.content_type === "video_rating" && <label><span>Telegram Stars price</span><input inputMode="numeric" min="1" required type="number" step="1" value={productForm.stars_price} onChange={(event) => setProductForm((current) => ({ ...current, stars_price: event.target.value }))} placeholder="5000" /><small>Set this separately from the listed dollar value because Telegram’s Star exchange rate can vary.</small></label>}
-              <label><span>Tags</span><input value={productForm.genre} onChange={(event) => setProductForm((current) => ({ ...current, genre: event.target.value }))} placeholder="solo, BBC, interracial" /><small>Separate tags with commas so fans can find content by type.</small></label>
+              <label className="tagField">
+                <span>Tags</span>
+                {productTags(productForm.genre).length > 0 && <div className="tagPool">
+                  {productTags(productForm.genre).map((tag, index) => <span className="tagChip" key={`${tag}:${index}`}>{tag}<button aria-label={`Remove ${tag} tag`} onClick={() => removeProductTag(index)} type="button">×</button></span>)}
+                </div>}
+                <div className="tagComposer">
+                  <input
+                    onChange={(event) => setProductTagDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === ",") {
+                        event.preventDefault();
+                        addProductTag();
+                      }
+                    }}
+                    placeholder="Type a tag, such as solo"
+                    value={productTagDraft}
+                  />
+                  <button className="tagAddButton" disabled={!productTagDraft.trim()} onClick={addProductTag} type="button">Add</button>
+                </div>
+                <small>Add tags one at a time. Press Enter or click Add, then use × to remove one.</small>
+              </label>
               <label><span>Actors</span><input value={productForm.actors} onChange={(event) => setProductForm((current) => ({ ...current, actors: event.target.value }))} placeholder="Names separated by commas" /></label>
               <label><span>Trailer or preview link</span><input type="url" value={productForm.trailer_url} onChange={(event) => setProductForm((current) => ({ ...current, trailer_url: event.target.value }))} placeholder="https://..." /></label>
               <label><span>{["physical_item", "video_rating"].includes(productForm.content_type) ? "Delivery link not needed" : "Dropbox delivery link (optional when uploading files)"}</span><input disabled={["physical_item", "video_rating"].includes(productForm.content_type)} type="url" value={productForm.delivery_url} onChange={(event) => setProductForm((current) => ({ ...current, delivery_url: event.target.value }))} placeholder="https://..." /></label>

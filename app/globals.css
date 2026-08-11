@@ -384,6 +384,15 @@ button { cursor: pointer; }
 .contentCatalog form label:nth-child(2), .contentCatalog form label:nth-child(5), .contentCatalog form label:nth-child(6), .contentCatalog form label:nth-child(7), .contentCatalog form button { grid-column: 1 / -1; }
 .contentCatalog label > span { display: block; margin-bottom: 4px; color: var(--muted); font-size: 9px; }
 .contentCatalog input, .contentCatalog select { width: 100%; border: 1px solid var(--line); border-radius: 9px; padding: 8px; background: #fffafd; color: var(--ink); font-size: 10px; }
+.contentCatalog form .tagField { grid-column: 1 / -1; }
+.tagPool { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 7px; }
+.tagChip { display: inline-flex; align-items: center; gap: 5px; border: 1px solid #efafd0; border-radius: 999px; padding: 5px 7px 5px 9px; background: #fff0f7; color: var(--deep-pink); font-size: 9px; font-weight: 800; }
+.contentCatalog form .tagChip button { grid-column: auto; width: 17px; height: 17px; display: grid; place-items: center; border: 0; border-radius: 50%; padding: 0; background: #f4c4dc; color: #8f255b; font-size: 13px; line-height: 1; }
+.tagComposer { display: flex; align-items: center; gap: 7px; }
+.tagComposer input { flex: 1; min-width: 0; }
+.contentCatalog form .tagAddButton { grid-column: auto; width: auto; margin: 0; border: 1px solid #efafd0; border-radius: 9px; padding: 8px 13px; background: #fff0f7; color: var(--deep-pink); font-size: 10px; font-weight: 800; }
+.contentCatalog form .tagAddButton:disabled { opacity: .45; }
+.tagField > small { display: block; margin-top: 5px; color: var(--muted); font-size: 8px; }
 .catalogList { display: grid; gap: 8px; margin-top: 12px; }
 .catalogList article { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; padding: 10px; border: 1px solid #f1dbe6; border-radius: 12px; background: #fffafd; }
 .catalogList article.inactive { opacity: .62; }
