@@ -349,7 +349,9 @@ export default function Home() {
   const [productFiles, setProductFiles] = useState<File[]>([]);
   const [productUploadKey, setProductUploadKey] = useState(0);
   const [mediaLabel, setMediaLabel] = useState("");
-  const [mediaFile, setMediaFile] = useState<File | null>(null);
+  const [mediaFiles, setMediaFiles] = useState<File[]>([]);
+  const [mediaUploadKey, setMediaUploadKey] = useState(0);
+  const [mediaUploadStatus, setMediaUploadStatus] = useState("");
   const [customLinks, setCustomLinks] = useState<Record<number, string>>({});
   const [customComments, setCustomComments] = useState<Record<number, string>>({});
   const [earnings, setEarnings] = useState<EarningsSummary>({ weekly_cents: 0, weekly_count: 0, all_time_cents: 0, all_time_count: 0, recent: [], history: [] });
@@ -689,19 +691,33 @@ export default function Home() {
 
   async function uploadSextingMedia(event: FormEvent) {
     event.preventDefault();
-    if (!mediaFile || !mediaLabel.trim()) return;
+    if (!mediaFiles.length) return;
     try {
       setLiveLoading(true);
-      const form = new FormData();
-      form.set("label", mediaLabel.trim());
-      form.set("file", mediaFile);
-      const response = await fetch("/api/admin/sexting-media", { method: "POST", body: form });
-      if (!response.ok) throw new Error("Upload failed");
+      setLiveError("");
+      setMediaUploadStatus(`Uploading 0 of ${mediaFiles.length}...`);
+      for (let index = 0; index < mediaFiles.length; index += 1) {
+        const file = mediaFiles[index];
+        const form = new FormData();
+        const baseLabel = mediaLabel.trim() || file.name.replace(/\.[^.]+$/, "").replaceAll(/[_-]+/g, " ");
+        form.set("label", mediaFiles.length > 1 && mediaLabel.trim()
+          ? `${baseLabel} ${index + 1}`
+          : baseLabel);
+        form.set("file", file);
+        const response = await fetch("/api/admin/sexting-media", { method: "POST", body: form });
+        const result = await response.json().catch(() => ({})) as { error?: string };
+        if (!response.ok) throw new Error(`${file.name}: ${result.error || "upload failed"}`);
+        setMediaUploadStatus(`Uploaded ${index + 1} of ${mediaFiles.length}`);
+      }
       setMediaLabel("");
-      setMediaFile(null);
+      setMediaFiles([]);
+      setMediaUploadKey((current) => current + 1);
+      setMediaUploadStatus(`${mediaFiles.length} file${mediaFiles.length === 1 ? "" : "s"} uploaded successfully.`);
       await loadLivePending();
-    } catch {
-      setLiveError("The photo or video could not be uploaded. Please try again.");
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "upload failed";
+      setMediaUploadStatus("");
+      setLiveError(`The photo or video could not be uploaded. ${detail}`);
     } finally {
       setLiveLoading(false);
     }
@@ -1455,9 +1471,11 @@ export default function Home() {
           <section className="mediaLibrary dashboardSection dashboardContent">
             <div className="sectionHeading"><strong>Sexting media library</strong><span>{sextingMedia.length}</span></div>
             <form onSubmit={uploadSextingMedia}>
-              <label><span>Photo or video label</span><input onChange={(event) => setMediaLabel(event.target.value)} placeholder="Pink lingerie tease" value={mediaLabel} /></label>
-              <label><span>Upload approved media</span><input accept="image/*,video/*" onChange={(event) => setMediaFile(event.target.files?.[0] || null)} type="file" /></label>
-              <button className="primaryAction" disabled={liveLoading || !mediaFile || !mediaLabel.trim()}>Upload media</button>
+              <label><span>Optional label</span><input onChange={(event) => setMediaLabel(event.target.value)} placeholder="Lingerie tease" value={mediaLabel} /></label>
+              <label><span>Upload approved photos or videos</span><input key={mediaUploadKey} accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,video/mp4,video/quicktime,video/webm" multiple onChange={(event) => setMediaFiles(Array.from(event.target.files || []))} type="file" /></label>
+              {mediaFiles.length > 0 && <small>{mediaFiles.length} file{mediaFiles.length === 1 ? "" : "s"} selected</small>}
+              {mediaUploadStatus && <small>{mediaUploadStatus}</small>}
+              <button className="primaryAction" disabled={liveLoading || !mediaFiles.length}>{liveLoading ? "Uploading..." : "Upload media"}</button>
             </form>
             <div className="mediaGrid">
               {sextingMedia.map((media) => (

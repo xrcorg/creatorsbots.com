@@ -3285,17 +3285,35 @@ async function handleAdminSextingMedia(request: Request, env: Env, url: URL) {
     const file = form.get("file");
     const label = String(form.get("label") || "").trim();
     if (!(file instanceof File) || !label) return json({ error: "A label and file are required" }, 400);
-    if (!file.type.startsWith("image/") && !file.type.startsWith("video/")) {
-      return json({ error: "Only image and video files are supported" }, 400);
+    if (!file.size) return json({ error: "The selected file is empty" }, 400);
+    if (file.size > 50 * 1024 * 1024) {
+      return json({ error: "Each photo or video must be smaller than 50 MB" }, 413);
     }
-    const mediaType = file.type.startsWith("video/") ? "video" : "image";
+    const extension = file.name.split(".").pop()?.toLowerCase() || "";
+    const imageExtensions = new Set(["jpg", "jpeg", "png", "webp", "gif", "heic", "heif"]);
+    const videoExtensions = new Set(["mp4", "mov", "webm"]);
+    const mediaType = file.type.startsWith("video/") || videoExtensions.has(extension) ? "video"
+      : file.type.startsWith("image/") || imageExtensions.has(extension) ? "image" : null;
+    if (!mediaType) return json({ error: "Use a JPG, PNG, WebP, GIF, HEIC, MP4, MOV, or WebM file" }, 400);
+    const fallbackMimeTypes: Record<string, string> = {
+      jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", gif: "image/gif",
+      heic: "image/heic", heif: "image/heif", mp4: "video/mp4", mov: "video/quicktime", webm: "video/webm",
+    };
+    const mimeType = file.type.startsWith(`${mediaType}/`) ? file.type : fallbackMimeTypes[extension];
+    if (!mimeType) return json({ error: "The file type could not be identified" }, 400);
     const safeName = file.name.replace(/[^a-zA-Z0-9._]/g, "_").slice(-120);
     const r2Key = `sexting/${crypto.randomUUID()}-${safeName}`;
-    await env.MEDIA.put(r2Key, file.stream(), { httpMetadata: { contentType: file.type } });
-    await env.DB.prepare(`INSERT INTO sexting_media
-      (label, media_type, file_name, mime_type, r2_key) VALUES (?, ?, ?, ?, ?)`)
-      .bind(label.slice(0, 160), mediaType, file.name.slice(0, 255), file.type, r2Key).run();
-    return json({ ok: true });
+    try {
+      await env.MEDIA.put(r2Key, await file.arrayBuffer(), { httpMetadata: { contentType: mimeType } });
+      await env.DB.prepare(`INSERT INTO sexting_media
+        (label, media_type, file_name, mime_type, r2_key) VALUES (?, ?, ?, ?, ?)`)
+        .bind(label.slice(0, 160), mediaType, file.name.slice(0, 255), mimeType, r2Key).run();
+      return json({ ok: true });
+    } catch (error) {
+      console.error("Sexting media upload failed", error);
+      await env.MEDIA.delete(r2Key).catch(() => undefined);
+      return json({ error: "Storage could not save this file. Please try again." }, 500);
+    }
   }
   if (match && request.method === "GET" && url.pathname.endsWith("/file")) {
     const media = await env.DB.prepare(`SELECT r2_key, mime_type FROM sexting_media WHERE id = ?`)
