@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   bookingDetailsMissing,
+  casualMessageIntent,
   customDetailsMissing,
   isAffirmativeReply,
   isBookingDecline,
@@ -27,6 +28,7 @@ import {
   isSextingDecline,
   isSextingPackageFollowUp,
   isTrailerOfferAwaitingConfirmation,
+  normalizeCasualText,
   parseNameIntroduction,
 } from "../worker/conversation-rules.ts";
 
@@ -53,6 +55,17 @@ test("specific catalog searches win over stray sexting words", () => {
     assert.equal(isCatalogContentRequest(message), true, message);
   }
   assert.equal(isCatalogContentRequest("Sext"), false);
+});
+
+test("lazy texting and common typos resolve to the intended flow", () => {
+  assert.equal(casualMessageIntent("videos?"), "catalog");
+  assert.equal(casualMessageIntent("vidoes?"), "catalog");
+  assert.equal(casualMessageIntent("custom?"), "custom");
+  assert.equal(casualMessageIntent("custum"), "custom");
+  assert.equal(casualMessageIntent("sex"), "sexting");
+  assert.equal(casualMessageIntent("wyd?"), "activity");
+  assert.equal(casualMessageIntent("videochat?"), "booking");
+  assert.equal(normalizeCasualText("hru?"), "how are you?");
 });
 
 test("catalog follow ups stay in the active shopping flow", () => {

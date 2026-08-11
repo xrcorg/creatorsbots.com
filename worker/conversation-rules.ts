@@ -2,6 +2,31 @@ export function isBotQuestion(text: string) {
   return /\b(are you (?:a )?bot|is this (?:a )?bot|am i talking to (?:a )?bot|is this automated|are these automated responses|who am i talking to|who (?:made|built|programmed|created) you)\b/i.test(text);
 }
 
+export type CasualMessageIntent = "catalog" | "custom" | "sexting" | "activity" | "booking" | null;
+
+export function normalizeCasualText(text: string) {
+  return text.trim().toLowerCase()
+    .replace(/[’]/g, "'")
+    .replace(/\b(?:vidoe|vedio)s?\b/g, "videos")
+    .replace(/\bvids?\b/g, "video")
+    .replace(/\b(?:custum|custm|cusom|costum)s?\b/g, "custom")
+    .replace(/\bvideochat\b/g, "video chat")
+    .replace(/\bwyd\b/g, "what are you doing")
+    .replace(/\bhru\b/g, "how are you")
+    .replace(/\bpix\b/g, "pics")
+    .replace(/\s+/g, " ");
+}
+
+export function casualMessageIntent(text: string): CasualMessageIntent {
+  const value = normalizeCasualText(text).replace(/[?!.]+$/g, "").trim();
+  if (/^(?:videos?|photos?|pics?|content|catalog|menu)$/.test(value)) return "catalog";
+  if (/^(?:customs?|custom (?:video|content|photos?))$/.test(value)) return "custom";
+  if (/^(?:sex|sext|sexting|naughty)$/.test(value)) return "sexting";
+  if (/^(?:what are you doing|what you doing|what are you up to|whats? up)$/.test(value)) return "activity";
+  if (/^(?:video chat|video call|meet|meet up|booking)$/.test(value)) return "booking";
+  return null;
+}
+
 export function bookingDetailsMissing(text: string) {
   const isVideoChat = /\b(video chat|video call)\b/i.test(text);
   const isInPerson = /\b(in person|meet in person|meet and greet)\b/i.test(text);
@@ -60,10 +85,12 @@ export function isPresenceCheck(text: string) {
 }
 
 export function isCatalogContentRequest(text: string) {
-  return /\b(?:do you have|have you got)\s+(?:any\s+)?(?:[a-z0-9&/]+\s+){0,5}(?:videos?|photos?|content|sets?|bundles?)\b/i.test(text) ||
-    /\b(?:i\s+)?(?:want|wanna|would like|like)(?:\s+to)?\s+see\b[\s\S]{0,160}\b(?:videos?|photos?|content|sets?|bundles?)\b/i.test(text) ||
-    /\b(?:show me|looking for|interested in|do you sell)\b[\s\S]{0,120}\b(?:videos?|photos?|content|sets?|bundles?)\b/i.test(text) ||
-    /\b(?:any|some)\s+(?:[a-z0-9&/]+\s+){1,5}(?:videos?|photos?|content|sets?|bundles?)\b/i.test(text);
+  const value = normalizeCasualText(text);
+  return casualMessageIntent(value) === "catalog" ||
+    /\b(?:do you have|have you got)\s+(?:any\s+)?(?:[a-z0-9&/]+\s+){0,5}(?:videos?|photos?|content|sets?|bundles?)\b/i.test(value) ||
+    /\b(?:i\s+)?(?:want|wanna|would like|like)(?:\s+to)?\s+see\b[\s\S]{0,160}\b(?:videos?|photos?|content|sets?|bundles?)\b/i.test(value) ||
+    /\b(?:show me|looking for|interested in|do you sell)\b[\s\S]{0,120}\b(?:videos?|photos?|content|sets?|bundles?)\b/i.test(value) ||
+    /\b(?:any|some)\s+(?:[a-z0-9&/]+\s+){1,5}(?:videos?|photos?|content|sets?|bundles?)\b/i.test(value);
 }
 
 export function isCatalogFollowUpQuestion(text: string) {

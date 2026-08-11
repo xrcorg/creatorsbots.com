@@ -1,7 +1,7 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { bookingDetailsMissing, customDetailsMissing, isAffirmativeReply, isBookingDecline, isBotQuestion, isCancelReply, isCatalogContentRequest, isCatalogFollowUpQuestion, isConversationReset, isCustomDecline, isCustomDetailsFinished, isGenericCancelReply, isLikelyBookingDetailReply, isLikelyCityReply, isLikelyShippingAddress, isLikelyShippingName, isMessageBurst, isPhysicalOrderDecline, isPresenceCheck, isRatingDecline, isSextingDecline, isSextingPackageFollowUp, isTrailerOfferAwaitingConfirmation, parseNameIntroduction } from "./conversation-rules";
+import { bookingDetailsMissing, casualMessageIntent, customDetailsMissing, isAffirmativeReply, isBookingDecline, isBotQuestion, isCancelReply, isCatalogContentRequest, isCatalogFollowUpQuestion, isConversationReset, isCustomDecline, isCustomDetailsFinished, isGenericCancelReply, isLikelyBookingDetailReply, isLikelyCityReply, isLikelyShippingAddress, isLikelyShippingName, isMessageBurst, isPhysicalOrderDecline, isPresenceCheck, isRatingDecline, isSextingDecline, isSextingPackageFollowUp, isTrailerOfferAwaitingConfirmation, normalizeCasualText, parseNameIntroduction } from "./conversation-rules";
 
 interface Env {
   ASSETS: Fetcher;
@@ -1015,7 +1015,8 @@ async function socialReplyFor(db: D1Database, text: string) {
 }
 
 function isProductQuestion(text: string) {
-  return isCatalogContentRequest(text) ||
+  const value = normalizeCasualText(text);
+  return casualMessageIntent(value) === "catalog" || isCatalogContentRequest(value) ||
     /\b(blonde bombshell|trailer|buy (the )?(video|photo|content|panties|clothes|clothing)|purchase (the )?(video|photo|content|panties|clothes|clothing)|video for sale|content for sale|what.*sell|(?:what|see|show me).*(?:have|got).*(?:for sale|available)|(newest|latest|new) (video|photo|content)|most recent (video|photo|content)|panty|panties|worn clothing|clothing item|dick rating|rate my dick|rate my cock|video rating)\b/i.test(text);
 }
 
@@ -1074,11 +1075,15 @@ function isManualPaymentQuestion(text: string) {
 }
 
 function isBookingQuestion(text: string) {
-  return /\b(book|booking|video chat|video call|fan meet|meet and greet|meet in person|in person meet|set something up)\b/i.test(text);
+  const value = normalizeCasualText(text);
+  return casualMessageIntent(value) === "booking" ||
+    /\b(book|booking|video chat|video call|fan meet|meet and greet|meet in person|in person meet|set something up)\b/i.test(value);
 }
 
 function isCustomVideoQuestion(text: string) {
-  return /\b(custom|customs|custom video|custom content|custom photo|custom photos|make me a video|make me content|personalized video|personalized content|another custom|submit another idea|send another idea|give you another idea)\b/i.test(text);
+  const value = normalizeCasualText(text);
+  return casualMessageIntent(value) === "custom" ||
+    /\b(custom|customs|custom video|custom content|custom photo|custom photos|make me a video|make me content|personalized video|personalized content|another custom|submit another idea|send another idea|give you another idea)\b/i.test(value);
 }
 
 function isAnotherCustomIdea(text: string) {
@@ -1108,7 +1113,9 @@ function isTurnaroundQuestion(text: string) {
 }
 
 function isTodayActivityQuestion(text: string) {
-  return /\b(what are you doing(?: today| right now)?|what are you (?:really )?up to(?: today| right now)?|what do you have planned today|plans for today|what's your day looking like|whats your day looking like)\b/i.test(text);
+  const value = normalizeCasualText(text);
+  return casualMessageIntent(value) === "activity" ||
+    /\b(what are you doing(?: today| right now)?|what are you (?:really )?up to(?: today| right now)?|what do you have planned today|plans for today|what's your day looking like|whats your day looking like)\b/i.test(value);
 }
 
 function isMoviePlanFollowUp(text: string) {
@@ -1153,7 +1160,9 @@ function isSextingQuestion(text: string) {
       (isCustomVideoQuestion(text) && !isCustomDecline(text)) ||
       (isPhysicalItemQuestion(text) && !isPhysicalOrderDecline(text)) ||
       (isVideoRatingQuestion(text) && !isRatingDecline(text))) return false;
-  return /\b(sext|sexting|dirty text|dirty texting|text session|i want sex|want to have sex|what are you wearing)\b/i.test(text);
+  const value = normalizeCasualText(text);
+  return casualMessageIntent(value) === "sexting" ||
+    /\b(sext|sexting|dirty text|dirty texting|text session|i want sex|want to have sex|what are you wearing)\b/i.test(value);
 }
 
 function isInPersonSexSolicitation(text: string) {
