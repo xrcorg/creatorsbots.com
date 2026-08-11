@@ -23,6 +23,7 @@ export function normalizeCasualText(text: string) {
     .replace(/\b(?:gtg|g2g)\b/g, "got to go")
     .replace(/\bttyl\b/g, "talk to you later")
     .replace(/\bpix\b/g, "pics")
+    .replace(/\bsell\s+and\s+(?=videos?|photos?|content|sets?|bundles?\b)/g, "sell ")
     .replace(/\s+/g, " ");
 }
 
@@ -111,7 +112,8 @@ export function isCatalogContentRequest(text: string) {
 export function isCatalogBrowseRequest(text: string) {
   const value = normalizeCasualText(text);
   return /\b(?:any|some|more|other|different|additional)\s+(?:other\s+)?(?:videos?|photos?|content|sets?|bundles?)\b/i.test(value) ||
-    /\b(?:do you have|have you got|you got)\s+(?:any\s+)?(?:more|other|different|additional)\s+(?:videos?|photos?|content|sets?|bundles?)\b/i.test(value);
+    /\b(?:do you have|have you got|you got)\s+(?:any\s+)?(?:more|other|different|additional)\s+(?:videos?|photos?|content|sets?|bundles?)\b/i.test(value) ||
+    /\b(?:do you|can you|you)\s+sell\s+(?:any\s+|some\s+)?(?:videos?|photos?|content|sets?|bundles?)\b/i.test(value);
 }
 
 export function isCatalogFollowUpQuestion(text: string) {

@@ -86,7 +86,15 @@ test("catalog follow ups stay in the active shopping flow", () => {
 });
 
 test("requests for other products open the whole catalog instead of becoming a tag", () => {
-  for (const message of ["Any other videos?", "Do you have other videos?", "More content?", "Any different videos?"]) {
+  for (const message of [
+    "Any other videos?",
+    "Do you have other videos?",
+    "More content?",
+    "Any different videos?",
+    "Do you sell videos?",
+    "Do you sell any videos or anything?",
+    "Do you sell and videos or anything?",
+  ]) {
     assert.equal(isCatalogBrowseRequest(message), true, message);
   }
   assert.equal(isCatalogBrowseRequest("Do you have BBC videos?"), false);

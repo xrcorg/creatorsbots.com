@@ -1032,7 +1032,7 @@ function requestedCatalogTag(text: string) {
   ];
   for (const pattern of patterns) {
     const value = text.match(pattern)?.[1]?.trim().replace(/^(?:any|some|your)\s+/i, "");
-    if (value && !/^(?:new|newest|latest|recent|more|other|different|additional|available|else)$/i.test(value)) return value;
+    if (value && !/^(?:and|any|some|your|the|new|newest|latest|recent|more|other|different|additional|available|else)$/i.test(value)) return value;
   }
   return null;
 }
