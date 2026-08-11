@@ -866,7 +866,11 @@ function isBookingQuestion(text: string) {
 }
 
 function isCustomVideoQuestion(text: string) {
-  return /\b(custom|customs|custom video|custom content|custom photo|custom photos|make me a video|make me content|personalized video|personalized content)\b/i.test(text);
+  return /\b(custom|customs|custom video|custom content|custom photo|custom photos|make me a video|make me content|personalized video|personalized content|another custom|submit another idea|send another idea|give you another idea)\b/i.test(text);
+}
+
+function isAnotherCustomIdea(text: string) {
+  return /\b(?:another custom|submit another idea|send another idea|give you another idea)\b/i.test(text);
 }
 
 function isExplicitBusinessRequest(text: string) {
@@ -1989,7 +1993,8 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       return json({ ok: true });
     }
     const initialCustomMissing = customDetailsMissing(message.text);
-    const initialCustomDetails = !initialCustomMissing.description || !initialCustomMissing.duration
+    const initialCustomDetails = !isAnotherCustomIdea(message.text) &&
+      (!initialCustomMissing.description || !initialCustomMissing.duration)
       ? message.text.trim()
       : "";
     await env.DB.prepare(`INSERT INTO custom_drafts (chat_id, business_connection_id, status, details, completion_mode)
