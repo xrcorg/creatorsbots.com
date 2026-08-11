@@ -182,10 +182,14 @@ test("customs require both creative details and a duration", () => {
     duration: false,
     description: false,
   });
+  assert.deepEqual(customDetailsMissing("I want a custom where you say my name and wear pink lingerie\n10"), {
+    duration: false,
+    description: false,
+  });
 });
 
 test("custom collection ends only with an explicit finished phrase", () => {
-  for (const reply of ["yes", "yes, that's all", "done", "finished", "all done", "that's all", "that's everything", "that's it", "nothing else", "no, that's everything", "I'm done"]) {
+  for (const reply of ["yes", "yes, that's all", "done", "finished", "all done", "that's all", "that's everything", "that's it", "nothing else", "no, that's everything", "nope that's it", "I'm done"]) {
     assert.equal(isCustomDetailsFinished(reply), true, reply);
   }
   for (const detail of ["and wear red", "one more thing", "10 minutes", "can you say my name?"]) {

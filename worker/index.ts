@@ -2546,7 +2546,8 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     const newCustomDetails = finishedWithBatch ? customParts.slice(0, -1).join("\n") : message.text.trim();
     const combinedCustomDetails = [customDraft.details.trim(), newCustomDetails]
       .filter(Boolean).join("\n").slice(0, 100000);
-    if (finishedWithBatch) {
+    const finishingMissingDetails = customDraft.completion_mode === "finished_missing";
+    if (finishedWithBatch || finishingMissingDetails) {
       const missingCustomDetails = customDetailsMissing(combinedCustomDetails);
       if (missingCustomDetails.description || missingCustomDetails.duration) {
         const customFollowUp = missingCustomDetails.description && missingCustomDetails.duration
@@ -2554,6 +2555,9 @@ async function handleTelegramWebhook(request: Request, env: Env) {
           : missingCustomDetails.description
             ? "I still need to know what you want me to do. Send the details, then say done when you're finished."
             : "How many minutes do you want the custom to be? Send the length, then say done when you're finished.";
+        await env.DB.prepare(`UPDATE custom_drafts
+          SET details = ?, completion_mode = 'finished_missing', updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?`)
+          .bind(combinedCustomDetails, chatId).run();
         await sendSavedReply(env, message, chatId, customFollowUp);
         return json({ ok: true });
       }

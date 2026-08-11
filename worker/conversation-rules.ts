@@ -52,14 +52,15 @@ export function isLikelyCityReply(text: string) {
 
 export function customDetailsMissing(text: string) {
   const hasDuration = /\b\d+(?:\.\d+)?\s*(?:minute|minutes|min|mins)\b/i.test(text) ||
-    /\b(five|six|seven|eight|nine|ten|fifteen|twenty|thirty)\s*(?:minute|minutes|min|mins)\b/i.test(text);
+    /\b(five|six|seven|eight|nine|ten|fifteen|twenty|thirty)\s*(?:minute|minutes|min|mins)\b/i.test(text) ||
+    /(?:^|\n)\s*(?:[1-9]|[1-9]\d|1[0-2]\d)\s*(?:$|\n)/.test(text);
   const usefulWords = text.replace(/\b(custom|customs|video|content|i want|i would like|please|babe)\b/gi, " ")
     .trim().split(/\s+/).filter(Boolean);
   return { duration: !hasDuration, description: usefulWords.length < 5 };
 }
 
 export function isCustomDetailsFinished(text: string) {
-  return /^(?:yes|yes,? that(?:'s| is) all|yes,? that(?:'s| is) everything|done|finished|all done|complete|i(?:'m| am) done|that(?:'s| is) all|that(?:'s| is) everything|that(?:'s| is) it|nothing else|no,? that(?:'s| is) everything|those are all the details)[.! ]*$/i.test(text.trim());
+  return /^(?:yes|yes,? that(?:'s| is) all|yes,? that(?:'s| is) everything|done|finished|all done|complete|i(?:'m| am) done|that(?:'s| is) all|that(?:'s| is) everything|that(?:'s| is) it|nothing else|no(?:pe)?,? that(?:'s| is) (?:it|all|everything)|those are all the details)[.! ]*$/i.test(text.trim());
 }
 
 export function isMessageBurst(count: number, limit = 15) {
