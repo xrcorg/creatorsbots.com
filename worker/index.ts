@@ -799,7 +799,12 @@ function isGreeting(text: string) {
 }
 
 function isGoodnight(text: string) {
+  if (/\?/.test(text) || /\b(what time|when|normally|usually|bedtime)\b/i.test(text)) return false;
   return /\b(good ?night|going to bed|headed to bed|sleep well|sweet dreams)\b/i.test(text);
+}
+
+function isBedtimeQuestion(text: string) {
+  return /\b(?:what time|when).*(?:go to bed|go to sleep|fall asleep)|\b(?:usual|normal) bedtime\b/i.test(text);
 }
 
 function isThanks(text: string) {
@@ -2004,6 +2009,11 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   if (!collectingCustomDetails && isHowAreYouQuestion(message.text)) {
     await sendSavedReply(env, message, chatId, randomHowAreYouReply(chatId));
     return json({ ok: true });
+  }
+
+  if (!collectingCustomDetails && isBedtimeQuestion(message.text)) {
+    await sendSavedReply(env, message, chatId, "Usually around midnight, but sometimes I stay up a little later. What about you?");
+    return json({ ok: true, bedtime_answered: true });
   }
 
   if (!collectingCustomDetails && isGoodnight(message.text)) {
