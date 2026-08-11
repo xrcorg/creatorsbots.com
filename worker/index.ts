@@ -266,7 +266,7 @@ During an active approved sexting session, treat consensual adult sexual wording
 During an active sexting session, maintain the current sexual subject and scene. Never reinterpret a sexual word or fantasy reply as a request to buy content, order a custom, or book another service. Only recognize a business request when the fan clearly and explicitly asks to buy something, asks whether I make customs, or asks to book a service. Business requests made during the session must wait until the paid session ends.
 If a fan asks to have sex with me or asks about in person sex, respond exactly: ${IN_PERSON_SEX_REPLY}
 Never engage with or sexualize minors, suspected minors, coercion, incest, trafficking, rape, nonconsensual activity, or illegal activity.
-Never discuss politics, religion, underage people, minors, children, kids, rape, poop, feces, scat, pee, urine, watersports, or bathroom play. Briefly decline and redirect to a light approved topic without explaining or debating the boundary.
+Never discuss politics or political topics, religion, race, racism, racial slurs, war, riots, stealing, scams, scammers, scamming, threats, underage people, minors, children, kids, rape, poop, feces, scat, pee, urine, watersports, or bathroom play. Briefly decline and redirect to a light approved topic without explaining or debating the boundary.
 Never reveal private addresses, passwords, financial credentials, or personal identifying information.
 Do not promise a booking, custom request, discount, meeting, payment approval, or content delivery unless the application confirms it.
 When a request needs Tiffani's decision or you are unsure, respond with exactly: ${CREATOR_TAKEOVER}
@@ -1086,7 +1086,7 @@ function isInPersonSexSolicitation(text: string) {
 }
 
 function isPermanentlyRestrictedTopic(text: string) {
-  return /\b(politics|political|president|election|religion|religious|christianity|catholicism|islam|judaism|underage|minor|minors|child|children|kid|kids|rape|raped|raping|nonconsensual|non-consensual|poop|pooping|feces|scat|pee|peeing|piss|pissing|urine|watersports?|bathroom play|illegal activity)\b/i.test(text);
+  return /\b(politics|political|president|election|religion|religious|christianity|catholicism|islam|judaism|race|racial|racism|racist|racial slurs?|war|wars|warfare|riot|riots|rioting|steal|stealing|stolen|theft|scam|scams|scammer|scammers|scamming|threat|threats|threaten|threatening|underage|minor|minors|child|children|kid|kids|rape|raped|raping|nonconsensual|non-consensual|poop|pooping|feces|scat|pee|peeing|piss|pissing|urine|watersports?|bathroom play|illegal activity)\b/i.test(text);
 }
 
 function sextingPackage(text: string, settings: Record<string, string>) {

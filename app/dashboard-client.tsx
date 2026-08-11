@@ -1979,7 +1979,7 @@ export default function Home() {
             </div>
             <div className="fixedBoundaries">
               <strong>Fixed safety boundaries</strong>
-              <p>Politics, religion, underage people, minors, kids, children, rape and nonconsensual activity, scat, pee, poop, urine, watersports, and bathroom play. These cannot be edited or deleted.</p>
+              <p>Politics and political topics, religion, race and racism, racial slurs, war, riots, stealing, scams and scammers, threats, underage people, minors, kids, children, rape and nonconsensual activity, scat, pee, poop, urine, watersports, and bathroom play. These cannot be edited or deleted.</p>
             </div>
           </section>
 
