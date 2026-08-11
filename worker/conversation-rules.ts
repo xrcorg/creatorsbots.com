@@ -62,6 +62,7 @@ export function isPresenceCheck(text: string) {
 export function isCatalogContentRequest(text: string) {
   return /\b(?:do you have|have you got)\s+(?:any\s+)?(?:[a-z0-9&/]+\s+){0,5}(?:videos?|photos?|content|sets?|bundles?)\b/i.test(text) ||
     /\b(?:i\s+)?(?:want|wanna|would like|like)(?:\s+to)?\s+see\b[\s\S]{0,160}\b(?:videos?|photos?|content|sets?|bundles?)\b/i.test(text) ||
+    /\b(?:show me|looking for|interested in|do you sell)\b[\s\S]{0,120}\b(?:videos?|photos?|content|sets?|bundles?)\b/i.test(text) ||
     /\b(?:any|some)\s+(?:[a-z0-9&/]+\s+){1,5}(?:videos?|photos?|content|sets?|bundles?)\b/i.test(text);
 }
 

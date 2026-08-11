@@ -957,6 +957,20 @@ function isProductQuestion(text: string) {
     /\b(blonde bombshell|trailer|buy (the )?(video|photo|content|panties|clothes|clothing)|purchase (the )?(video|photo|content|panties|clothes|clothing)|video for sale|content for sale|what.*sell|(?:what|see|show me).*(?:have|got).*(?:for sale|available)|(newest|latest|new) (video|photo|content)|most recent (video|photo|content)|panty|panties|worn clothing|clothing item|dick rating|rate my dick|rate my cock|video rating)\b/i.test(text);
 }
 
+function requestedCatalogTag(text: string) {
+  const patterns = [
+    /\b(?:do you have|have you got|you have|have|got)\s+(?:any\s+)?([a-z0-9][a-z0-9 '&/-]{0,50}?)\s+(?:videos?|photos?|content|sets?|bundles?)\b/i,
+    /\b(?:want|wanna|would like|like)(?:\s+to)?\s+see\s+(?:any\s+|some\s+)?([a-z0-9][a-z0-9 '&/-]{0,50}?)\s+(?:videos?|photos?|content|sets?|bundles?)\b/i,
+    /\b(?:show me|looking for|interested in|do you sell)\s+(?:any\s+|some\s+)?([a-z0-9][a-z0-9 '&/-]{0,50}?)\s+(?:videos?|photos?|content|sets?|bundles?)\b/i,
+    /\b(?:any|some)\s+([a-z0-9][a-z0-9 '&/-]{0,50}?)\s+(?:videos?|photos?|content|sets?|bundles?)\b/i,
+  ];
+  for (const pattern of patterns) {
+    const value = text.match(pattern)?.[1]?.trim().replace(/^(?:any|some|your)\s+/i, "");
+    if (value && !/^(?:new|newest|latest|recent|more|available)$/i.test(value)) return value;
+  }
+  return null;
+}
+
 function isPhysicalItemQuestion(text: string) {
   return /\b(panty|panties|worn item|worn clothing|clothes|clothing|outfit|lingerie for sale|sell.*(?:panties|clothes|clothing))\b/i.test(text);
 }
@@ -2633,6 +2647,14 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   if (isProductQuestion(message.text) || mentionedProduct) {
     const requestedType = isVideoRatingQuestion(message.text) ? "video_rating"
       : isPhysicalItemQuestion(message.text) ? "physical_item" : null;
+    const requestedTag = requestedCatalogTag(message.text);
+    if (requestedTag && matchingProducts.length === 0 && !requestedType) {
+      const reply = `I don't have any ${requestedTag} videos tagged in my catalog right now, babe. Want to see what else I have?`;
+      await saveMessage(env.DB, chatId, "user", message.text);
+      await saveMessage(env.DB, chatId, "assistant", reply);
+      await sendTelegramMessage(env, message, reply);
+      return json({ ok: true, tag_matches: 0 });
+    }
     const product = mentionedProduct || (requestedType
       ? activeProducts.find((item) => item.content_type === requestedType)
       : activeProducts.find((item) => !["physical_item", "video_rating"].includes(item.content_type)) ||
