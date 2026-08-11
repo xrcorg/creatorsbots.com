@@ -88,6 +88,18 @@ button { cursor: pointer; }
 .ownerMetrics div { display: grid; gap: 4px; padding: 14px; border-radius: 14px; background: #faf6f8; }
 .ownerMetrics span, .ownerMetrics small { color: var(--muted); font-size: 10px; }
 .ownerMetrics strong { color: var(--deep-pink); font-size: 20px; }
+.ownerConversationInbox { margin: 16px 0; padding: 14px; border: 1px solid #f0c6da; border-radius: 16px; background: white; }
+.ownerConversationInbox .sectionHeading > div { display: grid; gap: 3px; }
+.ownerConversationInbox .sectionHeading .eyebrow { margin: 0; }
+.ownerConversationList { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.ownerConversationList > button { min-width: 0; display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 10px; border: 1px solid #f1dbe6; border-radius: 12px; background: #fffafd; color: var(--ink); text-align: left; }
+.ownerConversationList > button > span:nth-child(2) { min-width: 0; display: grid; gap: 3px; }
+.ownerConversationList > button strong, .ownerConversationList > button small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ownerConversationList > button strong { font-size: 10px; }
+.ownerConversationList > button small { color: var(--muted); font-size: 8px; }
+.ownerConversationList > button em { border-radius: 999px; padding: 4px 6px; background: #f3eef1; color: var(--muted); font-size: 7px; font-style: normal; font-weight: 800; text-transform: capitalize; }
+.ownerConversationList > button b { grid-column: 3; justify-self: end; min-width: 18px; height: 18px; display: grid; place-items: center; border-radius: 999px; background: var(--pink); color: white; font-size: 8px; }
+.ownerViewAll { width: 100%; margin-top: 10px; border: 1px solid #f0a9cc; border-radius: 10px; padding: 9px; background: #fff0f7; color: var(--deep-pink); font-size: 9px; font-weight: 850; }
 .creatorSwitcher { margin-top: 10px; }
 .creatorReport { overflow: hidden; border: 1px solid #edcadb; border-radius: 14px; background: white; }
 .creatorReportSummary { display: grid; grid-template-columns: minmax(180px, 1fr) auto auto auto auto; align-items: center; gap: 18px; padding: 13px; }
@@ -472,6 +484,7 @@ button { cursor: pointer; }
   .ownerOverview { padding: 16px; border-radius: 18px; }
   .ownerHeading { display: grid; }
   .ownerMetrics { grid-template-columns: 1fr 1fr; }
+  .ownerConversationList { grid-template-columns: 1fr; }
   .creatorReportSummary { grid-template-columns: 1fr auto; }
   .creatorReportSummary > span:nth-child(2), .creatorReportSummary > span:nth-child(3) { display: none; }
   .dailyReport { grid-template-columns: 1fr; }

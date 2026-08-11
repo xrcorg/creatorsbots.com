@@ -616,6 +616,12 @@ export default function Home() {
     }
   }
 
+  function openConversationFromAdmin(chatId: string) {
+    setDashboardView("inbox");
+    void openConversation(chatId);
+    window.setTimeout(() => document.getElementById("creator-control-room")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  }
+
   async function resolvePurchase(action: "approve" | "decline" | "close_unpaid") {
     const current = livePurchases[0];
     if (!current) return;
@@ -1245,6 +1251,26 @@ export default function Home() {
             <div><span>All time</span><strong>{money(earnings.all_time_cents)}</strong><small>All creators</small></div>
             <div><span>Needs attention</span><strong>{platformOverview.attention_count}</strong><small>Across the platform</small></div>
           </div>
+          <section className="ownerConversationInbox">
+            <div className="sectionHeading">
+              <div><p className="eyebrow">Creator messages</p><strong>Current conversations</strong></div>
+              <span>{conversations.length}</span>
+            </div>
+            {conversations.length ? <div className="ownerConversationList">
+              {conversations.slice(0, 12).map((conversation) => (
+                <button key={conversation.chat_id} onClick={() => openConversationFromAdmin(conversation.chat_id)} type="button">
+                  <span className="conversationAvatar">{conversation.telegram_name.replace(/^@/, "").slice(0, 1).toUpperCase()}</span>
+                  <span>
+                    <strong>{conversation.telegram_name}</strong>
+                    <small>{conversation.last_message || "No saved messages"}</small>
+                  </span>
+                  <em>{conversation.active_workflow}</em>
+                  {Number(conversation.pending_count) > 0 && <b>{conversation.pending_count}</b>}
+                </button>
+              ))}
+            </div> : <p className="queueNote">No creator conversations have been received yet.</p>}
+            {conversations.length > 12 && <button className="ownerViewAll" onClick={() => { setDashboardView("inbox"); window.setTimeout(() => document.getElementById("creator-control-room")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50); }} type="button">View all {conversations.length} conversations</button>}
+          </section>
           <section className="disputeQueue">
             <div className="sectionHeading"><strong>Sale disputes</strong><span>{pendingSaleDisputes.length}</span></div>
             {pendingSaleDisputes.length ? pendingSaleDisputes.map((dispute) => (
@@ -1362,7 +1388,7 @@ export default function Home() {
           </div>
         </aside>
 
-        <aside className="creatorPanel visible" data-dashboard-view={dashboardView}>
+        <aside className="creatorPanel visible" data-dashboard-view={dashboardView} id="creator-control-room">
           <nav className="controlRoomNav" aria-label="Control room sections">
             {(["today", "inbox", "content", "settings", "history"] as const).map((view) => (
               <button className={dashboardView === view ? "active" : ""} key={view} onClick={() => setDashboardView(view)} type="button">
