@@ -1,7 +1,7 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { bookingDetailsMissing, casualMessageIntent, customDetailsMissing, isAffirmativeReply, isAmbiguousSexMessage, isBookingDecline, isBotQuestion, isCancelReply, isCatalogBrowseRequest, isCatalogContentRequest, isCatalogFollowUpQuestion, isConversationReset, isCustomDecline, isCustomDetailsFinished, isGenericCancelReply, isLikelyBookingDetailReply, isLikelyCityReply, isLikelyShippingAddress, isLikelyShippingName, isMessageBurst, isPersonalFactTrainingSuggestion, isPhysicalOrderDecline, isPresenceCheck, isRatingDecline, isSextingDecline, isSextingPackageFollowUp, isTrailerOfferAwaitingConfirmation, normalizeCasualText, parseNameIntroduction, productTitleMatchesMessage } from "./conversation-rules";
+import { bookingDetailsMissing, casualMessageIntent, customDetailsMissing, isAffirmativeReply, isAmbiguousSexMessage, isBookingDecline, isBotQuestion, isCancelReply, isCatalogBrowseRequest, isCatalogContentRequest, isCatalogFollowUpQuestion, isConversationQuestion, isConversationReset, isCustomDecline, isCustomDetailsFinished, isGenericCancelReply, isLikelyBookingDetailReply, isLikelyCityReply, isLikelyShippingAddress, isLikelyShippingName, isMessageBurst, isPersonalFactTrainingSuggestion, isPhysicalOrderDecline, isPresenceCheck, isRatingDecline, isSextingDecline, isSextingPackageFollowUp, isTrailerOfferAwaitingConfirmation, normalizeCasualText, parseNameIntroduction, productTitleMatchesMessage } from "./conversation-rules";
 
 interface Env {
   ASSETS: Fetcher;
@@ -3183,9 +3183,16 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   const expectingBookingCity = bookingDraft?.status === "awaiting_details" &&
     bookingDetailsMissing(priorBookingTextForRouting).includes("city");
   const cancelBookingDraft = isGenericCancelReply(message.text) || isBookingDecline(message.text);
+  const likelyBookingDetail = isLikelyBookingDetailReply(message.text, expectingBookingCity);
+  if (bookingDraft?.status === "awaiting_details" && !cancelBookingDraft &&
+      requestedFlow !== "booking" && isConversationQuestion(message.text) && !likelyBookingDetail) {
+    await env.DB.prepare(`UPDATE booking_drafts SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+      WHERE chat_id = ?`).bind(chatId).run();
+    bookingDraft.status = "cancelled";
+  }
   const shouldHandleBookingDraft = bookingDraft?.status === "awaiting_details" &&
     (cancelBookingDraft || (!isCancelReply(message.text) && (isManualPaymentQuestion(message.text) ||
-      isLikelyBookingDetailReply(message.text, expectingBookingCity))));
+      likelyBookingDetail)));
   if (bookingDraft?.status === "awaiting_details" && shouldHandleBookingDraft) {
     if (cancelBookingDraft) {
       await env.DB.prepare(`UPDATE booking_drafts SET status = 'cancelled',

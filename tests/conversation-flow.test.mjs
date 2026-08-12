@@ -147,6 +147,9 @@ test("ordinary questions are not mistaken for form answers", () => {
   assert.equal(isConversationQuestion("Which movie?"), true);
   assert.equal(isLikelyCityReply("Which movie?"), false);
   assert.equal(isLikelyBookingDetailReply("Which movie?", true), false);
+  assert.equal(isLikelyBookingDetailReply("Got any plans today?"), false);
+  assert.equal(isLikelyBookingDetailReply("Hey Tiffani, how's your morning?"), false);
+  assert.equal(isLikelyBookingDetailReply("What are you doing tonight?"), false);
   assert.equal(isLikelyCustomDetailReply("What are you doing tonight?"), false);
   assert.equal(isLikelyShippingName("I want a video chat"), false);
   assert.equal(isLikelyShippingAddress("How are you?"), false);
@@ -156,6 +159,7 @@ test("natural fulfillment and booking answers remain accepted", () => {
   assert.equal(isLikelyShippingName("Johnny Smith"), true);
   assert.equal(isLikelyShippingAddress("123 Main Street, Los Angeles, CA 90001"), true);
   assert.equal(isLikelyBookingDetailReply("tomorrow at 3 pm"), true);
+  assert.equal(isLikelyBookingDetailReply("What about tomorrow at 3 pm?"), true);
   assert.equal(isLikelyBookingDetailReply("10 minutes"), true);
   assert.equal(isLikelyBookingDetailReply("right now"), true);
   assert.equal(isLikelyBookingDetailReply("rn"), true);

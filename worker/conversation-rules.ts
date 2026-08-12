@@ -207,6 +207,12 @@ export function isLikelyShippingAddress(text: string) {
 export function isLikelyBookingDetailReply(text: string, expectingCity = false) {
   const normalized = normalizeCasualText(text);
   if (/\b(video chat|video call|in person|meet and greet|right now|immediately|asap)\b/i.test(normalized)) return true;
+  // Calendar words also appear in ordinary conversation. Questions about the
+  // creator's day must not revive an unfinished booking draft just because
+  // they contain words such as "today", "tonight", or "morning".
+  if (/\b(?:got|have|any|what(?:'s| is| are)?)\b[\s\S]{0,40}\bplans?\b[\s\S]{0,24}\b(?:today|tonight|tomorrow|this (?:morning|afternoon|evening))\b/i.test(normalized) ||
+      /\b(?:how(?:'s| is)|tell me about)\s+your\s+(?:morning|afternoon|evening|day|night)\b/i.test(normalized) ||
+      /\bwhat (?:are you doing|are you up to|do you have planned)\b/i.test(normalized)) return false;
   if (/\b(today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|morning|afternoon|evening|noon|midnight)\b/i.test(text)) return true;
   if (/\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b|\b\d{1,2}[\/.\-]\d{1,2}(?:[\/.\-]\d{2,4})?\b/i.test(text)) return true;
   if (/\b\d+(?:\.\d+)?\s*(?:minute|minutes|min|mins)\b/i.test(text)) return true;
