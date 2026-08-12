@@ -249,7 +249,12 @@ function productEarningsSource(contentType: string | null | undefined) {
 }
 
 function isVideoChatRequest(text: string) {
-  return /\b(video chat|video call)\b/i.test(text);
+  return /\b(video chat|video call)\b/i.test(normalizeCasualText(text));
+}
+
+function isImmediateVideoChatRequest(text: string) {
+  const value = normalizeCasualText(text);
+  return isVideoChatRequest(value) && /\b(?:right now|now|immediately|asap)\b/i.test(value);
 }
 
 function isInPersonRequest(text: string) {
@@ -258,6 +263,9 @@ function isInPersonRequest(text: string) {
 
 function bookingPrompt(settings: Record<string, string>, requestText = "") {
   if (isVideoChatRequest(requestText)) {
+    if (isImmediateVideoChatRequest(requestText)) {
+      return `I might be able to video chat right now, babe. It's ${dollars(settings.video_chat_rate, 50)} per minute with a 5 minute minimum, and we'll call right here on Telegram. How many minutes do you want? I'll confirm I'm available before you send payment.`;
+    }
     return `Yeah babe. Video chats happen here on Telegram and are ${dollars(settings.video_chat_rate, 50)} per minute with a 5 minute minimum. What date and time works for you, and how many minutes do you want?`;
   }
   if (isInPersonRequest(requestText)) {
@@ -3490,6 +3498,11 @@ async function handleAdminPending(request: Request, env: Env) {
     items: [], stars: 0, star_transaction_count: 0, star_items: [] }));
   return json({
     portal_user: portalUser,
+    payment_methods: {
+      cashapp: currentCreator.cashapp,
+      venmo: currentCreator.venmo,
+      zelle: currentCreator.zelle,
+    },
     pending: pending.results,
     purchases: purchases.results,
     purchase_history: purchaseHistory.results,
@@ -3963,7 +3976,11 @@ async function handleAdminBooking(request: Request, env: Env) {
   if (body.action === "approve" && body.service_type === "video_chat" && duration < 5) {
     return json({ error: "Video chat requires at least 5 minutes" }, 400);
   }
-  const scheduledDate = body.scheduled_at ? new Date(body.scheduled_at) : null;
+  const immediateVideoChat = body.action === "approve" && body.service_type === "video_chat" &&
+    isImmediateVideoChatRequest(booking.details);
+  const scheduledDate = immediateVideoChat
+    ? new Date(Date.now() + 60_000)
+    : body.scheduled_at ? new Date(body.scheduled_at) : null;
   if (body.action === "approve" && body.service_type === "video_chat" &&
       (!scheduledDate || Number.isNaN(scheduledDate.getTime()) || scheduledDate.getTime() <= Date.now())) {
     return json({ error: "Choose a future date and time for the video chat" }, 400);
@@ -3980,7 +3997,9 @@ async function handleAdminBooking(request: Request, env: Env) {
     : Math.round(duration * rate * 100);
   const scheduledAt = scheduledDate?.toISOString().slice(0, 19).replace("T", " ") || "";
   const videoIntro = scheduledDate
-    ? `${answer || "That works for me, babe."}\n\nI have you down for ${formatPacificSchedule(scheduledDate.toISOString())} for ${Math.round(duration)} minutes. The total is ${dollars(String(amountCents / 100), 0)}. We'll video chat right here on Telegram.`
+    ? immediateVideoChat
+      ? `${answer || "I'm available right now, babe."}\n\nThe total for ${Math.round(duration)} minutes is ${dollars(String(amountCents / 100), 0)}. We'll video chat right here on Telegram as soon as I verify your payment.`
+      : `${answer || "That works for me, babe."}\n\nI have you down for ${formatPacificSchedule(scheduledDate.toISOString())} for ${Math.round(duration)} minutes. The total is ${dollars(String(amountCents / 100), 0)}. We'll video chat right here on Telegram.`
     : "";
   const fanAnswer = body.action === "approve" && body.service_type === "video_chat"
     ? manualPaymentMethods(env, videoIntro)

@@ -62,12 +62,14 @@ export function isAmbiguousSexMessage(text: string) {
 }
 
 export function bookingDetailsMissing(text: string) {
-  const isVideoChat = /\b(video chat|video call)\b/i.test(text);
+  const normalized = normalizeCasualText(text);
+  const isVideoChat = /\b(video chat|video call)\b/i.test(normalized);
   const isInPerson = /\b(in person|meet in person|meet and greet)\b/i.test(text);
   const hasService = isVideoChat || isInPerson;
-  const hasDate = /\b(today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|january|february|march|april|may|june|july|august|september|october|november|december)\b/i.test(text) ||
+  const isImmediate = isVideoChat && /\b(?:right now|now|immediately|asap)\b/i.test(normalized);
+  const hasDate = isImmediate || /\b(today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|january|february|march|april|may|june|july|august|september|october|november|december)\b/i.test(text) ||
     /\b\d{1,2}[\/.\-]\d{1,2}(?:[\/.\-]\d{2,4})?\b/.test(text);
-  const hasTime = /\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i.test(text) ||
+  const hasTime = isImmediate || /\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i.test(text) ||
     /\b(noon|midnight|morning|afternoon|evening)\b/i.test(text);
   const hasDuration = /\b\d+(?:\.\d+)?\s*(?:minute|minutes|min|mins)\b/i.test(text) ||
     /\b(five|six|seven|eight|nine|ten|fifteen|twenty|thirty)\s*(?:minute|minutes|min|mins)\b/i.test(text);
@@ -203,7 +205,8 @@ export function isLikelyShippingAddress(text: string) {
 }
 
 export function isLikelyBookingDetailReply(text: string, expectingCity = false) {
-  if (/\b(video chat|video call|in person|meet and greet)\b/i.test(text)) return true;
+  const normalized = normalizeCasualText(text);
+  if (/\b(video chat|video call|in person|meet and greet|right now|immediately|asap)\b/i.test(normalized)) return true;
   if (/\b(today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|morning|afternoon|evening|noon|midnight)\b/i.test(text)) return true;
   if (/\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b|\b\d{1,2}[\/.\-]\d{1,2}(?:[\/.\-]\d{2,4})?\b/i.test(text)) return true;
   if (/\b\d+(?:\.\d+)?\s*(?:minute|minutes|min|mins)\b/i.test(text)) return true;

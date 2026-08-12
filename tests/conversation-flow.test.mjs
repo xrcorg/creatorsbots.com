@@ -157,6 +157,8 @@ test("natural fulfillment and booking answers remain accepted", () => {
   assert.equal(isLikelyShippingAddress("123 Main Street, Los Angeles, CA 90001"), true);
   assert.equal(isLikelyBookingDetailReply("tomorrow at 3 pm"), true);
   assert.equal(isLikelyBookingDetailReply("10 minutes"), true);
+  assert.equal(isLikelyBookingDetailReply("right now"), true);
+  assert.equal(isLikelyBookingDetailReply("rn"), true);
   assert.equal(isLikelyBookingDetailReply("Los Angeles", true), true);
   assert.equal(isLikelyCustomDetailReply("5 minutes wearing red lingerie"), true);
 });
@@ -198,6 +200,8 @@ test("automation questions are recognized consistently", () => {
 
 test("bookings require a service, date, time, and video chat length", () => {
   assert.deepEqual(bookingDetailsMissing("video chat tomorrow at 3 pm for 10 minutes"), []);
+  assert.deepEqual(bookingDetailsMissing("video chat right now for 10 minutes"), []);
+  assert.deepEqual(bookingDetailsMissing("videochat rn for 5 mins"), []);
   assert.deepEqual(bookingDetailsMissing("video chat tomorrow at 3 pm"), ["video chat length"]);
   assert.deepEqual(bookingDetailsMissing("video chat"), ["preferred date", "preferred time", "video chat length"]);
   assert.deepEqual(bookingDetailsMissing("tomorrow at 3 pm"), ["video chat or in person meet"]);

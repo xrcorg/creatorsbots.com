@@ -38,6 +38,12 @@ type LiveBooking = {
   suggested_type: "video_chat" | "custom_content";
 };
 
+type PaymentMethods = {
+  cashapp: string;
+  venmo: string;
+  zelle: string;
+};
+
 type LiveCustom = {
   id: number;
   chat_id?: string;
@@ -417,6 +423,7 @@ export default function Home() {
   const [quickReplyWorkflow, setQuickReplyWorkflow] = useState<"start_custom" | "start_video_chat" | "start_booking" | null>(null);
   const [quickReplyCategory, setQuickReplyCategory] = useState<QuickReplyCategory>("content");
   const [quickReplyProductId, setQuickReplyProductId] = useState(0);
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethods>({ cashapp: "", venmo: "", zelle: "" });
   const [livePurchases, setLivePurchases] = useState<LivePurchase[]>([]);
   const [purchaseHistory, setPurchaseHistory] = useState<LivePurchase[]>([]);
   const [liveBookings, setLiveBookings] = useState<LiveBooking[]>([]);
@@ -489,8 +496,9 @@ export default function Home() {
       setLiveLoading(true);
       const response = await fetch("/api/admin/pending", { cache: "no-store" });
       if (!response.ok) throw new Error("Unable to load the creator inbox");
-      const data = await response.json() as { portal_user: PortalUser; platform_overview: PlatformOverview | null; pending: LivePendingReply[]; conversations: LiveConversation[]; purchases: LivePurchase[]; purchase_history: LivePurchase[]; bookings: LiveBooking[]; customs: LiveCustom[]; custom_history: LiveCustom[]; video_chats: VideoChatOrder[]; video_chat_history: VideoChatOrder[]; sexting_sessions: LiveSextingSession[]; sexting_history: LiveSextingSession[]; sexting_media: SextingMedia[]; sexting_scripts: SextingScript[]; daily_tasks: DailyTask[]; physical_orders: PhysicalOrder[]; physical_order_history: PhysicalOrder[]; rating_orders: RatingOrder[]; rating_order_history: RatingOrder[]; announcements: Announcement[]; social_links: SocialLink[]; training_suggestions: TrainingSuggestion[]; sale_disputes: SaleDispute[]; products: ContentProduct[]; stars: StarsSummary; learned_count: number; earnings: EarningsSummary; settings: CreatorSettings };
+      const data = await response.json() as { portal_user: PortalUser; payment_methods: PaymentMethods; platform_overview: PlatformOverview | null; pending: LivePendingReply[]; conversations: LiveConversation[]; purchases: LivePurchase[]; purchase_history: LivePurchase[]; bookings: LiveBooking[]; customs: LiveCustom[]; custom_history: LiveCustom[]; video_chats: VideoChatOrder[]; video_chat_history: VideoChatOrder[]; sexting_sessions: LiveSextingSession[]; sexting_history: LiveSextingSession[]; sexting_media: SextingMedia[]; sexting_scripts: SextingScript[]; daily_tasks: DailyTask[]; physical_orders: PhysicalOrder[]; physical_order_history: PhysicalOrder[]; rating_orders: RatingOrder[]; rating_order_history: RatingOrder[]; announcements: Announcement[]; social_links: SocialLink[]; training_suggestions: TrainingSuggestion[]; sale_disputes: SaleDispute[]; products: ContentProduct[]; stars: StarsSummary; learned_count: number; earnings: EarningsSummary; settings: CreatorSettings };
       setPortalUser(data.portal_user);
+      setPaymentMethods(data.payment_methods || { cashapp: "", venmo: "", zelle: "" });
       setPlatformOverview(data.platform_overview);
       setLivePending(data.pending);
       setConversations(data.conversations || []);
@@ -774,6 +782,14 @@ export default function Home() {
     const ratingPrice = `$${Number(settings.video_rating_rate || 75).toFixed(2)}`;
     const ratingStars = `${Number(settings.video_rating_stars || 5000).toLocaleString()} Stars`;
     const catalog = products.slice(0, 8).map((item) => `${item.title} · ${money(item.price_cents)}`).join("\n");
+    const paymentList = [
+      paymentMethods.cashapp && `Cash App: ${paymentMethods.cashapp}`,
+      paymentMethods.venmo && `Venmo: ${paymentMethods.venmo}`,
+      paymentMethods.zelle && `Zelle: ${paymentMethods.zelle}`,
+    ].filter(Boolean).join("\n");
+    const videoChatPayment = paymentList
+      ? `You can pay for the video chat with:\n${paymentList}\n\nPut your Telegram username in the notes and send me a screenshot after you pay.`
+      : "I'll send you my payment information as soon as we confirm the video chat length and total.";
     const replies: Record<string, string> = {
       saw_message: "Hey babe, I saw your message. What did you want to know?",
       busy: "Hey babe, I'm busy right now, but I'll reply as soon as I can. Please be patient with me.",
@@ -791,8 +807,11 @@ export default function Home() {
       booking_schedule: "Send me your preferred date and time and tell me if you want a video chat or fan meet and greet. If it's a meet and greet, tell me what city you're in too.",
       booking_contact: "What city are you in, babe? Send me your phone number or email and I'll reach out when I'm in your city.",
       video_chat: `Video chats happen right here on Telegram and are $${settings.video_chat_rate} per minute with a 5 minute minimum. What date and time works for you, and how many minutes do you want?`,
+      video_chat_now: `I might be able to video chat right now, babe. It's $${settings.video_chat_rate} per minute with a 5 minute minimum, and we'll call right here on Telegram. How many minutes do you want? I'll confirm I'm available before you send payment.`,
+      video_chat_not_now: "I can't video chat right this second, babe, but send me a date, time, and how many minutes you want and I'll check my schedule.",
       video_chat_schedule: "Send me your preferred date, time, and how many minutes you want. I'll check my schedule and get back to you.",
       video_chat_confirm: "Yes babe, the video chat will happen right here on Telegram. Once we confirm the date, time, and payment, I'll call you here.",
+      video_chat_payment: videoChatPayment,
       rating_offer: `Yes babe, I do private video ratings. It's ${ratingPrice} or ${ratingStars}. You send me a photo and I'll respond with a short private video rating.`,
       rating_photo: "Send me the photo you want me to rate here. I'll review it after I verify your payment.",
       rating_payment: `The private video rating is ${ratingPrice} or ${ratingStars}. You can pay with Cash App, Venmo, Zelle, or Telegram Stars. Put your Telegram username in the notes and send me a screenshot after you pay.`,
@@ -804,7 +823,7 @@ export default function Home() {
     };
     setConversationReply(replies[template] || "");
     if (["custom_start", "custom_more", "custom_quote"].includes(template)) setQuickReplyWorkflow("start_custom");
-    else if (["video_chat", "video_chat_schedule"].includes(template)) setQuickReplyWorkflow("start_video_chat");
+    else if (["video_chat", "video_chat_now", "video_chat_not_now", "video_chat_schedule", "video_chat_payment"].includes(template)) setQuickReplyWorkflow("start_video_chat");
     else if (["booking_options", "booking_schedule", "booking_contact"].includes(template)) setQuickReplyWorkflow("start_booking");
     else setQuickReplyWorkflow(null);
   }
@@ -944,7 +963,8 @@ export default function Home() {
     if (action === "decline" && !answer) return;
     if (action === "approve" && !bookingDuration.trim()) return;
     if (action === "approve" && bookingType === "custom_content" && !bookingAmount.trim()) return;
-    if (action === "approve" && bookingType === "video_chat" && !bookingScheduledAt) return;
+    const immediateVideoChat = bookingType === "video_chat" && /\b(?:right now|video (?:chat|call) now|immediately|asap|rn)\b/i.test(current.details);
+    if (action === "approve" && bookingType === "video_chat" && !bookingScheduledAt && !immediateVideoChat) return;
     try {
       setLiveLoading(true);
       const response = await fetch("/api/admin/booking", {
@@ -1877,7 +1897,7 @@ export default function Home() {
                       {quickReplyCategory === "content" && <><button onClick={() => fillQuickReply("catalog")} type="button">Show catalog</button><button onClick={() => fillQuickReply("trailer")} type="button">Preview trailer reply</button><button onClick={() => fillQuickReply("product_details")} type="button">Send details</button><button onClick={() => fillQuickReply("product_payment")} type="button">Payment instructions</button><button onClick={() => fillQuickReply("product_delivery")} type="button">Preview delivery reply</button><button className="quickSendContent" onClick={() => void sendQuickProduct("send_product")} type="button">Send Content</button></>}
                       {quickReplyCategory === "custom" && <><button onClick={() => fillQuickReply("custom_start")} type="button">Ask for idea</button><button onClick={() => fillQuickReply("custom_more")} type="button">Anything else</button><button onClick={() => fillQuickReply("custom_review")} type="button">Review request</button><button onClick={() => fillQuickReply("custom_quote")} type="button">Need details first</button><button className="quickSendContent" disabled={!selectedCustom} onClick={() => document.querySelector<HTMLInputElement>(`.paidFulfillmentPanel input[type="url"]`)?.focus()} title={selectedCustom ? "Add the delivery link above" : "Available after a custom payment is confirmed"} type="button">Send finished custom</button></>}
                       {quickReplyCategory === "bookings" && <><button onClick={() => fillQuickReply("booking_options")} type="button">Booking options</button><button onClick={() => fillQuickReply("booking_schedule")} type="button">Date and time</button><button onClick={() => fillQuickReply("booking_contact")} type="button">City and contact</button></>}
-                      {quickReplyCategory === "video_chat" && <><button onClick={() => fillQuickReply("video_chat")} type="button">Rate and minimum</button><button onClick={() => fillQuickReply("video_chat_schedule")} type="button">Ask for schedule</button><button onClick={() => fillQuickReply("video_chat_confirm")} type="button">Confirm Telegram call</button></>}
+                      {quickReplyCategory === "video_chat" && <><button onClick={() => fillQuickReply("video_chat_now")} type="button">Available right now</button><button onClick={() => fillQuickReply("video_chat_not_now")} type="button">Not available now</button><button onClick={() => fillQuickReply("video_chat")} type="button">Rate and minimum</button><button onClick={() => fillQuickReply("video_chat_schedule")} type="button">Ask for schedule</button><button onClick={() => fillQuickReply("video_chat_payment")} type="button">Payment methods</button><button onClick={() => fillQuickReply("video_chat_confirm")} type="button">Confirm Telegram call</button></>}
                       {quickReplyCategory === "ratings" && <><button onClick={() => fillQuickReply("rating_offer")} type="button">Offer video rating</button><button onClick={() => fillQuickReply("rating_photo")} type="button">Request photo</button><button onClick={() => fillQuickReply("rating_payment")} type="button">Rating payment</button><button className="quickSendContent" disabled={!selectedRating} onClick={() => document.querySelector<HTMLInputElement>(`.paidFulfillmentPanel input[type="file"]`)?.click()} title={selectedRating ? "Choose the response video above" : "Available after payment and the rating photo are confirmed"} type="button">Upload and send rating video</button></>}
                       {quickReplyCategory === "payment" && <><button onClick={() => fillQuickReply("payment_options")} type="button">Payment options</button><button onClick={() => fillQuickReply("payment_screenshot")} type="button">Request screenshot</button><button onClick={() => fillQuickReply("payment_received")} type="button">Payment received</button><button className="quickSendContent" disabled={!selectedPurchase} onClick={() => selectedPurchase && void resolvePurchaseById(selectedPurchase.id, "approve")} title={selectedPurchase ? "Confirm and fulfill this paid order" : "Available when this chat has a payment awaiting confirmation"} type="button">Confirm payment and send content</button></>}
                       {quickReplyCategory === "boundaries" && <><button onClick={() => fillQuickReply("telegram_tos")} type="button">Telegram TOS</button><button onClick={() => fillQuickReply("unavailable")} type="button">Cannot help</button></>}
@@ -2249,6 +2269,7 @@ export default function Home() {
                 <span>Confirmed date and time</span>
                 <input min={new Date().toISOString().slice(0, 16)} onChange={(event) => setBookingScheduledAt(event.target.value)} type="datetime-local" value={bookingScheduledAt} />
               </label>}
+              {bookingType === "video_chat" && /\b(?:right now|video (?:chat|call) now|immediately|asap|rn)\b/i.test(liveBookings[0].details) && <p className="queueNote">The fan asked for a video chat right now. You can approve it without choosing another time.</p>}
               {bookingType === "custom_content" ? <label className="amountField">
                 <span>Custom quote total</span>
                 <input inputMode="decimal" min="1" onChange={(event) => setBookingAmount(event.target.value)} placeholder="Enter the amount the creator wants to charge" type="number" value={bookingAmount} />
