@@ -306,7 +306,7 @@ button { cursor: pointer; }
 .starsTotal { display: grid; gap: 4px; }
 .starsOverview span, .starsOverview small { color: var(--muted); font-size: 9px; }
 .starsOverview strong { color: #9b6d00; font-size: 20px; }
-.starsBreakdown { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.starsBreakdown { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .starsBreakdown > span { display: grid; gap: 3px; padding: 9px 11px; border: 1px solid #ead7a7; border-radius: 10px; background: #fffef8; }
 .starsBreakdown b { color: #9b6d00; font-size: 13px; }
 .starsBreakdown small { display: block; }
@@ -588,6 +588,7 @@ button { cursor: pointer; }
   .conversationReplyActions { grid-template-columns: 1fr 1fr; grid-template-rows: auto auto; }
   .conversationReplyActions .clearRequestAction { grid-column: 1 / -1; }
   .starsOverview { grid-template-columns: 1fr; }
+  .starsBreakdown { grid-template-columns: 1fr; }
   .mediaGrid { grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); }
   .mediaGrid img, .mediaGrid video { height: 96px; }
   .footerNote { display: none; }

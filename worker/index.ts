@@ -66,6 +66,10 @@ type TelegramUpdate = {
     total_amount: number;
     invoice_payload: string;
   };
+  paid_media_purchased?: {
+    from: { id: number; username?: string; first_name?: string; last_name?: string };
+    paid_media_payload: string;
+  };
 };
 
 type PortalUser = {
@@ -200,8 +204,9 @@ function productOffer(product: ContentProduct) {
   if (product.content_type === "video_rating") {
     return `I can give you a private video rating for ${videoRatingStars(product).toLocaleString()} Telegram Stars, babe. It's listed at ${productPrice(product)}. After payment, send me your photo and I'll respond with a short video clip. Do you want one?`;
   }
+  const stars = product.stars_price > 0 ? `, or ⭐ ${product.stars_price.toLocaleString()} to unlock it here` : "";
   const trailer = product.trailer_url ? `\n\nDo you want to buy it? Here's a trailer I have as well:\n${product.trailer_url}` : "\n\nDo you want to buy it?";
-  return `I have ${product.title}${product.actors ? `, starring ${product.actors}` : ""}.${product.genre ? ` Tags: ${product.genre}.` : ""} It's ${productPrice(product)}.${trailer}`;
+  return `I have ${product.title}${product.actors ? `, starring ${product.actors}` : ""}.${product.genre ? ` Tags: ${product.genre}.` : ""} It's ${productPrice(product)}${stars}.${trailer}`;
 }
 
 function productPaymentOptions(env: Env, product: ContentProduct) {
@@ -209,8 +214,11 @@ function productPaymentOptions(env: Env, product: ContentProduct) {
     return `Video ratings are ${videoRatingStars(product)} Telegram Stars, babe. I'll send the invoice here, then you can send the photo you want rated after it is paid.`;
   }
   const methods = paymentLines(env);
-  if (!methods) return "I still need to finish setting up my payment methods. I'll get back to you with them.";
-  return `Please send ${productPrice(product)} using:\n${methods}\n\nIn the payment notes, put your Telegram username. After you send it, can you send me a screenshot of the payment?`;
+  const stars = product.stars_price > 0
+    ? `You can unlock it here for ⭐ ${product.stars_price.toLocaleString()} Stars. Just say Stars and I'll send the locked post.\n\n`
+    : "";
+  if (!methods) return stars || "I still need to finish setting up my payment methods. I'll get back to you with them.";
+  return `${stars}Or send ${productPrice(product)} using:\n${methods}\n\nIn the payment notes, put your Telegram username. After you send it, can you send me a screenshot of the payment?`;
 }
 
 function videoRatingStars(product: ContentProduct) {
@@ -540,6 +548,18 @@ async function prepareDatabase(env: Env) {
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_content_product_media_product
       ON content_product_media(product_id, id)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS paid_media_sales (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      purchase_key TEXT NOT NULL UNIQUE,
+      product_id INTEGER NOT NULL,
+      chat_id TEXT NOT NULL,
+      business_connection_id TEXT,
+      telegram_name TEXT NOT NULL DEFAULT 'Telegram fan',
+      stars INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_paid_media_sales_product_created
+      ON paid_media_sales(product_id, created_at)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS product_interest (
       chat_id TEXT PRIMARY KEY,
       product_id INTEGER NOT NULL,
@@ -1036,6 +1056,52 @@ async function sendTelegramProductMedia(env: Env, message: TelegramMessage, medi
   if (!response.ok) throw new Error(`Telegram media send failed with status ${response.status}`);
 }
 
+async function getProductMedia(db: D1Database, productId: number) {
+  const media = await db.prepare(`SELECT id, product_id, media_type, file_name, mime_type, r2_key
+    FROM content_product_media WHERE product_id = ? ORDER BY id ASC LIMIT 11`)
+    .bind(productId).all<ProductMedia>();
+  return media.results;
+}
+
+async function sendTelegramPaidProductMedia(env: Env, message: TelegramMessage,
+  product: ContentProduct, media: ProductMedia[]) {
+  if (!env.TELEGRAM_BOT_TOKEN) throw new Error("TELEGRAM_BOT_TOKEN is not configured");
+  if (!Number.isInteger(product.stars_price) || product.stars_price < 1 || product.stars_price > 25000) {
+    throw new Error("This product does not have a valid Stars unlock price");
+  }
+  if (media.length < 1 || media.length > 10) {
+    throw new Error("A Stars unlock must contain between 1 and 10 uploaded files");
+  }
+
+  const form = new FormData();
+  form.set("chat_id", String(message.chat.id));
+  if (message.business_connection_id) form.set("business_connection_id", message.business_connection_id);
+  form.set("star_count", String(product.stars_price));
+  const purchaseKey = crypto.randomUUID().replaceAll("-", "");
+  form.set("payload", `content:${product.id}:${product.stars_price}:${message.chat.id}:${purchaseKey}`);
+  form.set("caption", `${product.title}\n⭐ ${product.stars_price.toLocaleString()} Stars to unlock`);
+  form.set("protect_content", "true");
+
+  const paidMedia: Array<{ type: "photo" | "video"; media: string }> = [];
+  for (const [index, item] of media.entries()) {
+    const object = await env.MEDIA.get(item.r2_key);
+    if (!object) throw new Error(`Stored product file ${item.id} was not found`);
+    const field = `file${index}`;
+    form.set(field, new File([await object.arrayBuffer()], item.file_name, { type: item.mime_type }));
+    paidMedia.push({ type: item.media_type === "video" ? "video" : "photo", media: `attach://${field}` });
+  }
+  form.set("media", JSON.stringify(paidMedia));
+
+  const response = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendPaidMedia`, {
+    method: "POST",
+    body: form,
+  });
+  if (!response.ok) {
+    const details = await response.text();
+    throw new Error(`Telegram paid media send failed with status ${response.status}: ${details.slice(0, 300)}`);
+  }
+}
+
 async function maybeSendSextingMedia(env: Env, message: TelegramMessage, session: {
   id: number; duration_minutes: number; started_at: string;
 }) {
@@ -1499,8 +1565,42 @@ function catalogReply(products: ContentProduct[]) {
   const saleContent = products.filter((product) => product.content_type !== "video_rating");
   if (!saleContent.length) return "I'm adding new content soon, babe. What kind of content do you want to see?";
   const lines = saleContent.slice(0, 10).map((product) =>
-    `${product.title} · ${product.content_type.replaceAll("_", " ")} · ${product.content_type === "video_rating" ? `${videoRatingStars(product).toLocaleString()} Stars` : productPrice(product)}`);
+    `${product.title} · ${product.content_type.replaceAll("_", " ")} · ${productPrice(product)}${product.stars_price > 0 ? ` · ⭐ ${product.stars_price.toLocaleString()}` : ""}`);
   return `Here's what I have right now, babe:\n\n${lines.join("\n")}\n\nTell me which title you want and I'll show you the details.`;
+}
+
+function isStarsUnlockRequest(text: string) {
+  const value = normalizeCasualText(text);
+  return /\b(?:stars?|telegram stars?|unlock(?: it| this)?|pay(?:ing)? with stars?)\b/i.test(value);
+}
+
+async function sendStarsUnlockForProduct(env: Env, message: TelegramMessage, chatId: string,
+  connectionId: string | null, product: ContentProduct) {
+  if (product.stars_price <= 0) {
+    await sendSavedReply(env, message, chatId,
+      `${product.title} isn't set up for an instant Stars unlock, babe. I can send you the regular payment options instead.`);
+    return { ok: true, stars_unavailable: true };
+  }
+  const previousUnlock = await env.DB.prepare(`SELECT id FROM paid_media_sales
+    WHERE product_id = ? AND chat_id = ? LIMIT 1`).bind(product.id, chatId).first<{ id: number }>();
+  if (previousUnlock) {
+    await sendSavedReply(env, message, chatId,
+      `You already unlocked ${product.title}, babe. It's still in this chat for you.`);
+    return { ok: true, already_unlocked: true };
+  }
+  const media = await getProductMedia(env.DB, product.id);
+  if (media.length < 1 || media.length > 10) {
+    await sendSavedReply(env, message, chatId,
+      `I can't send the locked Stars post for ${product.title} yet, babe. I need to finish adding its uploaded files first.`);
+    return { ok: true, stars_media_unavailable: true };
+  }
+  await rememberProductInterest(env.DB, chatId, connectionId, product.id);
+  const intro = `Here you go, babe. Unlock ${product.title} for ⭐ ${product.stars_price.toLocaleString()} Stars.`;
+  await saveMessage(env.DB, chatId, "user", message.text || "Stars unlock");
+  await saveMessage(env.DB, chatId, "assistant", intro);
+  await sendTelegramMessage(env, message, intro);
+  await sendTelegramPaidProductMedia(env, message, product, media);
+  return { ok: true, paid_media_sent: true };
 }
 
 async function getInterestedProduct(db: D1Database, chatId: string) {
@@ -2299,6 +2399,39 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     await answerPreCheckout(env, update.pre_checkout_query.id, valid,
       valid ? undefined : "This package is no longer available.");
     return json({ ok: true });
+  }
+  if (update.paid_media_purchased) {
+    const purchase = update.paid_media_purchased;
+    const match = purchase.paid_media_payload.match(/^content:(\d+):(\d+):(-?\d+):([a-z0-9]+)$/i);
+    if (!match) return json({ ok: true, ignored_paid_media: true });
+    const [, productIdText, starsText, chatId, purchaseKey] = match;
+    const paidStars = Number(starsText);
+    const product = await env.DB.prepare(`SELECT id, content_type, title, price_cents, stars_price,
+      genre, actors, trailer_url, delivery_url, active, created_at FROM content_products WHERE id = ?`)
+      .bind(Number(productIdText)).first<ContentProduct>();
+    if (!product || !Number.isInteger(paidStars) || paidStars < 1 || paidStars > 25000 ||
+      String(purchase.from.id) !== chatId) {
+      return json({ ok: false, error: "The paid content receipt is invalid." }, 400);
+    }
+    const session = await env.DB.prepare(`SELECT business_connection_id FROM fan_sessions WHERE chat_id = ?`)
+      .bind(chatId).first<{ business_connection_id: string | null }>();
+    const telegramName = purchase.from.username ? `@${purchase.from.username}`
+      : [purchase.from.first_name, purchase.from.last_name].filter(Boolean).join(" ") || "Telegram fan";
+    const inserted = await env.DB.prepare(`INSERT OR IGNORE INTO paid_media_sales
+      (purchase_key, product_id, chat_id, business_connection_id, telegram_name, stars)
+      VALUES (?, ?, ?, ?, ?, ?)`)
+      .bind(purchaseKey, product.id, chatId, session?.business_connection_id || null,
+        telegramName, paidStars).run();
+    if (inserted.meta.changes) {
+      const reply = `Unlocked, babe! I hope you enjoy ${product.title}. Lmk what you think.`;
+      await saveMessage(env.DB, chatId, "assistant", reply);
+      await sendTelegramMessage(env, {
+        message_id: 0,
+        chat: { id: Number(chatId) },
+        business_connection_id: session?.business_connection_id || undefined,
+      }, reply);
+    }
+    return json({ ok: true, paid_media_recorded: Boolean(inserted.meta.changes) });
   }
   const message = update.business_message || update.message;
   if (!message || message.from?.is_bot) return json({ ok: true });
@@ -3264,6 +3397,16 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       searchableTerms.some((term) => normalizedMessage.includes(term));
   });
   const mentionedProduct = matchingProducts[0];
+  if (isStarsUnlockRequest(message.text)) {
+    const product = mentionedProduct || await getInterestedProduct(env.DB, chatId) ||
+      activeProducts.find((item) => !["physical_item", "video_rating"].includes(item.content_type)) || null;
+    if (!product) {
+      await sendSavedReply(env, message, chatId,
+        "I don't have an item ready for a Stars unlock yet, babe. Which content did you want?");
+      return json({ ok: true, stars_product_needed: true });
+    }
+    return json(await sendStarsUnlockForProduct(env, message, chatId, connectionId, product));
+  }
   if (mentionedProduct && await isAwaitingPaidProductTitle(env.DB, chatId)) {
     await rememberProductInterest(env.DB, chatId, connectionId, mentionedProduct.id);
     await submitProductPaymentReview(env, message, chatId, mentionedProduct, message.text);
@@ -3427,14 +3570,19 @@ async function handleAdminPending(request: Request, env: Env) {
     COALESCE(SUM(CASE WHEN revenue_type = 'sexting' THEN stars ELSE 0 END), 0) AS sexting_stars,
     COALESCE(SUM(CASE WHEN revenue_type = 'sexting' THEN 1 ELSE 0 END), 0) AS sexting_count,
     COALESCE(SUM(CASE WHEN revenue_type = 'video_rating' THEN stars ELSE 0 END), 0) AS rating_stars,
-    COALESCE(SUM(CASE WHEN revenue_type = 'video_rating' THEN 1 ELSE 0 END), 0) AS rating_count
+    COALESCE(SUM(CASE WHEN revenue_type = 'video_rating' THEN 1 ELSE 0 END), 0) AS rating_count,
+    COALESCE(SUM(CASE WHEN revenue_type = 'content_unlock' THEN stars ELSE 0 END), 0) AS content_stars,
+    COALESCE(SUM(CASE WHEN revenue_type = 'content_unlock' THEN 1 ELSE 0 END), 0) AS content_count
     FROM (
       SELECT stars, 'sexting' AS revenue_type FROM sexting_sessions
         WHERE stars > 0 AND status != 'disputed_removed'
       UNION ALL
       SELECT stars, 'video_rating' AS revenue_type FROM rating_orders WHERE stars > 0
+      UNION ALL
+      SELECT stars, 'content_unlock' AS revenue_type FROM paid_media_sales WHERE stars > 0
     )`).first<{ total_stars: number; transaction_count: number; sexting_stars: number;
-      sexting_count: number; rating_stars: number; rating_count: number }>();
+      sexting_count: number; rating_stars: number; rating_count: number;
+      content_stars: number; content_count: number }>();
   const sextingMedia = await env.DB.prepare(`SELECT id, label, media_type, file_name,
     mime_type, active, created_at FROM sexting_media ORDER BY id DESC LIMIT 100`).all();
   const contentProducts = await env.DB.prepare(`SELECT content_products.id, content_type, title, price_cents, stars_price,
@@ -3528,6 +3676,11 @@ async function handleAdminPending(request: Request, env: Env) {
       WHERE stars > 0 AND status != 'disputed_removed'
       UNION ALL
       SELECT -id AS id, 'Video rating' AS package_title, stars, created_at FROM rating_orders WHERE stars > 0
+      UNION ALL
+      SELECT (-1000000 - paid_media_sales.id) AS id,
+        content_products.title || ' unlock' AS package_title,
+        paid_media_sales.stars, paid_media_sales.created_at
+      FROM paid_media_sales JOIN content_products ON content_products.id = paid_media_sales.product_id
     ) WHERE created_at >= datetime('now', '-13 days', 'start of day') ORDER BY created_at ASC`)
     .all<{ id: number; package_title: string; stars: number; created_at: string }>();
   const dailyStarsMap = new Map<string, { stars: number; star_transaction_count: number; star_items: typeof dailyStarRows.results }>();
@@ -3589,6 +3742,8 @@ async function handleAdminPending(request: Request, env: Env) {
       sexting_count: starsSummary?.sexting_count || 0,
       ratings: starsSummary?.rating_stars || 0,
       rating_count: starsSummary?.rating_count || 0,
+      content: starsSummary?.content_stars || 0,
+      content_count: starsSummary?.content_count || 0,
     },
     sexting_media: sextingMedia.results,
     products: contentProducts.results,
@@ -3730,13 +3885,15 @@ async function handleAdminProducts(request: Request, env: Env, url: URL) {
     const title = String(body.title || "").trim();
     const contentType = String(body.content_type || "").trim();
     const priceCents = Math.round(Number(body.price || 0) * 100);
-    const starsPrice = contentType === "video_rating" ? Math.round(Number(body.stars_price || 0)) : 0;
+    const starsEligible = ["photo", "photo_package", "video", "video_bundle", "video_rating"].includes(contentType);
+    const starsPrice = starsEligible ? Math.round(Number(body.stars_price || 0)) : 0;
     const trailerUrl = String(body.trailer_url || "").trim();
     const deliveryUrl = String(body.delivery_url || "").trim();
     const allowedTypes = ["photo", "photo_package", "video", "video_bundle", "physical_item", "video_rating"];
     if (!title || !allowedTypes.includes(contentType) ||
       !Number.isFinite(priceCents) || priceCents < 100 || priceCents > 10000000 ||
-      (contentType === "video_rating" && (!Number.isFinite(starsPrice) || starsPrice < 1 || starsPrice > 1000000)) ||
+      (!Number.isFinite(starsPrice) || starsPrice < 0 || starsPrice > 25000) ||
+      (contentType === "video_rating" && starsPrice < 1) ||
       !validHttpUrl(trailerUrl) || !validHttpUrl(deliveryUrl)) {
       return json({ error: "Complete the title, type, price, and use valid links" }, 400);
     }
@@ -3776,13 +3933,15 @@ async function handleAdminProducts(request: Request, env: Env, url: URL) {
     const title = String(body.title || "").trim();
     const contentType = String(body.content_type || "").trim();
     const priceCents = Math.round(Number(body.price || 0) * 100);
-    const starsPrice = contentType === "video_rating" ? Math.round(Number(body.stars_price || 0)) : 0;
+    const starsEligible = ["photo", "photo_package", "video", "video_bundle", "video_rating"].includes(contentType);
+    const starsPrice = starsEligible ? Math.round(Number(body.stars_price || 0)) : 0;
     const trailerUrl = String(body.trailer_url || "").trim();
     const deliveryUrl = String(body.delivery_url || "").trim();
     const allowedTypes = ["photo", "photo_package", "video", "video_bundle", "physical_item", "video_rating"];
     if (!title || !allowedTypes.includes(contentType) ||
       !Number.isFinite(priceCents) || priceCents < 100 || priceCents > 10000000 ||
-      (contentType === "video_rating" && (!Number.isFinite(starsPrice) || starsPrice < 1 || starsPrice > 1000000)) ||
+      (!Number.isFinite(starsPrice) || starsPrice < 0 || starsPrice > 25000) ||
+      (contentType === "video_rating" && starsPrice < 1) ||
       !validHttpUrl(trailerUrl) || !validHttpUrl(deliveryUrl)) {
       return json({ error: "Complete the title, type, price, and use valid links" }, 400);
     }
@@ -4356,8 +4515,8 @@ async function handleAdminTasks(request: Request, env: Env) {
   return json({ ok: true });
 }
 
-async function broadcastAnnouncement(env: Env, announcementId: number, platform: string,
-  message: string, streamUrl: string) {
+async function broadcastAnnouncement(env: Env, announcementId: number, kind: "live" | "new_content" | "custom",
+  platform: string, message: string, streamUrl: string, productId: number) {
   const recipients = await env.DB.prepare(`SELECT chat_id, business_connection_id
     FROM fan_sessions WHERE age_status = 'verified' ORDER BY updated_at DESC LIMIT 2000`)
     .all<{ chat_id: string; business_connection_id: string | null }>();
@@ -4365,14 +4524,35 @@ async function broadcastAnnouncement(env: Env, announcementId: number, platform:
     .bind(recipients.results.length, announcementId).run();
   let delivered = 0;
   let failed = 0;
-  const announcementText = `I'm live on ${platform} right now, babe!${message ? `\n\n${message}` : ""}\n\n${streamUrl}`;
+  const product = kind === "new_content" ? await env.DB.prepare(`SELECT id, content_type, title,
+    price_cents, stars_price, genre, actors, trailer_url, delivery_url, active, created_at
+    FROM content_products WHERE id = ? AND active = 1`).bind(productId).first<ContentProduct>() : null;
+  const paidMedia = product?.stars_price ? await getProductMedia(env.DB, product.id) : [];
+  const unlockedChats = product?.stars_price ? new Set((await env.DB.prepare(`SELECT chat_id
+    FROM paid_media_sales WHERE product_id = ?`).bind(product.id).all<{ chat_id: string }>())
+    .results.map((sale) => sale.chat_id)) : new Set<string>();
+  const productPrices = product
+    ? `${productPrice(product)}${product.stars_price > 0 ? ` · ⭐ ${product.stars_price.toLocaleString()} Stars to unlock here` : ""}`
+    : "";
+  const announcementText = kind === "live"
+    ? `I'm live on ${platform} right now, babe!${message ? `\n\n${message}` : ""}\n\n${streamUrl}`
+    : kind === "new_content" && product
+      ? `${message || "I just added something new, babe!"}\n\n${product.title} · ${productPrices}${product.trailer_url ? `\n\nHere's the preview:\n${product.trailer_url}` : ""}`
+      : `${message}${streamUrl ? `\n\n${streamUrl}` : ""}`;
   for (let index = 0; index < recipients.results.length; index += 20) {
     const batch = recipients.results.slice(index, index + 20);
-    const results = await Promise.allSettled(batch.map((recipient) => sendTelegramMessage(env, {
-      message_id: 0,
-      chat: { id: Number(recipient.chat_id) },
-      business_connection_id: recipient.business_connection_id || undefined,
-    }, announcementText)));
+    const results = await Promise.allSettled(batch.map(async (recipient) => {
+      const telegramMessage: TelegramMessage = {
+        message_id: 0,
+        chat: { id: Number(recipient.chat_id) },
+        business_connection_id: recipient.business_connection_id || undefined,
+      };
+      await sendTelegramMessage(env, telegramMessage, announcementText);
+      if (product && product.stars_price > 0 && paidMedia.length >= 1 && paidMedia.length <= 10 &&
+        !unlockedChats.has(recipient.chat_id)) {
+        await sendTelegramPaidProductMedia(env, telegramMessage, product, paidMedia);
+      }
+    }));
     delivered += results.filter((result) => result.status === "fulfilled").length;
     failed += results.filter((result) => result.status === "rejected").length;
     await env.DB.prepare(`UPDATE announcements SET delivered_count = ?, failed_count = ? WHERE id = ?`)
@@ -4386,17 +4566,39 @@ async function broadcastAnnouncement(env: Env, announcementId: number, platform:
 async function handleAdminAnnouncements(request: Request, env: Env, ctx: ExecutionContext) {
   if (!await isAdminRequest(request, env)) return json({ error: "Sign in required" }, 401);
   await prepareDatabase(env);
-  const body = await request.json() as { platform?: string; message?: string; stream_url?: string };
+  const body = await request.json() as { kind?: "live" | "new_content" | "custom"; platform?: string;
+    message?: string; stream_url?: string; product_id?: number | string };
+  const kind = body.kind || "live";
   const platform = body.platform?.trim().slice(0, 40) || "Live stream";
   const message = body.message?.trim().slice(0, 500) || "";
   const streamUrl = body.stream_url?.trim() || "";
-  if (!validHttpUrl(streamUrl) || !streamUrl.startsWith("https://")) {
+  const productId = Number(body.product_id || 0);
+  if (kind === "live" && (!validHttpUrl(streamUrl) || !streamUrl.startsWith("https://"))) {
     return json({ error: "A secure live stream link is required" }, 400);
   }
+  if (kind === "custom" && (!message || (streamUrl && (!validHttpUrl(streamUrl) || !streamUrl.startsWith("https://"))))) {
+    return json({ error: "Write an announcement and use a secure link if one is included" }, 400);
+  }
+  let announcementPlatform = platform;
+  if (kind === "new_content") {
+    const product = await env.DB.prepare(`SELECT id, stars_price FROM content_products
+      WHERE id = ? AND active = 1 AND content_type IN ('photo', 'photo_package', 'video', 'video_bundle')`)
+      .bind(productId).first<{ id: number; stars_price: number }>();
+    if (!product) return json({ error: "Choose an active digital catalog item" }, 400);
+    if (product.stars_price > 0) {
+      const media = await getProductMedia(env.DB, product.id);
+      if (media.length < 1 || media.length > 10) {
+        return json({ error: "A locked Stars announcement needs 1 to 10 uploaded files" }, 400);
+      }
+    }
+    announcementPlatform = "New content";
+  } else if (kind === "custom") {
+    announcementPlatform = "Announcement";
+  }
   const inserted = await env.DB.prepare(`INSERT INTO announcements
-    (platform, message, stream_url) VALUES (?, ?, ?)`).bind(platform, message, streamUrl).run();
+    (platform, message, stream_url) VALUES (?, ?, ?)`).bind(announcementPlatform, message, streamUrl).run();
   const announcementId = Number(inserted.meta.last_row_id);
-  ctx.waitUntil(broadcastAnnouncement(env, announcementId, platform, message, streamUrl));
+  ctx.waitUntil(broadcastAnnouncement(env, announcementId, kind, platform, message, streamUrl, productId));
   return json({ ok: true, id: announcementId });
 }
 

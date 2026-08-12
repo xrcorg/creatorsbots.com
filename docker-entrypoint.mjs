@@ -48,6 +48,42 @@ const wakeReplies = async () => {
 const wakeTimer = setInterval(wakeReplies, 60_000);
 setTimeout(wakeReplies, 15_000);
 
+let webhookRegistrationAttempts = 0;
+const registerTelegramWebhook = async () => {
+  const appDomain = process.env.APP_DOMAIN?.trim();
+  if (!appDomain) return;
+  webhookRegistrationAttempts += 1;
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/setWebhook`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        url: `https://${appDomain}/api/telegram/webhook`,
+        secret_token: process.env.TELEGRAM_WEBHOOK_SECRET,
+        allowed_updates: [
+          "business_connection",
+          "business_message",
+          "edited_business_message",
+          "deleted_business_messages",
+          "message",
+          "pre_checkout_query",
+          "paid_media_purchased",
+        ],
+      }),
+    });
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error("Telegram rejected the webhook settings.");
+  } catch {
+    if (webhookRegistrationAttempts < 5) {
+      console.error("Telegram webhook registration failed and will retry shortly.");
+      setTimeout(registerTelegramWebhook, 30_000);
+    } else {
+      console.error("Telegram webhook registration failed after five attempts.");
+    }
+  }
+};
+setTimeout(registerTelegramWebhook, 5_000);
+
 for (const signal of ["SIGTERM", "SIGINT"]) {
   process.on(signal, () => {
     clearInterval(wakeTimer);

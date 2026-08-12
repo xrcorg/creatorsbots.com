@@ -212,6 +212,8 @@ type StarsSummary = {
   sexting_count: number;
   ratings: number;
   rating_count: number;
+  content: number;
+  content_count: number;
 };
 
 type SaleDispute = {
@@ -498,7 +500,7 @@ export default function Home() {
   const [videoChatHistory, setVideoChatHistory] = useState<VideoChatOrder[]>([]);
   const [sextingSessions, setSextingSessions] = useState<LiveSextingSession[]>([]);
   const [sextingHistory, setSextingHistory] = useState<LiveSextingSession[]>([]);
-  const [starsSummary, setStarsSummary] = useState<StarsSummary>({ total: 0, count: 0, sexting: 0, sexting_count: 0, ratings: 0, rating_count: 0 });
+  const [starsSummary, setStarsSummary] = useState<StarsSummary>({ total: 0, count: 0, sexting: 0, sexting_count: 0, ratings: 0, rating_count: 0, content: 0, content_count: 0 });
   const [sextingMedia, setSextingMedia] = useState<SextingMedia[]>([]);
   const [contentProducts, setContentProducts] = useState<ContentProduct[]>([]);
   const [sextingScripts, setSextingScripts] = useState<SextingScript[]>([]);
@@ -510,7 +512,7 @@ export default function Home() {
   const [ratingResponseFiles, setRatingResponseFiles] = useState<Record<number, File | null>>({});
   const [trackingNumbers, setTrackingNumbers] = useState<Record<number, string>>({});
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
-  const [announcementForm, setAnnouncementForm] = useState({ platform: "Instagram", message: "", stream_url: "" });
+  const [announcementForm, setAnnouncementForm] = useState({ kind: "live" as "live" | "new_content" | "custom", platform: "Instagram", message: "", stream_url: "", product_id: 0 });
   const [announcementPreview, setAnnouncementPreview] = useState(false);
   const [socialLinks, setSocialLinks] = useState<SocialLink[]>([]);
   const [socialForm, setSocialForm] = useState({ platform: "Instagram", label: "", url: "" });
@@ -576,7 +578,7 @@ export default function Home() {
       setVideoChatHistory(data.video_chat_history || []);
       setSextingSessions(data.sexting_sessions || []);
       setSextingHistory(data.sexting_history || []);
-      setStarsSummary(data.stars || { total: 0, count: 0, sexting: 0, sexting_count: 0, ratings: 0, rating_count: 0 });
+      setStarsSummary(data.stars || { total: 0, count: 0, sexting: 0, sexting_count: 0, ratings: 0, rating_count: 0, content: 0, content_count: 0 });
       setSextingMedia(data.sexting_media || []);
       setContentProducts(data.products || []);
       setSextingScripts(data.sexting_scripts || []);
@@ -1463,7 +1465,7 @@ export default function Home() {
         const data = await response.json() as { error?: string };
         throw new Error(data.error || "Announcement could not be sent");
       }
-      setAnnouncementForm({ platform: "Instagram", message: "", stream_url: "" });
+      setAnnouncementForm({ kind: "live", platform: "Instagram", message: "", stream_url: "", product_id: 0 });
       setAnnouncementPreview(false);
       await loadLivePending();
     } catch (error) {
@@ -1865,6 +1867,7 @@ export default function Home() {
             <div className="starsBreakdown">
               <span><b>⭐ {starsSummary.sexting.toLocaleString()}</b><small>{starsSummary.sexting_count} sexting sessions</small></span>
               <span><b>⭐ {starsSummary.ratings.toLocaleString()}</b><small>{starsSummary.rating_count} dick ratings</small></span>
+              <span><b>⭐ {starsSummary.content.toLocaleString()}</b><small>{starsSummary.content_count} content unlocks</small></span>
             </div>
           </section>
 
@@ -1982,16 +1985,18 @@ export default function Home() {
           </section>
 
           <section className="announcementCenter dashboardSection dashboardToday">
-            <div className="sectionHeading"><strong>Live announcements</strong><span>{announcements.length}</span></div>
-            <p className="queueNote">Send a live stream link to every verified fan chat.</p>
+            <div className="sectionHeading"><strong>Announcements</strong><span>{announcements.length}</span></div>
+            <p className="queueNote">Push a live link, new catalog item, or custom update to every fan chat.</p>
             <div className="announcementForm">
-              <label><span>Platform</span><select value={announcementForm.platform} onChange={(event) => setAnnouncementForm((current) => ({ ...current, platform: event.target.value }))}><option>Instagram</option><option>TikTok</option><option>YouTube</option><option>Twitch</option><option>X</option><option>Pornhub</option><option>OnlyFans</option><option>Other</option></select></label>
-              <label><span>Live stream link</span><input type="url" required placeholder="https://..." value={announcementForm.stream_url} onChange={(event) => setAnnouncementForm((current) => ({ ...current, stream_url: event.target.value }))} /></label>
-              <label className="announcementMessage"><span>Optional message</span><textarea maxLength={500} placeholder="Come hang out with me live!" value={announcementForm.message} onChange={(event) => setAnnouncementForm((current) => ({ ...current, message: event.target.value }))} /></label>
-              {!announcementPreview ? <button className="primaryAction" type="button" disabled={!announcementForm.stream_url.trim()} onClick={() => setAnnouncementPreview(true)}>Review announcement</button> : <div className="announcementPreview"><strong>Preview</strong><p>I'm live on {announcementForm.platform} right now, babe!</p>{announcementForm.message && <p>{announcementForm.message}</p>}<a href={announcementForm.stream_url} rel="noreferrer" target="_blank">{announcementForm.stream_url}</a><button className="primaryAction" type="button" disabled={liveLoading} onClick={() => void sendAnnouncement()}>Send to verified fans</button><button className="secondaryAction" type="button" disabled={liveLoading} onClick={() => setAnnouncementPreview(false)}>Edit</button></div>}
+              <label><span>Announcement type</span><select value={announcementForm.kind} onChange={(event) => { setAnnouncementPreview(false); setAnnouncementForm((current) => ({ ...current, kind: event.target.value as typeof current.kind })); }}><option value="live">Going live</option><option value="new_content">New content</option><option value="custom">Custom update</option></select></label>
+              {announcementForm.kind === "live" && <><label><span>Platform</span><select value={announcementForm.platform} onChange={(event) => setAnnouncementForm((current) => ({ ...current, platform: event.target.value }))}><option>Instagram</option><option>TikTok</option><option>YouTube</option><option>Twitch</option><option>X</option><option>Pornhub</option><option>OnlyFans</option><option>Other</option></select></label><label><span>Live stream link</span><input type="url" required placeholder="https://..." value={announcementForm.stream_url} onChange={(event) => setAnnouncementForm((current) => ({ ...current, stream_url: event.target.value }))} /></label></>}
+              {announcementForm.kind === "new_content" && <label><span>Catalog item</span><select value={announcementForm.product_id} onChange={(event) => setAnnouncementForm((current) => ({ ...current, product_id: Number(event.target.value) }))}><option value={0}>Choose content</option>{contentProducts.filter((product) => product.active && !["physical_item", "video_rating"].includes(product.content_type)).map((product) => <option key={product.id} value={product.id}>{product.title}{product.stars_price > 0 ? ` · ⭐ ${product.stars_price}` : ""}</option>)}</select></label>}
+              {announcementForm.kind === "custom" && <label><span>Optional secure link</span><input type="url" placeholder="https://..." value={announcementForm.stream_url} onChange={(event) => setAnnouncementForm((current) => ({ ...current, stream_url: event.target.value }))} /></label>}
+              <label className="announcementMessage"><span>{announcementForm.kind === "custom" ? "Message" : "Optional message"}</span><textarea maxLength={500} placeholder={announcementForm.kind === "live" ? "Come hang out with me live!" : announcementForm.kind === "new_content" ? "I just added something new, babe!" : "Write your announcement"} value={announcementForm.message} onChange={(event) => setAnnouncementForm((current) => ({ ...current, message: event.target.value }))} /></label>
+              {!announcementPreview ? <button className="primaryAction" type="button" disabled={(announcementForm.kind === "live" && !announcementForm.stream_url.trim()) || (announcementForm.kind === "new_content" && !announcementForm.product_id) || (announcementForm.kind === "custom" && !announcementForm.message.trim())} onClick={() => setAnnouncementPreview(true)}>Review announcement</button> : <div className="announcementPreview"><strong>Preview</strong><p>{announcementForm.kind === "live" ? `I'm live on ${announcementForm.platform} right now, babe!` : announcementForm.kind === "new_content" ? (announcementForm.message || "I just added something new, babe!") : announcementForm.message}</p>{announcementForm.kind === "new_content" && <p>{contentProducts.find((product) => product.id === announcementForm.product_id)?.title}</p>}{announcementForm.kind !== "new_content" && announcementForm.stream_url && <a href={announcementForm.stream_url} rel="noreferrer" target="_blank">{announcementForm.stream_url}</a>}<button className="primaryAction" type="button" disabled={liveLoading} onClick={() => void sendAnnouncement()}>Send to all fan chats</button><button className="secondaryAction" type="button" disabled={liveLoading} onClick={() => setAnnouncementPreview(false)}>Edit</button></div>}
             </div>
             <div className="announcementHistory">
-              {announcements.slice(0, 8).map((announcement) => <article key={announcement.id}><div><strong>{announcement.platform}</strong><a href={announcement.stream_url} rel="noreferrer" target="_blank">Open link</a></div><small>{announcement.status === "sending" ? "Sending now" : `${announcement.delivered_count} delivered${announcement.failed_count ? ` · ${announcement.failed_count} failed` : ""}`} · {new Date(`${announcement.created_at}Z`).toLocaleString()}</small></article>)}
+              {announcements.slice(0, 8).map((announcement) => <article key={announcement.id}><div><strong>{announcement.platform}</strong>{announcement.stream_url && <a href={announcement.stream_url} rel="noreferrer" target="_blank">Open link</a>}</div><small>{announcement.status === "sending" ? "Sending now" : `${announcement.delivered_count} delivered${announcement.failed_count ? ` · ${announcement.failed_count} failed` : ""}`} · {new Date(`${announcement.created_at}Z`).toLocaleString()}</small></article>)}
             </div>
           </section>
 
@@ -2159,7 +2164,7 @@ export default function Home() {
               <label><span>Product type</span><select value={productForm.content_type} onChange={(event) => setProductForm((current) => ({ ...current, content_type: event.target.value as ContentProduct["content_type"] }))}><option value="photo">Photo</option><option value="photo_package">Photo package</option><option value="video">Video</option><option value="video_bundle">Video bundle</option><option value="physical_item">Panties or clothing item</option><option value="video_rating">Private video rating</option></select></label>
               <label><span>Title</span><input required value={productForm.title} onChange={(event) => setProductForm((current) => ({ ...current, title: event.target.value }))} placeholder="Content title" /></label>
               <label><span>Price</span><input inputMode="decimal" min="1" required type="number" step="0.01" value={productForm.price} onChange={(event) => setProductForm((current) => ({ ...current, price: event.target.value }))} placeholder="24.99" /></label>
-              {productForm.content_type === "video_rating" && <label><span>Telegram Stars price</span><input inputMode="numeric" min="1" required type="number" step="1" value={productForm.stars_price} onChange={(event) => setProductForm((current) => ({ ...current, stars_price: event.target.value }))} placeholder="5000" /><small>Set this separately from the listed dollar value because Telegram’s Star exchange rate can vary.</small></label>}
+              {["photo", "photo_package", "video", "video_bundle", "video_rating"].includes(productForm.content_type) && <label><span>{productForm.content_type === "video_rating" ? "Telegram Stars price" : "Locked Telegram Stars price (optional)"}</span><input inputMode="numeric" min={productForm.content_type === "video_rating" ? "1" : "0"} max="25000" required={productForm.content_type === "video_rating"} type="number" step="1" value={productForm.stars_price} onChange={(event) => setProductForm((current) => ({ ...current, stars_price: event.target.value }))} placeholder={productForm.content_type === "video_rating" ? "5000" : "Leave blank to disable"} /><small>{productForm.content_type === "video_rating" ? "Set this separately from the listed dollar value because Telegram’s Star exchange rate can vary." : "Fans can unlock this exact item once inside Telegram. A Stars unlock requires 1 to 10 files uploaded here; Dropbox links remain part of the manual payment flow."}</small></label>}
               <label className="tagField">
                 <span>Tags</span>
                 {productTags(productForm.genre).length > 0 && <div className="tagPool">
@@ -2191,7 +2196,7 @@ export default function Home() {
             <div className="catalogList">
               {contentProducts.map((product) => (
                 <article className={product.active ? "" : "inactive"} key={product.id}>
-                  <div><strong>{product.title}</strong><small>{product.content_type.replaceAll("_", " ")} · {money(product.price_cents)}{product.content_type === "video_rating" ? ` · ⭐ ${product.stars_price.toLocaleString()}` : ""}{product.genre ? ` · Tags: ${product.genre}` : ""}{product.media_count ? ` · ${product.media_count} uploaded file${product.media_count === 1 ? "" : "s"}` : ""}</small></div>
+                  <div><strong>{product.title}</strong><small>{product.content_type.replaceAll("_", " ")} · {money(product.price_cents)}{product.stars_price > 0 ? ` · ⭐ ${product.stars_price.toLocaleString()}` : ""}{product.genre ? ` · Tags: ${product.genre}` : ""}{product.media_count ? ` · ${product.media_count} uploaded file${product.media_count === 1 ? "" : "s"}` : ""}</small></div>
                   <span>{product.active ? "Active" : "Hidden"}</span>
                   <button type="button" onClick={() => editContentProduct(product)}>Edit</button>
                   <button type="button" onClick={() => void updateContentProduct(product.id, "toggle", Boolean(product.active))}>{product.active ? "Hide" : "Activate"}</button>

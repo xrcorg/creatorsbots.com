@@ -4,6 +4,8 @@ This deployment runs isolated Tiffani Madison and Madison Morgan creator instanc
 
 Caddy routes `APP_DOMAIN` to Tiffani and `MADISON_APP_DOMAIN` to Madison. The two instances share the same application code and fixed safety rules, but each uses its own Telegram bot token, webhook secret, Cloudflare Access audience, creator login list, profile, and payment settings.
 
+Each application process registers its own Telegram webhook when it starts. This includes chat, checkout, and paid-media purchase updates, so per-item Stars unlocks are recorded without a separate webhook command.
+
 ## Madison setup values
 
 Add these values to `.env.production` before starting Madison:

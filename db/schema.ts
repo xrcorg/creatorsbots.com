@@ -6,6 +6,7 @@ export const contentProducts = sqliteTable("content_products", {
   contentType: text("content_type").notNull(),
   title: text("title").notNull().unique(),
   priceCents: integer("price_cents").notNull(),
+  starsPrice: integer("stars_price").notNull().default(0),
   genre: text("genre").notNull().default(""),
   actors: text("actors").notNull().default(""),
   trailerUrl: text("trailer_url").notNull().default(""),
@@ -15,6 +16,19 @@ export const contentProducts = sqliteTable("content_products", {
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
   index("idx_content_products_active_created").on(table.active, table.createdAt),
+]);
+
+export const paidMediaSales = sqliteTable("paid_media_sales", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  purchaseKey: text("purchase_key").notNull().unique(),
+  productId: integer("product_id").notNull(),
+  chatId: text("chat_id").notNull(),
+  businessConnectionId: text("business_connection_id"),
+  telegramName: text("telegram_name").notNull().default("Telegram fan"),
+  stars: integer("stars").notNull(),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  index("idx_paid_media_sales_product_created").on(table.productId, table.createdAt),
 ]);
 
 export const productInterest = sqliteTable("product_interest", {
