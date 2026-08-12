@@ -32,6 +32,7 @@ import {
   isTrailerOfferAwaitingConfirmation,
   normalizeCasualText,
   parseNameIntroduction,
+  productTitleMatchesMessage,
 } from "../worker/conversation-rules.ts";
 
 test("natural confirmations are accepted", () => {
@@ -98,6 +99,13 @@ test("requests for other products open the whole catalog instead of becoming a t
     assert.equal(isCatalogBrowseRequest(message), true, message);
   }
   assert.equal(isCatalogBrowseRequest("Do you have BBC videos?"), false);
+});
+
+test("partial catalog titles select the intended product", () => {
+  assert.equal(productTitleMatchesMessage("Blonde Bombshell After Dark", "Can I buy the blonde bombshell"), true);
+  assert.equal(productTitleMatchesMessage("Bday Airtight Orgy", "I want bday airtight"), true);
+  assert.equal(productTitleMatchesMessage("The biggest BBC I've ever taken - Brickzilla", "show me brickzilla"), true);
+  assert.equal(productTitleMatchesMessage("Blonde Bombshell After Dark", "show me a BBC video"), false);
 });
 
 test("a fan can explicitly reset a stuck conversation", () => {

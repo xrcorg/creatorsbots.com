@@ -27,6 +27,26 @@ export function normalizeCasualText(text: string) {
     .replace(/\s+/g, " ");
 }
 
+const PRODUCT_TITLE_STOP_WORDS = new Set([
+  "a", "an", "and", "at", "buy", "can", "content", "for", "from", "have", "i", "in",
+  "is", "it", "me", "my", "of", "on", "or", "please", "the", "this", "to", "video",
+  "videos", "want", "with", "you", "your",
+]);
+
+function productTitleWords(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(/\s+/)
+    .filter((word) => word.length >= 3 && !PRODUCT_TITLE_STOP_WORDS.has(word));
+}
+
+export function productTitleMatchesMessage(title: string, message: string) {
+  const titleWords = productTitleWords(title);
+  if (!titleWords.length) return false;
+  const messageWords = new Set(productTitleWords(message));
+  const matchedWords = titleWords.filter((word) => messageWords.has(word));
+  if (matchedWords.length >= Math.min(2, titleWords.length)) return true;
+  return matchedWords.some((word) => word.length >= 8);
+}
+
 export function casualMessageIntent(text: string): CasualMessageIntent {
   const value = normalizeCasualText(text).replace(/[?!.]+$/g, "").trim();
   if (/^(?:videos?|photos?|pics?|content|catalog|menu)$/.test(value)) return "catalog";

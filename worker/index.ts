@@ -1,7 +1,7 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { bookingDetailsMissing, casualMessageIntent, customDetailsMissing, isAffirmativeReply, isAmbiguousSexMessage, isBookingDecline, isBotQuestion, isCancelReply, isCatalogBrowseRequest, isCatalogContentRequest, isCatalogFollowUpQuestion, isConversationReset, isCustomDecline, isCustomDetailsFinished, isGenericCancelReply, isLikelyBookingDetailReply, isLikelyCityReply, isLikelyShippingAddress, isLikelyShippingName, isMessageBurst, isPhysicalOrderDecline, isPresenceCheck, isRatingDecline, isSextingDecline, isSextingPackageFollowUp, isTrailerOfferAwaitingConfirmation, normalizeCasualText, parseNameIntroduction } from "./conversation-rules";
+import { bookingDetailsMissing, casualMessageIntent, customDetailsMissing, isAffirmativeReply, isAmbiguousSexMessage, isBookingDecline, isBotQuestion, isCancelReply, isCatalogBrowseRequest, isCatalogContentRequest, isCatalogFollowUpQuestion, isConversationReset, isCustomDecline, isCustomDetailsFinished, isGenericCancelReply, isLikelyBookingDetailReply, isLikelyCityReply, isLikelyShippingAddress, isLikelyShippingName, isMessageBurst, isPhysicalOrderDecline, isPresenceCheck, isRatingDecline, isSextingDecline, isSextingPackageFollowUp, isTrailerOfferAwaitingConfirmation, normalizeCasualText, parseNameIntroduction, productTitleMatchesMessage } from "./conversation-rules";
 
 interface Env {
   ASSETS: Fetcher;
@@ -2890,10 +2890,11 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   const activeProducts = await getActiveProducts(env.DB);
   const normalizedMessage = message.text.toLowerCase();
   const matchingProducts = activeProducts.filter((product) => {
-    const searchableTerms = [product.title, product.genre, product.actors,
+    const searchableTerms = [product.genre, product.actors,
       ...product.genre.split(/[,/&;|]+/), ...product.actors.split(/[,/&;|]+/)]
       .map((term) => term.trim().toLowerCase()).filter((term) => term.length >= 3);
-    return searchableTerms.some((term) => normalizedMessage.includes(term));
+    return productTitleMatchesMessage(product.title, message.text) ||
+      searchableTerms.some((term) => normalizedMessage.includes(term));
   });
   const mentionedProduct = matchingProducts[0];
   if (isProductQuestion(message.text) || mentionedProduct) {
