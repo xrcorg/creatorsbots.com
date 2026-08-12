@@ -147,11 +147,11 @@ test("natural cancellations leave unfinished flows", () => {
 
 test("soft sales declines end the pitch without another offer", () => {
   for (const reply of [
-    "I'm good thanks",
     "I've already seen it",
     "pass",
     "passt schon",
     "Hab schon gesehen",
+    "Hab schon gesehen passt schon",
     "nein danke",
     "no gracias",
     "non merci",
@@ -159,7 +159,7 @@ test("soft sales declines end the pitch without another offer", () => {
     assert.equal(isSoftSalesDeclineReply(reply), true, reply);
     assert.equal(isCancelReply(reply), true, reply);
   }
-  for (const reply of ["I'm good, how are you?", "pass me the link", "I want to buy it"]) {
+  for (const reply of ["I'm good", "I'm good, how are you?", "pass me the link", "I want to buy it"]) {
     assert.equal(isSoftSalesDeclineReply(reply), false, reply);
   }
 });
