@@ -154,7 +154,15 @@ export function isConversationReset(text: string) {
 export function isGenericCancelReply(text: string) {
   const value = normalizeCasualText(text);
   return /\b(cancel|cancel that|cancel this|never mind|nevermind|not now|maybe later|no thanks|no thank you|forget it|not interested|changed my mind|don't want it|dont want it|do not want it|not anymore|stop this)\b/i.test(value) ||
-    /^(?:no|nope|neither)(?:\s+(?:thanks|thank you|sorry))?[.! ]*$/i.test(value);
+    /^(?:no|nope|neither)(?:\s+(?:thanks|thank you|sorry))?[.! ]*$/i.test(value) ||
+    isSoftSalesDeclineReply(text);
+}
+
+export function isSoftSalesDeclineReply(text: string) {
+  const value = normalizeCasualText(text);
+  return /^(?:i(?:'m| am)?\s+good|i(?:'m| am)?\s+okay|all good|that(?:'s| is)?\s+(?:okay|fine)|i(?:'ve| have)?\s+already\s+seen\s+it|seen\s+it\s+already|i(?:'ll| will)?\s+pass|pass|not for me)(?:\s+(?:thanks|thank you|sorry))?[.! ]*$/i.test(value) ||
+    /^(?:passt schon|hab(?:e)? (?:ich )?schon gesehen|schon gesehen|kein interesse|nein danke|vielleicht spater|jetzt nicht|brauch(?:e)? ich nicht)[.! ]*$/i.test(value) ||
+    /^(?:no gracias|quizas luego|tal vez luego|ahora no|no me interesa|non merci|peut etre plus tard|pas maintenant)[.! ]*$/i.test(value);
 }
 
 export function isCancelReply(text: string) {

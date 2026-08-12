@@ -1,7 +1,7 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { bookingDetailsMissing, casualMessageIntent, customDetailsMissing, isAffirmativeReply, isAmbiguousSexMessage, isBookingDecline, isBotQuestion, isCancelReply, isCatalogBrowseRequest, isCatalogContentRequest, isCatalogFollowUpQuestion, isConversationQuestion, isConversationReset, isCustomDecline, isCustomDetailsFinished, isGenericCancelReply, isLikelyBookingDetailReply, isLikelyCityReply, isLikelyShippingAddress, isLikelyShippingName, isMessageBurst, isPersonalFactTrainingSuggestion, isPhysicalOrderDecline, isPresenceCheck, isRatingDecline, isSextingDecline, isSextingPackageFollowUp, isTrailerOfferAwaitingConfirmation, normalizeCasualText, parseNameChangeRequest, parseNameIntroduction, productTitleMatchesMessage } from "./conversation-rules";
+import { bookingDetailsMissing, casualMessageIntent, customDetailsMissing, isAffirmativeReply, isAmbiguousSexMessage, isBookingDecline, isBotQuestion, isCancelReply, isCatalogBrowseRequest, isCatalogContentRequest, isCatalogFollowUpQuestion, isConversationQuestion, isConversationReset, isCustomDecline, isCustomDetailsFinished, isGenericCancelReply, isLikelyBookingDetailReply, isLikelyCityReply, isLikelyShippingAddress, isLikelyShippingName, isMessageBurst, isPersonalFactTrainingSuggestion, isPhysicalOrderDecline, isPresenceCheck, isRatingDecline, isSextingDecline, isSextingPackageFollowUp, isSoftSalesDeclineReply, isTrailerOfferAwaitingConfirmation, normalizeCasualText, parseNameChangeRequest, parseNameIntroduction, productTitleMatchesMessage } from "./conversation-rules";
 
 interface Env {
   ASSETS: Fetcher;
@@ -135,9 +135,10 @@ const PORNHUB_URL = "https://www.pornhub.com/pornstar/tiffani-madison";
 const X_URL = "https://x.com/TiffaniMadison_";
 const ALL_LINKS_URL = "https://hubzter.com/profile/electricbarbiestar/";
 const PAYMENT_TERMS = "Sexting sessions are for verified adults only. Sessions begin after successful payment and creator availability. Illegal, nonconsensual, and prohibited requests are refused. Contact me here for payment support.";
-const BOOKING_CANCELLATION_REPLY = "No problem, lmk if you want to video chat!";
-const CUSTOM_CANCELLATION_REPLY = "No problem, lmk if you want a custom!";
-const SEXTING_CANCELLATION_REPLY = "No problem, lmk if you want to sext later!";
+const KIND_SALES_DECLINE_REPLY = "Ok babe, let me know if you change your mind.";
+const BOOKING_CANCELLATION_REPLY = KIND_SALES_DECLINE_REPLY;
+const CUSTOM_CANCELLATION_REPLY = KIND_SALES_DECLINE_REPLY;
+const SEXTING_CANCELLATION_REPLY = KIND_SALES_DECLINE_REPLY;
 const IN_PERSON_SEX_REPLY = "I don't discuss in person sex on here due to Telegram TOS. I don't want to get banned.";
 const SEXTING_BUSINESS_DEFER_REPLY = "We can discuss that after our session is over, babe. For now, stay here with me.";
 const PRODUCT_TITLE = "Blonde Bombshell After Dark";
@@ -3003,7 +3004,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     await clearSextingState(env.DB, chatId);
     const replacementFlow = requestedConversationFlow(message.text);
     if (!replacementFlow || replacementFlow === "sexting") {
-      await sendSavedReply(env, message, chatId, "No problem, babe. We can talk about something else. What's on your mind?");
+      await sendSavedReply(env, message, chatId, KIND_SALES_DECLINE_REPLY);
       return json({ ok: true, sexting_cancelled: true });
     }
   }
@@ -3019,7 +3020,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     if (cancelPhysicalOrder) {
       await env.DB.prepare(`UPDATE physical_orders SET status = 'cancelled' WHERE id = ?`)
         .bind(physicalOrder.id).run();
-      await sendSavedReply(env, message, chatId, "No problem, lmk if you want anything else!");
+      await sendSavedReply(env, message, chatId, KIND_SALES_DECLINE_REPLY);
       return json({ ok: true, physical_order_cancelled: true });
     }
     if (physicalOrder.status === "awaiting_name") {
@@ -3045,7 +3046,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   if (ratingOrder && shouldHandleRatingOrder) {
     if (cancelRatingOrder) {
       await env.DB.prepare(`UPDATE rating_orders SET status = 'cancelled' WHERE id = ?`).bind(ratingOrder.id).run();
-      await sendSavedReply(env, message, chatId, "No problem, lmk if you want a rating later!");
+      await sendSavedReply(env, message, chatId, KIND_SALES_DECLINE_REPLY);
       return json({ ok: true, rating_cancelled: true });
     }
     const photoFileId = message.photo?.at(-1)?.file_id;
@@ -3607,6 +3608,11 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     await saveMessage(env.DB, chatId, "assistant", CAPABILITIES);
     await sendTelegramMessage(env, message, CAPABILITIES);
     return json({ ok: true });
+  }
+
+  if (isSoftSalesDeclineReply(message.text)) {
+    await sendSavedReply(env, message, chatId, KIND_SALES_DECLINE_REPLY);
+    return json({ ok: true, sales_offer_declined: true });
   }
 
   if (isSocialQuestion(message.text)) {

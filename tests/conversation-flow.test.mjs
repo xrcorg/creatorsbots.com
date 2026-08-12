@@ -30,6 +30,7 @@ import {
   isRatingDecline,
   isSextingDecline,
   isSextingPackageFollowUp,
+  isSoftSalesDeclineReply,
   isTrailerOfferAwaitingConfirmation,
   normalizeCasualText,
   parseNameChangeRequest,
@@ -141,6 +142,25 @@ test("natural trailer offers preserve the next affirmative reply", () => {
 test("natural cancellations leave unfinished flows", () => {
   for (const reply of ["not now", "maybe later", "no thanks", "never mind", "neither sorry", "nope", "not interested", "I changed my mind", "I don't want it anymore"]) {
     assert.equal(isCancelReply(reply), true, reply);
+  }
+});
+
+test("soft sales declines end the pitch without another offer", () => {
+  for (const reply of [
+    "I'm good thanks",
+    "I've already seen it",
+    "pass",
+    "passt schon",
+    "Hab schon gesehen",
+    "nein danke",
+    "no gracias",
+    "non merci",
+  ]) {
+    assert.equal(isSoftSalesDeclineReply(reply), true, reply);
+    assert.equal(isCancelReply(reply), true, reply);
+  }
+  for (const reply of ["I'm good, how are you?", "pass me the link", "I want to buy it"]) {
+    assert.equal(isSoftSalesDeclineReply(reply), false, reply);
   }
 });
 
