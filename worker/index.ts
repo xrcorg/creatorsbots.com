@@ -549,6 +549,22 @@ async function prepareDatabase(env: Env) {
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_paid_media_sales_product_created
       ON paid_media_sales(product_id, created_at)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS paid_photo_unlocks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      purchase_key TEXT NOT NULL UNIQUE,
+      chat_id TEXT NOT NULL,
+      business_connection_id TEXT,
+      telegram_name TEXT NOT NULL DEFAULT 'Telegram fan',
+      source_type TEXT NOT NULL,
+      media_id INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      stars INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'offered',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      purchased_at TEXT
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_paid_photo_unlocks_status_created
+      ON paid_photo_unlocks(status, created_at)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS product_interest (
       chat_id TEXT PRIMARY KEY,
       product_id INTEGER NOT NULL,
@@ -1088,6 +1104,36 @@ async function sendTelegramPaidProductMedia(env: Env, message: TelegramMessage,
   if (!response.ok) {
     const details = await response.text();
     throw new Error(`Telegram paid media send failed with status ${response.status}: ${details.slice(0, 300)}`);
+  }
+}
+
+async function sendTelegramPaidPhotoUnlock(env: Env, message: TelegramMessage, media: ProductMedia,
+  stars: number, title: string, purchaseKey: string) {
+  if (!env.TELEGRAM_BOT_TOKEN) throw new Error("TELEGRAM_BOT_TOKEN is not configured");
+  if (!Number.isInteger(stars) || stars < 1 || stars > 25000) {
+    throw new Error("Enter a Stars price between 1 and 25,000");
+  }
+  if (media.media_type !== "image") throw new Error("Choose a photo to send as an unlock");
+  const object = await env.MEDIA.get(media.r2_key);
+  if (!object) throw new Error("The selected photo could not be found in storage");
+
+  const form = new FormData();
+  form.set("chat_id", String(message.chat.id));
+  if (message.business_connection_id) form.set("business_connection_id", message.business_connection_id);
+  form.set("star_count", String(stars));
+  form.set("payload", `photo:${purchaseKey}`);
+  form.set("caption", `${title}\n⭐ ${stars.toLocaleString()} Stars to unlock`);
+  form.set("protect_content", "true");
+  form.set("file0", new File([await object.arrayBuffer()], media.file_name, { type: media.mime_type }));
+  form.set("media", JSON.stringify([{ type: "photo", media: "attach://file0" }]));
+
+  const response = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendPaidMedia`, {
+    method: "POST",
+    body: form,
+  });
+  if (!response.ok) {
+    const details = await response.text();
+    throw new Error(`Telegram paid photo send failed with status ${response.status}: ${details.slice(0, 300)}`);
   }
 }
 
@@ -2037,6 +2083,83 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
     return json({ ok: true, cleared });
   }
 
+  if (request.method === "POST" && url.pathname === "/api/admin/conversations/paid-photo") {
+    const body = await request.json<{ chat_id?: string; source_type?: "sexting" | "catalog";
+      media_id?: number; stars?: number; title?: string }>();
+    const chatId = String(body.chat_id || "").trim();
+    const mediaId = Number(body.media_id || 0);
+    const stars = Number(body.stars || 0);
+    const sourceType = body.source_type === "sexting" ? "sexting"
+      : body.source_type === "catalog" ? "catalog" : null;
+    if (!chatId || !mediaId || !sourceType) {
+      return json({ error: "Choose a conversation and photo first" }, 400);
+    }
+    if (!Number.isInteger(stars) || stars < 1 || stars > 25000) {
+      return json({ error: "Enter a Stars price between 1 and 25,000" }, 400);
+    }
+    const conversation = await env.DB.prepare(`SELECT fan_sessions.chat_id, fan_sessions.business_connection_id,
+      COALESCE(telegram_contacts.username, telegram_contacts.display_name, fan_profiles.name, 'Telegram fan') AS telegram_name
+      FROM fan_sessions
+      LEFT JOIN telegram_contacts ON telegram_contacts.chat_id = fan_sessions.chat_id
+      LEFT JOIN fan_profiles ON fan_profiles.chat_id = fan_sessions.chat_id
+      WHERE fan_sessions.chat_id = ?`).bind(chatId).first<{
+        chat_id: string; business_connection_id: string | null; telegram_name: string;
+      }>();
+    if (!conversation) return json({ error: "Conversation not found" }, 404);
+
+    let media: ProductMedia | null = null;
+    let defaultTitle = "Private photo";
+    if (sourceType === "sexting") {
+      media = await env.DB.prepare(`SELECT id, 0 AS product_id, media_type, file_name, mime_type, r2_key
+        FROM sexting_media WHERE id = ? AND active = 1 AND media_type = 'image'`)
+        .bind(mediaId).first<ProductMedia>();
+      const label = await env.DB.prepare(`SELECT label FROM sexting_media
+        WHERE id = ? AND active = 1 AND media_type = 'image'`).bind(mediaId).first<{ label: string }>();
+      defaultTitle = label?.label?.trim() || defaultTitle;
+    } else {
+      const catalogMedia = await env.DB.prepare(`SELECT content_product_media.id,
+        content_product_media.product_id, content_product_media.media_type,
+        content_product_media.file_name, content_product_media.mime_type, content_product_media.r2_key,
+        content_products.title
+        FROM content_product_media JOIN content_products
+          ON content_products.id = content_product_media.product_id
+        WHERE content_product_media.id = ? AND content_product_media.media_type = 'image'
+          AND content_products.active = 1`).bind(mediaId).first<ProductMedia & { title: string }>();
+      media = catalogMedia;
+      defaultTitle = catalogMedia?.title ? `${catalogMedia.title} photo` : defaultTitle;
+    }
+    if (!media) return json({ error: "That photo is no longer available" }, 404);
+
+    const title = String(body.title || defaultTitle).trim().slice(0, 120) || "Private photo";
+    const purchaseKey = crypto.randomUUID().replaceAll("-", "");
+    await env.DB.prepare(`INSERT INTO paid_photo_unlocks
+      (purchase_key, chat_id, business_connection_id, telegram_name, source_type, media_id, title, stars)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).bind(purchaseKey, chatId,
+        conversation.business_connection_id || null, conversation.telegram_name, sourceType, mediaId, title, stars).run();
+    try {
+      await sendTelegramPaidPhotoUnlock(env, {
+        message_id: 0,
+        chat: { id: Number(chatId) },
+        business_connection_id: conversation.business_connection_id || undefined,
+      }, media, stars, title, purchaseKey);
+    } catch (error) {
+      await env.DB.prepare("DELETE FROM paid_photo_unlocks WHERE purchase_key = ? AND status = 'offered'")
+        .bind(purchaseKey).run();
+      throw error;
+    }
+    const savedReply = `Sent a locked photo: ${title} · ⭐ ${stars.toLocaleString()} Stars`;
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO conversation_controls (chat_id, control_mode, taken_over_by, updated_at)
+        VALUES (?, 'human', ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(chat_id) DO UPDATE SET control_mode = 'human', taken_over_by = excluded.taken_over_by,
+        updated_at = CURRENT_TIMESTAMP`).bind(chatId, portalUser.email),
+      env.DB.prepare(`UPDATE pending_replies SET status = 'answered', answer = ?, answered_at = CURRENT_TIMESTAMP
+        WHERE chat_id = ? AND status = 'pending'`).bind(savedReply, chatId),
+    ]);
+    await saveMessage(env.DB, chatId, "assistant", savedReply);
+    return json({ ok: true });
+  }
+
   if (request.method === "POST" && url.pathname === "/api/admin/conversations/reply") {
     const body = await request.json<{ chat_id?: string; text?: string;
       action?: "send" | "pause" | "resume" | "dismiss" | "send_trailer" | "send_product";
@@ -2421,6 +2544,33 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   }
   if (update.paid_media_purchased) {
     const purchase = update.paid_media_purchased;
+    const photoMatch = purchase.paid_media_payload.match(/^photo:([a-z0-9]+)$/i);
+    if (photoMatch) {
+      const unlock = await env.DB.prepare(`SELECT id, chat_id, business_connection_id, title, stars, status
+        FROM paid_photo_unlocks WHERE purchase_key = ?`).bind(photoMatch[1]).first<{
+          id: number; chat_id: string; business_connection_id: string | null;
+          title: string; stars: number; status: string;
+        }>();
+      if (!unlock || String(purchase.from.id) !== unlock.chat_id) {
+        return json({ ok: false, error: "The paid photo receipt is invalid." }, 400);
+      }
+      if (unlock.status === "purchased") return json({ ok: true, duplicate_paid_photo: true });
+      const telegramName = purchase.from.username ? `@${purchase.from.username}`
+        : [purchase.from.first_name, purchase.from.last_name].filter(Boolean).join(" ") || "Telegram fan";
+      const recorded = await env.DB.prepare(`UPDATE paid_photo_unlocks SET status = 'purchased',
+        telegram_name = ?, purchased_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND status = 'offered'`).bind(telegramName, unlock.id).run();
+      if (recorded.meta.changes) {
+        const reply = `Unlocked, babe! I hope you enjoy the photo. Lmk what you think.`;
+        await saveMessage(env.DB, unlock.chat_id, "assistant", reply);
+        await sendTelegramMessage(env, {
+          message_id: 0,
+          chat: { id: Number(unlock.chat_id) },
+          business_connection_id: unlock.business_connection_id || undefined,
+        }, reply);
+      }
+      return json({ ok: true, paid_photo_recorded: Boolean(recorded.meta.changes) });
+    }
     const match = purchase.paid_media_payload.match(/^content:(\d+):(\d+):(-?\d+):([a-z0-9]+)$/i);
     if (!match) return json({ ok: true, ignored_paid_media: true });
     const [, productIdText, starsText, chatId, purchaseKey] = match;
@@ -3611,6 +3761,9 @@ async function handleAdminPending(request: Request, env: Env) {
       SELECT stars, 'video_rating' AS revenue_type FROM rating_orders WHERE stars > 0
       UNION ALL
       SELECT stars, 'content_unlock' AS revenue_type FROM paid_media_sales WHERE stars > 0
+      UNION ALL
+      SELECT stars, 'content_unlock' AS revenue_type FROM paid_photo_unlocks
+        WHERE stars > 0 AND status = 'purchased'
     )`).first<{ total_stars: number; transaction_count: number; sexting_stars: number;
       sexting_count: number; rating_stars: number; rating_count: number;
       content_stars: number; content_count: number }>();
@@ -3620,6 +3773,13 @@ async function handleAdminPending(request: Request, env: Env) {
     genre, actors, trailer_url, delivery_url, active, content_products.created_at,
     (SELECT COUNT(*) FROM content_product_media WHERE product_id = content_products.id) AS media_count
     FROM content_products ORDER BY content_products.id DESC LIMIT 200`).all();
+  const catalogPhotoMedia = await env.DB.prepare(`SELECT content_product_media.id,
+    content_product_media.product_id, content_product_media.file_name, content_product_media.mime_type,
+    content_products.title AS product_title
+    FROM content_product_media JOIN content_products
+      ON content_products.id = content_product_media.product_id
+    WHERE content_product_media.media_type = 'image' AND content_products.active = 1
+    ORDER BY content_products.id DESC, content_product_media.id ASC LIMIT 500`).all();
   const sextingScripts = await env.DB.prepare(`SELECT id, stage, title, script_text,
     media_label, active, created_at FROM sexting_scripts ORDER BY id ASC LIMIT 200`).all();
   const dailyTasks = await env.DB.prepare(`SELECT id, title, task_type, scheduled_at,
@@ -3712,6 +3872,10 @@ async function handleAdminPending(request: Request, env: Env) {
         content_products.title || ' unlock' AS package_title,
         paid_media_sales.stars, paid_media_sales.created_at
       FROM paid_media_sales JOIN content_products ON content_products.id = paid_media_sales.product_id
+      UNION ALL
+      SELECT (-2000000 - id) AS id, title || ' unlock' AS package_title,
+        stars, COALESCE(purchased_at, created_at) AS created_at
+      FROM paid_photo_unlocks WHERE status = 'purchased' AND stars > 0
     ) WHERE created_at >= datetime('now', '-13 days', 'start of day') ORDER BY created_at ASC`)
     .all<{ id: number; package_title: string; stars: number; created_at: string }>();
   const dailyStarsMap = new Map<string, { stars: number; star_transaction_count: number; star_items: typeof dailyStarRows.results }>();
@@ -3778,6 +3942,7 @@ async function handleAdminPending(request: Request, env: Env) {
     },
     sexting_media: sextingMedia.results,
     products: contentProducts.results,
+    catalog_photo_media: catalogPhotoMedia.results,
     sexting_scripts: sextingScripts.results,
     daily_tasks: dailyTasks.results,
     physical_orders: physicalOrders.results,

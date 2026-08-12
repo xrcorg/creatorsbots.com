@@ -111,6 +111,14 @@ type ContentProduct = {
   created_at: string;
 };
 
+type CatalogPhotoMedia = {
+  id: number;
+  product_id: number;
+  file_name: string;
+  mime_type: string;
+  product_title: string;
+};
+
 function productTags(value: string) {
   const seen = new Set<string>();
   return value.split(/[,;|]+/).map((tag) => tag.trim()).filter((tag) => {
@@ -424,6 +432,10 @@ export default function Home() {
   const [quickReplyWorkflow, setQuickReplyWorkflow] = useState<"start_custom" | "start_video_chat" | "start_booking" | null>(null);
   const [quickReplyCategory, setQuickReplyCategory] = useState<QuickReplyCategory>("content");
   const [quickReplyProductId, setQuickReplyProductId] = useState(0);
+  const [paidPhotoSource, setPaidPhotoSource] = useState<"sexting" | "catalog">("sexting");
+  const [paidPhotoMediaId, setPaidPhotoMediaId] = useState(0);
+  const [paidPhotoStars, setPaidPhotoStars] = useState("");
+  const [paidPhotoTitle, setPaidPhotoTitle] = useState("");
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethods>({ cashapp: "", venmo: "", zelle: "" });
   const [livePurchases, setLivePurchases] = useState<LivePurchase[]>([]);
   const [purchaseHistory, setPurchaseHistory] = useState<LivePurchase[]>([]);
@@ -437,6 +449,7 @@ export default function Home() {
   const [starsSummary, setStarsSummary] = useState<StarsSummary>({ total: 0, count: 0, sexting: 0, sexting_count: 0, ratings: 0, rating_count: 0, content: 0, content_count: 0 });
   const [sextingMedia, setSextingMedia] = useState<SextingMedia[]>([]);
   const [contentProducts, setContentProducts] = useState<ContentProduct[]>([]);
+  const [catalogPhotoMedia, setCatalogPhotoMedia] = useState<CatalogPhotoMedia[]>([]);
   const [sextingScripts, setSextingScripts] = useState<SextingScript[]>([]);
   const [dailyTasks, setDailyTasks] = useState<DailyTask[]>([]);
   const [physicalOrders, setPhysicalOrders] = useState<PhysicalOrder[]>([]);
@@ -497,7 +510,7 @@ export default function Home() {
       setLiveLoading(true);
       const response = await fetch("/api/admin/pending", { cache: "no-store" });
       if (!response.ok) throw new Error("Unable to load the creator inbox");
-      const data = await response.json() as { portal_user: PortalUser; payment_methods: PaymentMethods; platform_overview: PlatformOverview | null; pending: LivePendingReply[]; conversations: LiveConversation[]; purchases: LivePurchase[]; purchase_history: LivePurchase[]; bookings: LiveBooking[]; customs: LiveCustom[]; custom_history: LiveCustom[]; video_chats: VideoChatOrder[]; video_chat_history: VideoChatOrder[]; sexting_sessions: LiveSextingSession[]; sexting_history: LiveSextingSession[]; sexting_media: SextingMedia[]; sexting_scripts: SextingScript[]; daily_tasks: DailyTask[]; physical_orders: PhysicalOrder[]; physical_order_history: PhysicalOrder[]; rating_orders: RatingOrder[]; rating_order_history: RatingOrder[]; announcements: Announcement[]; social_links: SocialLink[]; training_suggestions: TrainingSuggestion[]; sale_disputes: SaleDispute[]; products: ContentProduct[]; stars: StarsSummary; learned_count: number; earnings: EarningsSummary; settings: CreatorSettings };
+      const data = await response.json() as { portal_user: PortalUser; payment_methods: PaymentMethods; platform_overview: PlatformOverview | null; pending: LivePendingReply[]; conversations: LiveConversation[]; purchases: LivePurchase[]; purchase_history: LivePurchase[]; bookings: LiveBooking[]; customs: LiveCustom[]; custom_history: LiveCustom[]; video_chats: VideoChatOrder[]; video_chat_history: VideoChatOrder[]; sexting_sessions: LiveSextingSession[]; sexting_history: LiveSextingSession[]; sexting_media: SextingMedia[]; catalog_photo_media: CatalogPhotoMedia[]; sexting_scripts: SextingScript[]; daily_tasks: DailyTask[]; physical_orders: PhysicalOrder[]; physical_order_history: PhysicalOrder[]; rating_orders: RatingOrder[]; rating_order_history: RatingOrder[]; announcements: Announcement[]; social_links: SocialLink[]; training_suggestions: TrainingSuggestion[]; sale_disputes: SaleDispute[]; products: ContentProduct[]; stars: StarsSummary; learned_count: number; earnings: EarningsSummary; settings: CreatorSettings };
       setPortalUser(data.portal_user);
       setPaymentMethods(data.payment_methods || { cashapp: "", venmo: "", zelle: "" });
       setPlatformOverview(data.platform_overview);
@@ -515,6 +528,7 @@ export default function Home() {
       setStarsSummary(data.stars || { total: 0, count: 0, sexting: 0, sexting_count: 0, ratings: 0, rating_count: 0, content: 0, content_count: 0 });
       setSextingMedia(data.sexting_media || []);
       setContentProducts(data.products || []);
+      setCatalogPhotoMedia(data.catalog_photo_media || []);
       setSextingScripts(data.sexting_scripts || []);
       setDailyTasks(data.daily_tasks || []);
       setPhysicalOrders(data.physical_orders || []);
@@ -860,6 +874,49 @@ export default function Home() {
       await loadLivePending();
     } catch (error) {
       setConversationStatus(error instanceof Error ? error.message : "Content could not be sent.");
+    } finally {
+      setLiveLoading(false);
+    }
+  }
+
+  async function sendPaidPhotoUnlock() {
+    if (!selectedConversation) return;
+    const photos = paidPhotoSource === "sexting"
+      ? sextingMedia.filter((media) => media.active && media.media_type === "image")
+      : catalogPhotoMedia;
+    const selected = photos.find((media) => media.id === paidPhotoMediaId) || photos[0];
+    const stars = Number(paidPhotoStars);
+    if (!selected) {
+      setConversationStatus(`Add a photo to the ${paidPhotoSource === "sexting" ? "sexting library" : "content catalog"} first.`);
+      return;
+    }
+    if (!Number.isInteger(stars) || stars < 1 || stars > 25000) {
+      setConversationStatus("Enter a Stars price between 1 and 25,000.");
+      return;
+    }
+    const defaultTitle = paidPhotoSource === "sexting"
+      ? (selected as SextingMedia).label || "Private photo"
+      : `${(selected as CatalogPhotoMedia).product_title} photo`;
+    const title = paidPhotoTitle.trim() || defaultTitle;
+    if (!window.confirm(`Send ${title} to ${selectedConversation.telegram_name} for ${stars.toLocaleString()} Stars?`)) return;
+    try {
+      setLiveLoading(true);
+      setConversationStatus("Sending locked photo...");
+      const response = await fetch("/api/admin/conversations/paid-photo", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ chat_id: selectedConversation.chat_id, source_type: paidPhotoSource,
+          media_id: selected.id, stars, title }),
+      });
+      const data = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(data.error || "The locked photo could not be sent");
+      setConversationStatus(`Locked photo sent for ${stars.toLocaleString()} Stars. Earnings update after the fan unlocks it.`);
+      setPaidPhotoStars("");
+      setPaidPhotoTitle("");
+      await openConversation(selectedConversation.chat_id);
+      await loadLivePending();
+    } catch (error) {
+      setConversationStatus(error instanceof Error ? error.message : "The locked photo could not be sent.");
     } finally {
       setLiveLoading(false);
     }
@@ -1611,6 +1668,15 @@ export default function Home() {
     ? videoChats.find((order) => order.chat_id === selectedConversation.chat_id && order.status === "scheduled")
     : undefined;
   const quickReplyProducts = contentProducts.filter((product) => product.active && !["physical_item", "video_rating"].includes(product.content_type));
+  const paidPhotoOptions = paidPhotoSource === "sexting"
+    ? sextingMedia.filter((media) => media.active && media.media_type === "image")
+    : catalogPhotoMedia;
+  const selectedPaidPhoto = paidPhotoOptions.find((media) => media.id === paidPhotoMediaId) || paidPhotoOptions[0];
+  const selectedPaidPhotoPreview = selectedPaidPhoto
+    ? paidPhotoSource === "sexting"
+      ? `/api/admin/sexting-media/${selectedPaidPhoto.id}/file`
+      : `/api/admin/products/${(selectedPaidPhoto as CatalogPhotoMedia).product_id}/media/${selectedPaidPhoto.id}/file`
+    : "";
   const openAgendaCount = selectedAgendaTasks.filter((task) => task.status === "open").length + physicalOrders.length + ratingOrders.length;
   const unscheduledCount = liveBookings.length + liveCustoms.length + videoChats.filter((order) => order.status !== "scheduled").length + livePurchases.length + sextingSessions.length + physicalOrders.length + ratingOrders.length;
   const pendingSaleDisputes = saleDisputes.filter((dispute) => dispute.status === "pending");
@@ -1923,6 +1989,22 @@ export default function Home() {
                     {quickReplyCategory === "content" && <div className="quickReplyProductRow">
                       <label className="quickReplyProduct"><span>Content</span><select value={quickReplyProductId || quickReplyProducts[0]?.id || 0} onChange={(event) => setQuickReplyProductId(Number(event.target.value))}>{quickReplyProducts.length ? quickReplyProducts.map((product) => <option key={product.id} value={product.id}>{product.title}</option>) : <option value={0}>No active content</option>}</select></label>
                       <button className="quickSendContent" disabled={!quickReplyProducts.length} onClick={() => void sendQuickProduct("send_product")} type="button">Send Content</button>
+                    </div>}
+                    {quickReplyCategory === "content" && <div className="paidPhotoUnlockPanel">
+                      <div className="paidPhotoUnlockHeading">
+                        <div><strong>Single photo unlock</strong><small>Choose one photo and send it locked behind Telegram Stars.</small></div>
+                        {selectedPaidPhotoPreview && <img alt="Selected photo preview" src={selectedPaidPhotoPreview} />}
+                      </div>
+                      <div className="paidPhotoUnlockFields">
+                        <label><span>Photo source</span><select value={paidPhotoSource} onChange={(event) => {
+                          setPaidPhotoSource(event.target.value as "sexting" | "catalog");
+                          setPaidPhotoMediaId(0);
+                        }}><option value="sexting">Sexting photos</option><option value="catalog">Content library</option></select></label>
+                        <label><span>Photo</span><select value={selectedPaidPhoto?.id || 0} onChange={(event) => setPaidPhotoMediaId(Number(event.target.value))}>{paidPhotoOptions.length ? paidPhotoOptions.map((media) => <option key={media.id} value={media.id}>{paidPhotoSource === "sexting" ? ((media as SextingMedia).label || media.file_name) : `${(media as CatalogPhotoMedia).product_title} · ${media.file_name}`}</option>) : <option value={0}>No uploaded photos</option>}</select></label>
+                        <label><span>Stars price</span><input inputMode="numeric" min={1} max={25000} onChange={(event) => setPaidPhotoStars(event.target.value)} placeholder="500" type="number" value={paidPhotoStars} /></label>
+                        <label><span>Unlock title</span><input maxLength={120} onChange={(event) => setPaidPhotoTitle(event.target.value)} placeholder="Private photo" type="text" value={paidPhotoTitle} /></label>
+                      </div>
+                      <button className="paidPhotoUnlockButton" disabled={liveLoading || !selectedPaidPhoto || !Number.isInteger(Number(paidPhotoStars)) || Number(paidPhotoStars) < 1} onClick={() => void sendPaidPhotoUnlock()} type="button">Send locked photo</button>
                     </div>}
                     <div className="quickReplyOptions">
                       {quickReplyCategory === "general" && <><button onClick={() => fillQuickReply("saw_message")} type="button">Saw your message</button><button onClick={() => fillQuickReply("busy")} type="button">Busy right now</button><button onClick={() => fillQuickReply("anything_else")} type="button">Anything else</button></>}
