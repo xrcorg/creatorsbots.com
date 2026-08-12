@@ -176,6 +176,19 @@ function manualPaymentMethods(env: Env, intro: string) {
   return methods ? `${intro}\n${methods}\n\nPut your Telegram username in the payment notes and send me a screenshot after you pay.` : `${intro}\nI still need to finish setting up my payment methods. I'll get back to you with them.`;
 }
 
+function formatPacificSchedule(value: string) {
+  const date = new Date(value.includes("T") ? value : `${value.replace(" ", "T")}Z`);
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Los_Angeles",
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  }).format(date);
+}
+
 function productPrice(product: ContentProduct) {
   return dollars(String(product.price_cents / 100), product.price_cents / 100);
 }
@@ -239,7 +252,7 @@ function isInPersonRequest(text: string) {
 
 function bookingPrompt(settings: Record<string, string>, requestText = "") {
   if (isVideoChatRequest(requestText)) {
-    return `Yeah babe. Video chats happen here on Telegram and are ${dollars(settings.video_chat_rate, 50)} per minute with a 5 minute minimum. What date and time works for you?`;
+    return `Yeah babe. Video chats happen here on Telegram and are ${dollars(settings.video_chat_rate, 50)} per minute with a 5 minute minimum. What date and time works for you, and how many minutes do you want?`;
   }
   if (isInPersonRequest(requestText)) {
     return `Yeah babe. In person meets are ${dollars(settings.in_person_rate, 1500)} per hour. Send me your preferred date, time, and city, then I'll check my calendar.`;
@@ -522,6 +535,7 @@ async function prepareDatabase(env: Env) {
     db.prepare(`CREATE TABLE IF NOT EXISTS booking_drafts (
       chat_id TEXT PRIMARY KEY,
       business_connection_id TEXT,
+      service_type TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL DEFAULT 'awaiting_details',
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`),
@@ -591,6 +605,22 @@ async function prepareDatabase(env: Env) {
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       completed_at TEXT
     )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS video_chat_orders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      booking_request_id INTEGER NOT NULL UNIQUE,
+      chat_id TEXT NOT NULL,
+      business_connection_id TEXT,
+      telegram_name TEXT NOT NULL,
+      scheduled_at TEXT NOT NULL,
+      duration_minutes INTEGER NOT NULL,
+      rate_cents INTEGER NOT NULL,
+      amount_cents INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'awaiting_payment',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      completed_at TEXT
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_video_chat_orders_status_schedule
+      ON video_chat_orders(status, scheduled_at)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS physical_orders (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       purchase_request_id INTEGER NOT NULL UNIQUE,
@@ -821,6 +851,10 @@ async function prepareDatabase(env: Env) {
   }
   if (!customDraftColumns.results.some((column) => column.name === "completion_mode")) {
     await db.prepare("ALTER TABLE custom_drafts ADD COLUMN completion_mode TEXT NOT NULL DEFAULT 'yes_done'").run();
+  }
+  const bookingDraftColumns = await db.prepare("PRAGMA table_info(booking_drafts)").all<{ name: string }>();
+  if (!bookingDraftColumns.results.some((column) => column.name === "service_type")) {
+    await db.prepare("ALTER TABLE booking_drafts ADD COLUMN service_type TEXT NOT NULL DEFAULT ''").run();
   }
   const contentColumns = await db.prepare("PRAGMA table_info(content_products)").all<{ name: string }>();
   if (!contentColumns.results.some((column) => column.name === "stars_price")) {
@@ -1492,13 +1526,37 @@ async function submitProductPaymentReview(env: Env, message: TelegramMessage, ch
 async function handlePaymentSent(env: Env, message: TelegramMessage, chatId: string) {
   if (!isPaymentSent(message.text)) return false;
 
+  const videoChat = await env.DB.prepare(`SELECT id FROM video_chat_orders
+    WHERE chat_id = ? AND status = 'awaiting_payment' ORDER BY id DESC LIMIT 1`)
+    .bind(chatId).first<{ id: number }>();
+  if (videoChat) {
+    const hasScreenshot = Boolean(message.photo?.length);
+    if (hasScreenshot) {
+      await env.DB.prepare(`UPDATE video_chat_orders SET status = 'payment_review' WHERE id = ?`)
+        .bind(videoChat.id).run();
+    }
+    const confirmation = hasScreenshot
+      ? "Ok, thanks babe. Let me check it and I'll confirm our video chat!"
+      : "Can you send me a screenshot of the payment?";
+    await saveMessage(env.DB, chatId, "user", message.text);
+    await saveMessage(env.DB, chatId, "assistant", confirmation);
+    await waitForPaymentConfirmation();
+    await sendTelegramMessage(env, message, confirmation);
+    return true;
+  }
+
   const quotedCustom = await env.DB.prepare(`SELECT id FROM custom_fulfillments
     WHERE chat_id = ? AND status = 'awaiting_payment' ORDER BY id DESC LIMIT 1`)
     .bind(chatId).first<{ id: number }>();
   if (quotedCustom) {
-    await env.DB.prepare(`UPDATE custom_fulfillments SET status = 'payment_review' WHERE id = ?`)
-      .bind(quotedCustom.id).run();
-    const confirmation = "Ok, thanks babe. Let me check when I get the chance and I'll let you know when I can start it!";
+    const hasScreenshot = Boolean(message.photo?.length);
+    if (hasScreenshot) {
+      await env.DB.prepare(`UPDATE custom_fulfillments SET status = 'payment_review' WHERE id = ?`)
+        .bind(quotedCustom.id).run();
+    }
+    const confirmation = hasScreenshot
+      ? "Ok, thanks babe. Let me check when I get the chance and I'll let you know when I can start it!"
+      : "Can you send me a screenshot of the payment?";
     await saveMessage(env.DB, chatId, "user", message.text);
     await saveMessage(env.DB, chatId, "assistant", confirmation);
     await waitForPaymentConfirmation();
@@ -1778,7 +1836,8 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
   if (request.method === "POST" && url.pathname === "/api/admin/conversations/reply") {
     const body = await request.json<{ chat_id?: string; text?: string;
       action?: "send" | "pause" | "resume" | "dismiss" | "send_trailer" | "send_product";
-      product_id?: number; learn?: boolean }>();
+      product_id?: number; learn?: boolean;
+      workflow_action?: "start_custom" | "start_video_chat" | "start_booking" }>();
     const chatId = String(body.chat_id || "").trim();
     if (!chatId) return json({ error: "A conversation is required" }, 400);
     const conversation = await env.DB.prepare(`SELECT fan_sessions.chat_id,
@@ -1881,16 +1940,20 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
           WHERE chat_id = ? AND role = 'user' ORDER BY id DESC LIMIT 1`)
         .bind(chatId).first<{ content: string }>()
       : null;
+    const workflowAction = body.workflow_action;
+    const continuingWithBot = workflowAction === "start_custom" || workflowAction === "start_video_chat" || workflowAction === "start_booking";
     const updates = [
       env.DB.prepare(`INSERT INTO conversation_controls (chat_id, control_mode, taken_over_by, updated_at)
-        VALUES (?, 'human', ?, CURRENT_TIMESTAMP)
-        ON CONFLICT(chat_id) DO UPDATE SET control_mode = 'human', taken_over_by = excluded.taken_over_by,
-        updated_at = CURRENT_TIMESTAMP`).bind(chatId, portalUser.email),
+        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(chat_id) DO UPDATE SET control_mode = excluded.control_mode, taken_over_by = excluded.taken_over_by,
+        updated_at = CURRENT_TIMESTAMP`).bind(chatId, continuingWithBot ? "bot" : "human", continuingWithBot ? null : portalUser.email),
       env.DB.prepare(`INSERT INTO chat_messages (chat_id, role, content) VALUES (?, 'assistant', ?)`)
         .bind(chatId, reply),
-      env.DB.prepare(`UPDATE sexting_sessions SET control_mode = 'human', taken_over_at = CURRENT_TIMESTAMP
+      env.DB.prepare(`UPDATE sexting_sessions SET control_mode = ?,
+        taken_over_at = CASE WHEN ? = 'human' THEN CURRENT_TIMESTAMP ELSE NULL END
         WHERE chat_id = ? AND status = 'active' AND ends_at IS NOT NULL
-        AND ends_at > CURRENT_TIMESTAMP`).bind(chatId),
+        AND ends_at > CURRENT_TIMESTAMP`).bind(continuingWithBot ? "bot" : "human",
+          continuingWithBot ? "bot" : "human", chatId),
       env.DB.prepare(`UPDATE pending_replies SET status = 'answered', answer = ?, answered_at = CURRENT_TIMESTAMP
         WHERE chat_id = ? AND status = 'pending'`).bind(reply, chatId),
     ];
@@ -1898,8 +1961,36 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
       updates.push(env.DB.prepare("INSERT INTO learned_answers (question, answer) VALUES (?, ?)")
         .bind(latestFanMessage.content.trim(), reply));
     }
+    if (workflowAction === "start_custom") {
+      updates.push(
+        env.DB.prepare(`INSERT INTO custom_drafts (chat_id, business_connection_id, status, details, completion_mode)
+          VALUES (?, ?, 'awaiting_details', '', 'yes_done') ON CONFLICT(chat_id) DO UPDATE SET
+          business_connection_id = excluded.business_connection_id, status = 'awaiting_details',
+          details = CASE WHEN custom_drafts.status = 'awaiting_details' THEN custom_drafts.details ELSE '' END,
+          completion_mode = CASE WHEN custom_drafts.status = 'awaiting_details'
+            THEN custom_drafts.completion_mode ELSE 'yes_done' END,
+          updated_at = CURRENT_TIMESTAMP`)
+          .bind(chatId, conversation.business_connection_id),
+        env.DB.prepare(`UPDATE booking_drafts SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+          WHERE chat_id = ? AND status = 'awaiting_details'`).bind(chatId),
+      );
+    }
+    if (workflowAction === "start_video_chat" || workflowAction === "start_booking") {
+      updates.push(
+        env.DB.prepare(`INSERT INTO booking_drafts (chat_id, business_connection_id, service_type, status)
+          VALUES (?, ?, ?, 'awaiting_details') ON CONFLICT(chat_id) DO UPDATE SET
+          business_connection_id = excluded.business_connection_id, status = 'awaiting_details',
+          service_type = CASE WHEN excluded.service_type = '' AND booking_drafts.status = 'awaiting_details'
+            THEN booking_drafts.service_type ELSE excluded.service_type END,
+          updated_at = CURRENT_TIMESTAMP`).bind(chatId, conversation.business_connection_id,
+            workflowAction === "start_video_chat" ? "video_chat" : ""),
+        env.DB.prepare(`UPDATE custom_drafts SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+          WHERE chat_id = ? AND status = 'awaiting_details'`).bind(chatId),
+      );
+    }
     await env.DB.batch(updates);
-    return json({ ok: true, control_mode: "human", learned: Boolean(body.learn && latestFanMessage?.content.trim()) });
+    return json({ ok: true, control_mode: continuingWithBot ? "bot" : "human",
+      workflow: workflowAction || null, learned: Boolean(body.learn && latestFanMessage?.content.trim()) });
   }
 
   return json({ error: "Conversation request not found" }, 404);
@@ -2833,8 +2924,8 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     return json({ ok: true });
   }
 
-  const bookingDraft = await env.DB.prepare(`SELECT status FROM booking_drafts
-    WHERE chat_id = ?`).bind(chatId).first<{ status: string }>();
+  const bookingDraft = await env.DB.prepare(`SELECT status, service_type FROM booking_drafts
+    WHERE chat_id = ?`).bind(chatId).first<{ status: string; service_type: string }>();
   if (bookingDraft?.status === "awaiting_details" && requestedFlow && requestedFlow !== "booking") {
     await env.DB.prepare(`UPDATE booking_drafts SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
       WHERE chat_id = ?`).bind(chatId).run();
@@ -2844,8 +2935,11 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     ? await env.DB.prepare(`SELECT content FROM chat_messages WHERE chat_id = ? AND role = 'user'
         ORDER BY id DESC LIMIT 5`).bind(chatId).all<{ content: string }>()
     : { results: [] as Array<{ content: string }> };
-  const priorBookingTextForRouting = [...priorBookingMessagesForRouting.results]
-    .reverse().map((item) => item.content).join(" ");
+  const priorBookingTextForRouting = [
+    bookingDraft?.service_type === "video_chat" ? "video chat" :
+      bookingDraft?.service_type === "in_person" ? "in person meet" : "",
+    ...[...priorBookingMessagesForRouting.results].reverse().map((item) => item.content),
+  ].filter(Boolean).join(" ");
   const expectingBookingCity = bookingDraft?.status === "awaiting_details" &&
     bookingDetailsMissing(priorBookingTextForRouting).includes("city");
   const cancelBookingDraft = isGenericCancelReply(message.text) || isBookingDecline(message.text);
@@ -2884,6 +2978,8 @@ async function handleTelegramWebhook(request: Request, env: Env) {
         ? "Did you want a video chat here on Telegram or an in person meet, babe?"
         : missingBookingDetails.includes("city")
           ? "What city did you want to meet in, babe?"
+        : missingBookingDetails.includes("video chat length")
+          ? "How many minutes do you want the video chat to be, babe? The minimum is 5 minutes."
         : missingBookingDetails.includes("preferred date") && missingBookingDetails.includes("preferred time")
           ? "What date and time works best for you?"
           : missingBookingDetails.includes("preferred date")
@@ -2908,11 +3004,13 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   }
 
   if (isBookingQuestion(message.text)) {
+    const bookingService = isVideoChatRequest(message.text) ? "video_chat"
+      : isInPersonRequest(message.text) ? "in_person" : "";
     await env.DB.prepare(`INSERT INTO booking_drafts
-      (chat_id, business_connection_id, status) VALUES (?, ?, 'awaiting_details')
+      (chat_id, business_connection_id, service_type, status) VALUES (?, ?, ?, 'awaiting_details')
       ON CONFLICT(chat_id) DO UPDATE SET business_connection_id = excluded.business_connection_id,
-      status = 'awaiting_details', updated_at = CURRENT_TIMESTAMP`)
-      .bind(chatId, message.business_connection_id || null)
+      service_type = excluded.service_type, status = 'awaiting_details', updated_at = CURRENT_TIMESTAMP`)
+      .bind(chatId, message.business_connection_id || null, bookingService)
       .run();
     await saveMessage(env.DB, chatId, "user", message.text);
     const prompt = bookingPrompt(settings, message.text);
@@ -3191,6 +3289,14 @@ async function handleAdminPending(request: Request, env: Env) {
     amount_cents, delivery_url, completion_comment, status, created_at, completed_at FROM custom_fulfillments
     WHERE status IN ('completed', 'cancelled', 'closed_unpaid')
     ORDER BY COALESCE(completed_at, created_at) DESC LIMIT 100`).all();
+  const videoChats = await env.DB.prepare(`SELECT id, chat_id, telegram_name, scheduled_at,
+    duration_minutes, rate_cents, amount_cents, status, created_at FROM video_chat_orders
+    WHERE status IN ('awaiting_payment', 'payment_review', 'scheduled')
+    ORDER BY datetime(scheduled_at) ASC, id ASC LIMIT 100`).all();
+  const videoChatHistory = await env.DB.prepare(`SELECT id, chat_id, telegram_name, scheduled_at,
+    duration_minutes, rate_cents, amount_cents, status, created_at, completed_at FROM video_chat_orders
+    WHERE status IN ('completed', 'cancelled', 'closed_unpaid')
+    ORDER BY COALESCE(completed_at, created_at) DESC LIMIT 100`).all();
   const sextingSessions = await env.DB.prepare(`SELECT id, telegram_name, package_title,
     duration_minutes, stars, status, control_mode, taken_over_at, created_at, started_at, ends_at
     FROM sexting_sessions WHERE status IN ('paid', 'active') ORDER BY id ASC LIMIT 100`).all();
@@ -3337,6 +3443,8 @@ async function handleAdminPending(request: Request, env: Env) {
     bookings: bookings.results,
     customs: customs.results,
     custom_history: customHistory.results,
+    video_chats: videoChats.results,
+    video_chat_history: videoChatHistory.results,
     sexting_sessions: sextingSessions.results,
     sexting_history: sextingHistory.results,
     stars: { total: starsSummary?.total_stars || 0, count: starsSummary?.transaction_count || 0 },
@@ -3366,7 +3474,7 @@ async function handleAdminPending(request: Request, env: Env) {
       creator_count: creatorAccounts.results.length,
       active_creator_count: creatorAccounts.results.filter((creator) => creator.status === "live").length,
       attention_count: pending.results.length + purchases.results.length + bookings.results.length +
-        customs.results.length + sextingSessions.results.length + physicalOrders.results.length + ratingOrders.results.length +
+        customs.results.length + videoChats.results.length + sextingSessions.results.length + physicalOrders.results.length + ratingOrders.results.length +
         saleDisputes.results.filter((dispute) => dispute.status === "pending").length,
       creators: creatorAccounts.results.map((creator) => ({
         key: creator.creator_key,
@@ -3743,6 +3851,7 @@ async function handleAdminBooking(request: Request, env: Env) {
     service_type?: "video_chat" | "custom_content" | "in_person";
     duration?: string;
     amount?: string;
+    scheduled_at?: string;
   };
   if (!body.id || !body.action) return json({ error: "Booking action is required" }, 400);
   if (!["approve", "decline", "ignore", "close_unpaid"].includes(body.action)) {
@@ -3782,8 +3891,8 @@ async function handleAdminBooking(request: Request, env: Env) {
       WHERE id = ?`).bind(booking.id).run();
     return json({ ok: true });
   }
-  const answer = body.answer?.trim();
-  if (!answer) return json({ error: "Booking reply is required" }, 400);
+  const answer = body.answer?.trim() || "";
+  if (body.action === "decline" && !answer) return json({ error: "Write a reply before declining" }, 400);
   const duration = Number(body.duration || 0);
   const quotedAmount = Number(body.amount || 0);
   if (body.action === "approve" && (!body.service_type || !Number.isFinite(duration) || duration <= 0)) {
@@ -3791,6 +3900,11 @@ async function handleAdminBooking(request: Request, env: Env) {
   }
   if (body.action === "approve" && body.service_type === "video_chat" && duration < 5) {
     return json({ error: "Video chat requires at least 5 minutes" }, 400);
+  }
+  const scheduledDate = body.scheduled_at ? new Date(body.scheduled_at) : null;
+  if (body.action === "approve" && body.service_type === "video_chat" &&
+      (!scheduledDate || Number.isNaN(scheduledDate.getTime()) || scheduledDate.getTime() <= Date.now())) {
+    return json({ error: "Choose a future date and time for the video chat" }, 400);
   }
   if (body.action === "approve" && body.service_type === "custom_content" &&
       (!Number.isFinite(quotedAmount) || quotedAmount <= 0 || quotedAmount > 100000)) {
@@ -3802,11 +3916,15 @@ async function handleAdminBooking(request: Request, env: Env) {
   const amountCents = body.service_type === "custom_content"
     ? Math.round(quotedAmount * 100)
     : Math.round(duration * rate * 100);
-  const fanAnswer = body.action === "approve" && body.service_type === "video_chat" && !/\btelegram\b/i.test(answer)
-    ? `${answer}\n\nWe'll do the video chat right here on Telegram.`
+  const scheduledAt = scheduledDate?.toISOString().slice(0, 19).replace("T", " ") || "";
+  const videoIntro = scheduledDate
+    ? `${answer || "That works for me, babe."}\n\nI have you down for ${formatPacificSchedule(scheduledDate.toISOString())} for ${Math.round(duration)} minutes. The total is ${dollars(String(amountCents / 100), 0)}. We'll video chat right here on Telegram.`
+    : "";
+  const fanAnswer = body.action === "approve" && body.service_type === "video_chat"
+    ? manualPaymentMethods(env, videoIntro)
     : body.action === "approve" && body.service_type === "custom_content"
-      ? manualPaymentMethods(env, `${answer}\n\nThe total for your custom will be ${dollars(String(amountCents / 100), 0)}.`)
-    : answer;
+      ? manualPaymentMethods(env, `${answer || "I looked over your custom and I can make it for you, babe."}\n\nThe total for your custom will be ${dollars(String(amountCents / 100), 0)}.`)
+      : answer;
   await sendTelegramMessage(env, {
     message_id: 0,
     chat: { id: Number(booking.chat_id) },
@@ -3816,10 +3934,22 @@ async function handleAdminBooking(request: Request, env: Env) {
   await env.DB.prepare(`UPDATE booking_requests SET status = ?, resolved_at = CURRENT_TIMESTAMP
     WHERE id = ?`).bind(body.action === "approve" ? "approved" : "declined", booking.id).run();
   if (body.action === "approve" && body.service_type === "video_chat") {
-    await env.DB.prepare(`INSERT OR IGNORE INTO earnings_events
-      (source_type, source_id, description, amount_cents) VALUES (?, ?, ?, ?)`)
-      .bind(body.service_type, String(booking.id), "Video chat session", amountCents)
-      .run();
+    const rateCents = Math.round(rate * 100);
+    await env.DB.batch([
+      env.DB.prepare(`INSERT OR IGNORE INTO video_chat_orders
+        (booking_request_id, chat_id, business_connection_id, telegram_name, scheduled_at,
+        duration_minutes, rate_cents, amount_cents, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'awaiting_payment')`)
+        .bind(booking.id, booking.chat_id, booking.business_connection_id, booking.telegram_name,
+          scheduledAt, Math.round(duration), rateCents, amountCents),
+      env.DB.prepare(`INSERT INTO daily_tasks
+        (title, task_type, scheduled_at, fan_name, details, amount_cents, status)
+        SELECT ?, 'video_chat', ?, ?, ?, ?, 'open'
+        WHERE NOT EXISTS (SELECT 1 FROM daily_tasks
+          WHERE task_type = 'video_chat' AND fan_name = ? AND scheduled_at = ? AND status = 'open')`)
+        .bind(`Video chat with ${booking.telegram_name}`, scheduledAt, booking.telegram_name,
+          `${Math.round(duration)} minute Telegram video chat. Payment awaiting confirmation.`, amountCents,
+          booking.telegram_name, scheduledAt),
+    ]);
   }
   if (body.action === "approve" && body.service_type === "custom_content") {
     await env.DB.prepare(`INSERT OR IGNORE INTO custom_fulfillments
@@ -3829,6 +3959,69 @@ async function handleAdminBooking(request: Request, env: Env) {
         Math.round(duration), booking.details.replace(/^Custom content request:\s*/i, ""), amountCents)
       .run();
   }
+  return json({ ok: true });
+}
+
+async function handleAdminVideoChat(request: Request, env: Env) {
+  if (!await isAdminRequest(request, env)) return json({ error: "Sign in required" }, 401);
+  await prepareDatabase(env);
+  const body = await request.json() as { id?: number;
+    action?: "approve_payment" | "payment_not_verified" | "complete" | "cancel" | "close_unpaid" };
+  if (!body.id || !body.action) return json({ error: "Video chat action is required" }, 400);
+  const order = await env.DB.prepare(`SELECT id, booking_request_id, chat_id, business_connection_id,
+    telegram_name, scheduled_at, duration_minutes, amount_cents, status FROM video_chat_orders WHERE id = ?`)
+    .bind(body.id).first<{ id: number; booking_request_id: number; chat_id: string;
+      business_connection_id: string | null; telegram_name: string; scheduled_at: string;
+      duration_minutes: number; amount_cents: number; status: string }>();
+  if (!order) return json({ error: "Video chat order not found" }, 404);
+  const telegramMessage: TelegramMessage = { message_id: 0, chat: { id: Number(order.chat_id) },
+    business_connection_id: order.business_connection_id || undefined };
+  if (body.action === "approve_payment") {
+    if (order.status !== "payment_review") return json({ error: "A payment screenshot is still required" }, 409);
+    const confirmation = `Payment confirmed, babe. Our ${order.duration_minutes} minute video chat is scheduled for ${formatPacificSchedule(order.scheduled_at)} right here on Telegram.`;
+    await sendTelegramMessage(env, telegramMessage, confirmation);
+    await saveMessage(env.DB, order.chat_id, "assistant", confirmation);
+    await env.DB.batch([
+      env.DB.prepare(`UPDATE video_chat_orders SET status = 'scheduled' WHERE id = ?`).bind(order.id),
+      env.DB.prepare(`INSERT OR IGNORE INTO earnings_events
+        (source_type, source_id, description, amount_cents) VALUES ('video_chat', ?, ?, ?)`)
+        .bind(String(order.id), `Video chat with ${order.telegram_name}`, order.amount_cents),
+      env.DB.prepare(`UPDATE daily_tasks SET details = ? WHERE task_type = 'video_chat' AND fan_name = ?
+        AND scheduled_at = ? AND status = 'open'`)
+        .bind(`${order.duration_minutes} minute Telegram video chat. Payment confirmed.`, order.telegram_name, order.scheduled_at),
+    ]);
+    return json({ ok: true });
+  }
+  if (body.action === "payment_not_verified") {
+    await env.DB.prepare(`UPDATE video_chat_orders SET status = 'awaiting_payment' WHERE id = ?`).bind(order.id).run();
+    const reply = "I couldn't verify that payment yet, babe. Please double check it and send me a clear screenshot.";
+    await sendTelegramMessage(env, telegramMessage, reply);
+    await saveMessage(env.DB, order.chat_id, "assistant", reply);
+    return json({ ok: true });
+  }
+  if (body.action === "complete") {
+    if (order.status !== "scheduled") return json({ error: "Confirm payment before completing this video chat" }, 409);
+    await env.DB.batch([
+      env.DB.prepare(`UPDATE video_chat_orders SET status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE id = ?`).bind(order.id),
+      env.DB.prepare(`UPDATE daily_tasks SET status = 'completed', completed_at = CURRENT_TIMESTAMP
+        WHERE task_type = 'video_chat' AND fan_name = ? AND scheduled_at = ? AND status = 'open'`)
+        .bind(order.telegram_name, order.scheduled_at),
+    ]);
+    return json({ ok: true });
+  }
+  const followUp = body.action === "close_unpaid"
+    ? "Hey babe, do you still want the video chat? I still need the payment to keep your time reserved. Lmk if you still want it."
+    : "No problem, lmk if you want to video chat another time!";
+  await sendTelegramMessage(env, telegramMessage, followUp);
+  await saveMessage(env.DB, order.chat_id, "assistant", followUp);
+  await env.DB.batch([
+    env.DB.prepare(`UPDATE video_chat_orders SET status = ?, completed_at = CURRENT_TIMESTAMP WHERE id = ?`)
+      .bind(body.action === "close_unpaid" ? "closed_unpaid" : "cancelled", order.id),
+    env.DB.prepare(`DELETE FROM earnings_events WHERE source_type = 'video_chat' AND source_id = ?`).bind(String(order.id)),
+    env.DB.prepare(`UPDATE daily_tasks SET status = 'completed', completed_at = CURRENT_TIMESTAMP
+      WHERE task_type = 'video_chat' AND fan_name = ? AND scheduled_at = ? AND status = 'open'`)
+      .bind(order.telegram_name, order.scheduled_at),
+  ]);
   return json({ ok: true });
 }
 
@@ -4455,6 +4648,10 @@ const worker = {
 
     if (url.pathname === "/api/admin/custom" && request.method === "POST") {
       return handleAdminCustom(request, env);
+    }
+
+    if (url.pathname === "/api/admin/video-chat" && request.method === "POST") {
+      return handleAdminVideoChat(request, env);
     }
 
     if (url.pathname === "/api/admin/rating" && request.method === "POST") {

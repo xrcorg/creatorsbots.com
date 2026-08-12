@@ -69,10 +69,13 @@ export function bookingDetailsMissing(text: string) {
     /\b\d{1,2}[\/.\-]\d{1,2}(?:[\/.\-]\d{2,4})?\b/.test(text);
   const hasTime = /\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i.test(text) ||
     /\b(noon|midnight|morning|afternoon|evening)\b/i.test(text);
+  const hasDuration = /\b\d+(?:\.\d+)?\s*(?:minute|minutes|min|mins)\b/i.test(text) ||
+    /\b(five|six|seven|eight|nine|ten|fifteen|twenty|thirty)\s*(?:minute|minutes|min|mins)\b/i.test(text);
   const missing = [];
   if (!hasService) missing.push("video chat or in person meet");
   if (!hasDate) missing.push("preferred date");
   if (!hasTime) missing.push("preferred time");
+  if (isVideoChat && !hasDuration) missing.push("video chat length");
   if (isInPerson && !/\b(?:city(?:\s+is)?|location(?:\s+is)?|in\s+(?!person\b))[ :]?[a-z][a-z .']{2,}\b/i.test(text)) missing.push("city");
   return missing;
 }
@@ -194,6 +197,7 @@ export function isLikelyBookingDetailReply(text: string, expectingCity = false) 
   if (/\b(video chat|video call|in person|meet and greet)\b/i.test(text)) return true;
   if (/\b(today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|morning|afternoon|evening|noon|midnight)\b/i.test(text)) return true;
   if (/\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b|\b\d{1,2}[\/.\-]\d{1,2}(?:[\/.\-]\d{2,4})?\b/i.test(text)) return true;
+  if (/\b\d+(?:\.\d+)?\s*(?:minute|minutes|min|mins)\b/i.test(text)) return true;
   if (/^(?:you|with you|a meeting with you|meet with you)\??[.! ]*$/i.test(text.trim())) return true;
   return expectingCity && isLikelyCityReply(text);
 }

@@ -52,6 +52,19 @@ type LiveCustom = {
   status?: "awaiting_payment" | "payment_review" | "awaiting_fulfillment" | "completed" | "cancelled" | "closed_unpaid";
 };
 
+type VideoChatOrder = {
+  id: number;
+  chat_id: string;
+  telegram_name: string;
+  scheduled_at: string;
+  duration_minutes: number;
+  rate_cents: number;
+  amount_cents: number;
+  status: "awaiting_payment" | "payment_review" | "scheduled" | "completed" | "cancelled" | "closed_unpaid";
+  created_at: string;
+  completed_at?: string;
+};
+
 type LiveSextingSession = {
   id: number;
   telegram_name: string;
@@ -292,6 +305,22 @@ function money(cents: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 }
 
+function portalDate(value: string) {
+  return new Date(value.includes("T") ? value : `${value.replace(" ", "T")}Z`);
+}
+
+function videoChatSchedule(value: string) {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Los_Angeles",
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  }).format(portalDate(value));
+}
+
 const initialMessages: Message[] = [
   {
     id: 1,
@@ -365,6 +394,7 @@ export default function Home() {
   const [conversationSearch, setConversationSearch] = useState("");
   const [conversationStatus, setConversationStatus] = useState("");
   const [conversationReply, setConversationReply] = useState("");
+  const [quickReplyWorkflow, setQuickReplyWorkflow] = useState<"start_custom" | "start_video_chat" | "start_booking" | null>(null);
   const [quickReplyCategory, setQuickReplyCategory] = useState<QuickReplyCategory>("content");
   const [quickReplyProductId, setQuickReplyProductId] = useState(0);
   const [livePurchases, setLivePurchases] = useState<LivePurchase[]>([]);
@@ -372,6 +402,8 @@ export default function Home() {
   const [liveBookings, setLiveBookings] = useState<LiveBooking[]>([]);
   const [liveCustoms, setLiveCustoms] = useState<LiveCustom[]>([]);
   const [customHistory, setCustomHistory] = useState<LiveCustom[]>([]);
+  const [videoChats, setVideoChats] = useState<VideoChatOrder[]>([]);
+  const [videoChatHistory, setVideoChatHistory] = useState<VideoChatOrder[]>([]);
   const [sextingSessions, setSextingSessions] = useState<LiveSextingSession[]>([]);
   const [sextingHistory, setSextingHistory] = useState<LiveSextingSession[]>([]);
   const [starsSummary, setStarsSummary] = useState({ total: 0, count: 0 });
@@ -420,6 +452,7 @@ export default function Home() {
   const [bookingType, setBookingType] = useState<"video_chat" | "custom_content" | "in_person">("video_chat");
   const [bookingDuration, setBookingDuration] = useState("");
   const [bookingAmount, setBookingAmount] = useState("");
+  const [bookingScheduledAt, setBookingScheduledAt] = useState("");
   const [settings, setSettings] = useState<CreatorSettings>({ flirty_level: "very", human_takeover: "on", learning: "approval", custom_approval: "required", video_chat_rate: "50", custom_content_rate: "50", in_person_rate: "1500", video_rating_rate: "75", video_rating_stars: "5000", preferred_topics: "", avoid_topics: "", tone_guidance: "Short, blunt, warm, confident, flirty, and natural", creator_feedback: "", sexting_enabled: "on", sexting_intensity: "soft", sexting_rate: "10", sexting_min_minutes: "5", sexting_5_stars: "500", sexting_10_stars: "1000", sleep_hours_enabled: "on", response_test_mode: "off", sleep_start: "02:00", sleep_end: "08:00" });
   const [settingsDirty, setSettingsDirty] = useState(false);
   const [settingsSaveStatus, setSettingsSaveStatus] = useState("");
@@ -436,7 +469,7 @@ export default function Home() {
       setLiveLoading(true);
       const response = await fetch("/api/admin/pending", { cache: "no-store" });
       if (!response.ok) throw new Error("Unable to load the creator inbox");
-      const data = await response.json() as { portal_user: PortalUser; platform_overview: PlatformOverview | null; pending: LivePendingReply[]; conversations: LiveConversation[]; purchases: LivePurchase[]; purchase_history: LivePurchase[]; bookings: LiveBooking[]; customs: LiveCustom[]; custom_history: LiveCustom[]; sexting_sessions: LiveSextingSession[]; sexting_history: LiveSextingSession[]; sexting_media: SextingMedia[]; sexting_scripts: SextingScript[]; daily_tasks: DailyTask[]; physical_orders: PhysicalOrder[]; physical_order_history: PhysicalOrder[]; rating_orders: RatingOrder[]; rating_order_history: RatingOrder[]; announcements: Announcement[]; social_links: SocialLink[]; training_suggestions: TrainingSuggestion[]; sale_disputes: SaleDispute[]; products: ContentProduct[]; stars: { total: number; count: number }; learned_count: number; earnings: EarningsSummary; settings: CreatorSettings };
+      const data = await response.json() as { portal_user: PortalUser; platform_overview: PlatformOverview | null; pending: LivePendingReply[]; conversations: LiveConversation[]; purchases: LivePurchase[]; purchase_history: LivePurchase[]; bookings: LiveBooking[]; customs: LiveCustom[]; custom_history: LiveCustom[]; video_chats: VideoChatOrder[]; video_chat_history: VideoChatOrder[]; sexting_sessions: LiveSextingSession[]; sexting_history: LiveSextingSession[]; sexting_media: SextingMedia[]; sexting_scripts: SextingScript[]; daily_tasks: DailyTask[]; physical_orders: PhysicalOrder[]; physical_order_history: PhysicalOrder[]; rating_orders: RatingOrder[]; rating_order_history: RatingOrder[]; announcements: Announcement[]; social_links: SocialLink[]; training_suggestions: TrainingSuggestion[]; sale_disputes: SaleDispute[]; products: ContentProduct[]; stars: { total: number; count: number }; learned_count: number; earnings: EarningsSummary; settings: CreatorSettings };
       setPortalUser(data.portal_user);
       setPlatformOverview(data.platform_overview);
       setLivePending(data.pending);
@@ -446,6 +479,8 @@ export default function Home() {
       setLiveBookings(data.bookings);
       setLiveCustoms(data.customs || []);
       setCustomHistory(data.custom_history || []);
+      setVideoChats(data.video_chats || []);
+      setVideoChatHistory(data.video_chat_history || []);
       setSextingSessions(data.sexting_sessions || []);
       setSextingHistory(data.sexting_history || []);
       setStarsSummary(data.stars || { total: 0, count: 0 });
@@ -495,7 +530,7 @@ export default function Home() {
     return () => window.clearInterval(timer);
   }, [selectedConversationId]);
 
-  const attentionCount = livePending.length + livePurchases.length + liveBookings.length + liveCustoms.length + sextingSessions.length;
+  const attentionCount = livePending.length + livePurchases.length + liveBookings.length + liveCustoms.length + videoChats.length + sextingSessions.length;
   const paymentProofCount = livePurchases.filter((purchase) => Boolean(purchase.payment_proof_received_at)).length;
   const statusText = attentionCount ? `${attentionCount} ${attentionCount === 1 ? "item needs" : "items need"} attention` : "Bot active";
   const onboardingPhotoCount = sextingMedia.filter((item) => item.media_type === "image").length;
@@ -652,23 +687,28 @@ export default function Home() {
       const response = await fetch("/api/admin/conversations/reply", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ chat_id: selectedConversation.chat_id, text: conversationReply.trim(), action: "send", learn: saveForFuture }),
+        body: JSON.stringify({ chat_id: selectedConversation.chat_id, text: conversationReply.trim(), action: "send",
+          learn: saveForFuture, workflow_action: quickReplyWorkflow }),
       });
       const data = await response.json() as { error?: string };
       if (!response.ok) throw new Error(data.error || "Reply failed");
       const resolvedChatId = selectedConversation.chat_id;
       const sentReply = conversationReply.trim();
       setConversationReply("");
+      const startedWorkflow = quickReplyWorkflow;
+      setQuickReplyWorkflow(null);
       setLivePending((items) => items.filter((item) => item.chat_id !== resolvedChatId));
       setConversations((items) => items.map((item) => item.chat_id === resolvedChatId
-        ? { ...item, pending_count: 0, control_mode: "human", last_message: sentReply,
+        ? { ...item, pending_count: 0, control_mode: startedWorkflow ? "bot" : "human", last_message: sentReply,
           last_role: "assistant", last_message_at: new Date().toISOString().replace("T", " ").replace("Z", "") }
         : item));
       await loadLivePending();
       await openConversation(resolvedChatId);
-      setConversationStatus(saveForFuture
-        ? "Reply sent and saved for future answers. The bot is paused for this chat."
-        : "Reply sent. The bot is paused for this chat.");
+      setConversationStatus(startedWorkflow
+        ? `Reply sent. The bot will collect the ${startedWorkflow === "start_custom" ? "custom details" : startedWorkflow === "start_video_chat" ? "video chat schedule" : "booking details"}.`
+        : saveForFuture
+          ? "Reply sent and saved for future answers. The bot is paused for this chat."
+          : "Reply sent. The bot is paused for this chat.");
     } catch (error) {
       setConversationStatus(error instanceof Error ? error.message : "The reply could not be sent.");
     } finally {
@@ -731,7 +771,7 @@ export default function Home() {
       booking_options: "Do you wanna set something up? I offer video chats here on Telegram and fan meet and greets. Which one are you interested in?",
       booking_schedule: "Send me your preferred date and time and tell me if you want a video chat or fan meet and greet. If it's a meet and greet, tell me what city you're in too.",
       booking_contact: "What city are you in, babe? Send me your phone number or email and I'll reach out when I'm in your city.",
-      video_chat: `Video chats happen right here on Telegram and are $${settings.video_chat_rate} per minute with a 5 minute minimum. What date and time works for you?`,
+      video_chat: `Video chats happen right here on Telegram and are $${settings.video_chat_rate} per minute with a 5 minute minimum. What date and time works for you, and how many minutes do you want?`,
       video_chat_schedule: "Send me your preferred date, time, and how many minutes you want. I'll check my schedule and get back to you.",
       video_chat_confirm: "Yes babe, the video chat will happen right here on Telegram. Once we confirm the date, time, and payment, I'll call you here.",
       rating_offer: `Yes babe, I do private video ratings. It's ${ratingPrice} or ${ratingStars}. You send me a photo and I'll respond with a short private video rating.`,
@@ -744,6 +784,10 @@ export default function Home() {
       unavailable: "I can't help with that, babe. We can talk about something else if you want.",
     };
     setConversationReply(replies[template] || "");
+    if (["custom_start", "custom_more", "custom_quote"].includes(template)) setQuickReplyWorkflow("start_custom");
+    else if (["video_chat", "video_chat_schedule"].includes(template)) setQuickReplyWorkflow("start_video_chat");
+    else if (["booking_options", "booking_schedule", "booking_contact"].includes(template)) setQuickReplyWorkflow("start_booking");
+    else setQuickReplyWorkflow(null);
   }
 
   async function sendQuickProduct(action: "send_trailer" | "send_product") {
@@ -878,23 +922,45 @@ export default function Home() {
     const current = liveBookings[0];
     if (!current) return;
     const answer = creatorReply.trim();
-    if (action !== "ignore" && action !== "close_unpaid" && !answer) return;
+    if (action === "decline" && !answer) return;
     if (action === "approve" && !bookingDuration.trim()) return;
     if (action === "approve" && bookingType === "custom_content" && !bookingAmount.trim()) return;
+    if (action === "approve" && bookingType === "video_chat" && !bookingScheduledAt) return;
     try {
       setLiveLoading(true);
       const response = await fetch("/api/admin/booking", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ id: current.id, action, answer, service_type: bookingType, duration: bookingDuration, amount: bookingAmount }),
+        body: JSON.stringify({ id: current.id, action, answer, service_type: bookingType,
+          duration: bookingDuration, amount: bookingAmount,
+          scheduled_at: bookingScheduledAt ? new Date(bookingScheduledAt).toISOString() : undefined }),
       });
       if (!response.ok) throw new Error("Booking update failed");
       setCreatorReply("");
       setBookingDuration("");
       setBookingAmount("");
+      setBookingScheduledAt("");
       await loadLivePending();
     } catch {
       setLiveError("The booking update was not sent. Please try again.");
+    } finally {
+      setLiveLoading(false);
+    }
+  }
+
+  async function resolveVideoChat(id: number, action: "approve_payment" | "payment_not_verified" | "complete" | "cancel" | "close_unpaid") {
+    try {
+      setLiveLoading(true);
+      const response = await fetch("/api/admin/video-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id, action }),
+      });
+      const data = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(data.error || "Video chat update failed");
+      await loadLivePending();
+    } catch (error) {
+      setLiveError(error instanceof Error ? error.message : "The video chat update was not sent.");
     } finally {
       setLiveLoading(false);
     }
@@ -1485,7 +1551,7 @@ export default function Home() {
     : undefined;
   const quickReplyProducts = contentProducts.filter((product) => product.active && !["physical_item", "video_rating"].includes(product.content_type));
   const openAgendaCount = selectedAgendaTasks.filter((task) => task.status === "open").length + physicalOrders.length + ratingOrders.length;
-  const unscheduledCount = liveBookings.length + liveCustoms.length + livePurchases.length + sextingSessions.length + physicalOrders.length + ratingOrders.length;
+  const unscheduledCount = liveBookings.length + liveCustoms.length + videoChats.filter((order) => order.status !== "scheduled").length + livePurchases.length + sextingSessions.length + physicalOrders.length + ratingOrders.length;
   const pendingSaleDisputes = saleDisputes.filter((dispute) => dispute.status === "pending");
   const reviewedSaleDisputes = saleDisputes.filter((dispute) => dispute.status !== "pending").slice(0, 20);
 
@@ -1774,6 +1840,7 @@ export default function Home() {
                       {quickReplyCategory === "payment" && <><button onClick={() => fillQuickReply("payment_options")} type="button">Payment options</button><button onClick={() => fillQuickReply("payment_screenshot")} type="button">Request screenshot</button><button onClick={() => fillQuickReply("payment_received")} type="button">Payment received</button><button className="quickSendContent" disabled={!selectedPurchase} onClick={() => selectedPurchase && void resolvePurchaseById(selectedPurchase.id, "approve")} title={selectedPurchase ? "Confirm and fulfill this paid order" : "Available when this chat has a payment awaiting confirmation"} type="button">Confirm payment and send content</button></>}
                       {quickReplyCategory === "boundaries" && <><button onClick={() => fillQuickReply("telegram_tos")} type="button">Telegram TOS</button><button onClick={() => fillQuickReply("unavailable")} type="button">Cannot help</button></>}
                     </div>
+                    {quickReplyWorkflow && <p className="workflowNotice">Sending this keeps Bot replies on and starts the {quickReplyWorkflow === "start_custom" ? "custom detail" : quickReplyWorkflow === "start_video_chat" ? "video chat scheduling" : "booking detail"} flow.</p>}
                   </div>
                   <form className="conversationReplyForm" onSubmit={sendConversationReply}>
                     <textarea maxLength={4000} value={conversationReply} onChange={(event) => setConversationReply(event.target.value)} placeholder={`Reply to ${selectedConversation.telegram_name}`} />
@@ -1782,7 +1849,7 @@ export default function Home() {
                       <button className="secondaryAction" disabled={liveLoading || !conversationReply.trim()} onClick={() => void submitConversationReply(true)} type="button">Send and save for future</button>
                       {Number(selectedConversation.pending_count) > 0 && <button className="ignoreAction clearRequestAction" disabled={liveLoading} onClick={() => void dismissConversationRequest()} type="button">Clear request without replying</button>}
                     </div>
-                    <small>Sending a reply pauses automatic responses for this chat until you turn Bot replies back on.</small>
+                    <small>{quickReplyWorkflow ? "This workflow reply keeps the bot active so it can collect the remaining order details." : "Sending a reply pauses automatic responses for this chat until you turn Bot replies back on."}</small>
                   </form>
                 </> : <div className="conversationPlaceholder">Choose a chat to view its recent messages and controls.</div>}
               </div>
@@ -1812,7 +1879,7 @@ export default function Home() {
             {unscheduledCount > 0 && (
               <div className="needsScheduling">
                 <strong>{unscheduledCount} items need attention</strong>
-                <small>{liveBookings.length} bookings · {liveCustoms.length} customs · {livePurchases.length} deliveries · {physicalOrders.length} shipments · {ratingOrders.length} ratings · {sextingSessions.length} sexting sessions</small>
+                <small>{liveBookings.length} booking requests · {liveCustoms.length} customs · {videoChats.filter((order) => order.status !== "scheduled").length} video chats awaiting payment · {livePurchases.length} deliveries · {physicalOrders.length} shipments · {ratingOrders.length} ratings · {sextingSessions.length} sexting sessions</small>
               </div>
             )}
             {physicalOrders.length > 0 && <div className="fulfillmentTasks">
@@ -2061,6 +2128,36 @@ export default function Home() {
             )) : <p className="queueNote">No custom orders waiting.</p>}
           </section>
 
+          <section className="customQueue videoChatQueue dashboardSection dashboardToday">
+            <div className="sectionHeading">
+              <strong>Video chat schedule</strong>
+              <span>{videoChats.length}</span>
+            </div>
+            {videoChats.length ? videoChats.map((order) => (
+              <div className="customCard" key={order.id}>
+                <div className="customMeta">
+                  <strong>{order.telegram_name}</strong>
+                  <span>{order.duration_minutes} minutes · {money(order.amount_cents)}</span>
+                </div>
+                <p><b>{videoChatSchedule(order.scheduled_at)}</b><br />Telegram video chat</p>
+                {order.status === "awaiting_payment" && <>
+                  <p className="queueNote">Time selected. Waiting for a payment screenshot.</p>
+                  <button className="ignoreAction" disabled={liveLoading} onClick={() => void resolveVideoChat(order.id, "close_unpaid")}>Close unpaid and follow up</button>
+                </>}
+                {order.status === "payment_review" && <>
+                  <p className="queueNote">Payment screenshot received. Verify it before confirming the appointment.</p>
+                  <button className="primaryAction" disabled={liveLoading} onClick={() => void resolveVideoChat(order.id, "approve_payment")}>Confirm payment and schedule</button>
+                  <button className="secondaryAction" disabled={liveLoading} onClick={() => void resolveVideoChat(order.id, "payment_not_verified")}>Payment not verified</button>
+                </>}
+                {order.status === "scheduled" && <>
+                  <p className="queueNote">Payment confirmed. This appointment is on the daily task list.</p>
+                  <button className="primaryAction" disabled={liveLoading} onClick={() => void resolveVideoChat(order.id, "complete")}>Mark video chat complete</button>
+                </>}
+                <button className="secondaryAction" disabled={liveLoading} onClick={() => void resolveVideoChat(order.id, "cancel")}>Cancel video chat</button>
+              </div>
+            )) : <p className="queueNote">No video chats waiting or scheduled.</p>}
+          </section>
+
           {livePurchases.length ? (
             <div className="takeoverCard purchaseApproval dashboardSection dashboardToday">
               <div className="alertTitle"><span>$</span> {livePurchases[0].payment_proof_received_at ? "Payment screenshot received" : "Payment claimed"}</div>
@@ -2106,6 +2203,10 @@ export default function Home() {
                 <span>{bookingType === "in_person" ? "Hours" : "Minutes"}</span>
                 <input inputMode="decimal" min={bookingType === "video_chat" ? "5" : "1"} onChange={(event) => setBookingDuration(event.target.value)} placeholder={bookingType === "video_chat" ? "5" : "1"} value={bookingDuration} />
               </label>
+              {bookingType === "video_chat" && <label className="amountField">
+                <span>Confirmed date and time</span>
+                <input min={new Date().toISOString().slice(0, 16)} onChange={(event) => setBookingScheduledAt(event.target.value)} type="datetime-local" value={bookingScheduledAt} />
+              </label>}
               {bookingType === "custom_content" ? <label className="amountField">
                 <span>Custom quote total</span>
                 <input inputMode="decimal" min="1" onChange={(event) => setBookingAmount(event.target.value)} placeholder="Enter the amount the creator wants to charge" type="number" value={bookingAmount} />
@@ -2114,7 +2215,7 @@ export default function Home() {
                 {bookingType === "in_person" && <small>Excluded from earnings</small>}
               </div>}
               <button className="primaryAction" disabled={liveLoading} onClick={() => void resolveBooking("approve")}>
-                {bookingType === "custom_content" ? "Accept custom and send quote" : "Approve booking and send"}
+                {bookingType === "custom_content" ? "Accept custom and send quote" : bookingType === "video_chat" ? "Approve video chat and request payment" : "Approve booking and send"}
               </button>
               <button className="secondaryAction" disabled={liveLoading} onClick={() => void resolveBooking("decline")}>
                 Decline and send reply
@@ -2226,6 +2327,16 @@ export default function Home() {
                 <time>{custom.status === "cancelled" ? "Cancelled" : custom.status === "closed_unpaid" ? "Closed unpaid" : custom.completed_at ? new Date(`${custom.completed_at}Z`).toLocaleDateString() : "Completed"}</time>
               </div>
             )) : <p>No completed customs yet.</p>}
+          </section>
+
+          <section className="customHistory dashboardSection dashboardHistory">
+            <strong>Video chat history</strong>
+            {videoChatHistory.length ? videoChatHistory.map((order) => (
+              <div key={order.id}>
+                <span><b>{order.telegram_name}</b><small>{videoChatSchedule(order.scheduled_at)} · {order.duration_minutes} minutes · {money(order.amount_cents)}</small></span>
+                <time>{order.status === "completed" ? "Completed" : order.status === "closed_unpaid" ? "Closed unpaid" : "Cancelled"}</time>
+              </div>
+            )) : <p>No completed video chats yet.</p>}
           </section>
 
           <section className="customHistory dashboardSection dashboardHistory">
