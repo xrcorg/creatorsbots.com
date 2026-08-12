@@ -39,6 +39,7 @@ interface ExecutionContext {
 
 type TelegramMessage = {
   message_id: number;
+  dashboard_test_request_id?: string;
   business_connection_id?: string;
   sender_business_bot?: { id: number; is_bot?: boolean };
   chat: { id: number };
@@ -55,6 +56,20 @@ type TelegramMessage = {
     telegram_payment_charge_id: string;
   };
 };
+
+const DASHBOARD_TEST_CHAT_ID = "-900000000001";
+const dashboardTestReplyCaptures = new Map<string, string[]>();
+
+function isDashboardTestMessage(message?: TelegramMessage | null) {
+  return Boolean(message && (message.dashboard_test_request_id || String(message.chat.id) === DASHBOARD_TEST_CHAT_ID));
+}
+
+function captureDashboardTestReply(message: TelegramMessage, text: string) {
+  if (!message.dashboard_test_request_id) return;
+  const replies = dashboardTestReplyCaptures.get(message.dashboard_test_request_id) || [];
+  replies.push(text);
+  dashboardTestReplyCaptures.set(message.dashboard_test_request_id, replies);
+}
 
 type TelegramUpdate = {
   update_id: number;
@@ -503,6 +518,15 @@ async function prepareDatabase(env: Env) {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       question TEXT NOT NULL,
       answer TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS test_chat_feedback (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_message TEXT NOT NULL,
+      assistant_message TEXT NOT NULL DEFAULT '',
+      correction TEXT NOT NULL DEFAULT '',
+      action TEXT NOT NULL DEFAULT 'flag',
+      created_by TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS purchase_requests (
@@ -1142,6 +1166,10 @@ Expand texting shorthand only when its meaning is clear. Do not answer the messa
 }
 
 async function sendTelegramMessage(env: Env, message: TelegramMessage, text: string) {
+  if (isDashboardTestMessage(message)) {
+    captureDashboardTestReply(message, text);
+    return;
+  }
   if (!env.TELEGRAM_BOT_TOKEN) throw new Error("TELEGRAM_BOT_TOKEN is not configured");
 
   const localizedText = await localizeReplyForFan(env, String(message.chat.id), message.text || "", text);
@@ -1197,6 +1225,10 @@ async function processTelegramVoice(env: Env, chatId: string, voice: NonNullable
 }
 
 async function sendTelegramProductMedia(env: Env, message: TelegramMessage, media: ProductMedia) {
+  if (isDashboardTestMessage(message)) {
+    captureDashboardTestReply(message, `[Sent ${media.media_type}: ${media.file_name}]`);
+    return;
+  }
   const object = await env.MEDIA.get(media.r2_key);
   if (!object) throw new Error(`Stored product file ${media.id} was not found`);
   const form = new FormData();
@@ -1221,6 +1253,10 @@ async function getProductMedia(db: D1Database, productId: number) {
 
 async function sendTelegramPaidProductMedia(env: Env, message: TelegramMessage,
   product: ContentProduct, media: ProductMedia[]) {
+  if (isDashboardTestMessage(message)) {
+    captureDashboardTestReply(message, `[Stars unlock: ${product.title} · ⭐ ${product.stars_price.toLocaleString()}]`);
+    return;
+  }
   if (!env.TELEGRAM_BOT_TOKEN) throw new Error("TELEGRAM_BOT_TOKEN is not configured");
   if (!Number.isInteger(product.stars_price) || product.stars_price < 1 || product.stars_price > 25000) {
     throw new Error("This product does not have a valid Stars unlock price");
@@ -1260,6 +1296,10 @@ async function sendTelegramPaidProductMedia(env: Env, message: TelegramMessage,
 
 async function sendTelegramPaidPhotoUnlock(env: Env, message: TelegramMessage, media: ProductMedia,
   stars: number, title: string, purchaseKey: string) {
+  if (isDashboardTestMessage(message)) {
+    captureDashboardTestReply(message, `[Photo unlock: ${title} · ⭐ ${stars.toLocaleString()}]`);
+    return;
+  }
   if (!env.TELEGRAM_BOT_TOKEN) throw new Error("TELEGRAM_BOT_TOKEN is not configured");
   if (!Number.isInteger(stars) || stars < 1 || stars > 25000) {
     throw new Error("Enter a Stars price between 1 and 25,000");
@@ -1322,6 +1362,16 @@ async function maybeSendSextingMedia(env: Env, message: TelegramMessage, session
     console.error(`Stored sexting media ${media.id} was not found`);
     return false;
   }
+  if (isDashboardTestMessage(message)) {
+    captureDashboardTestReply(message, `[Sent private ${media.media_type}: ${media.label}]`);
+    await env.DB.batch([
+      env.DB.prepare(`INSERT OR IGNORE INTO sexting_media_sends (session_id, chat_id, media_id)
+        VALUES (?, ?, ?)`).bind(session.id, String(message.chat.id), media.id),
+      env.DB.prepare(`INSERT INTO chat_messages (chat_id, role, content) VALUES (?, 'assistant', ?)`)
+        .bind(String(message.chat.id), `Sent private ${media.media_type}: ${media.label}`),
+    ]);
+    return true;
+  }
   const form = new FormData();
   form.set("chat_id", String(message.chat.id));
   if (message.business_connection_id) form.set("business_connection_id", message.business_connection_id);
@@ -1352,6 +1402,10 @@ async function answerPreCheckout(env: Env, queryId: string, ok: boolean, errorMe
 }
 
 async function sendStarsInvoice(env: Env, message: TelegramMessage, title: string, description: string, payload: string, stars: number) {
+  if (isDashboardTestMessage(message)) {
+    captureDashboardTestReply(message, `[Stars checkout: ${title} · ⭐ ${stars.toLocaleString()}]`);
+    return;
+  }
   const body: Record<string, unknown> = {
     chat_id: message.chat.id,
     title,
@@ -1831,7 +1885,8 @@ function paymentConfirmationDelayMs() {
   return Math.floor((minimumSeconds + Math.random() * (maximumSeconds - minimumSeconds)) * 1000);
 }
 
-async function waitForPaymentConfirmation() {
+async function waitForPaymentConfirmation(message?: TelegramMessage) {
+  if (isDashboardTestMessage(message)) return;
   await new Promise((resolve) => setTimeout(resolve, paymentConfirmationDelayMs()));
 }
 
@@ -1889,7 +1944,7 @@ async function submitProductPaymentReview(env: Env, message: TelegramMessage, ch
     : "Can you send me a screenshot of the payment?";
   await saveMessage(env.DB, chatId, "user", message.text);
   await saveMessage(env.DB, chatId, "assistant", confirmation);
-  await waitForPaymentConfirmation();
+  await waitForPaymentConfirmation(message);
   await sendTelegramMessage(env, message, confirmation);
 }
 
@@ -1910,7 +1965,7 @@ async function handlePaymentSent(env: Env, message: TelegramMessage, chatId: str
       : "Can you send me a screenshot of the payment?";
     await saveMessage(env.DB, chatId, "user", message.text);
     await saveMessage(env.DB, chatId, "assistant", confirmation);
-    await waitForPaymentConfirmation();
+    await waitForPaymentConfirmation(message);
     await sendTelegramMessage(env, message, confirmation);
     return true;
   }
@@ -1929,7 +1984,7 @@ async function handlePaymentSent(env: Env, message: TelegramMessage, chatId: str
       : "Can you send me a screenshot of the payment?";
     await saveMessage(env.DB, chatId, "user", message.text);
     await saveMessage(env.DB, chatId, "assistant", confirmation);
-    await waitForPaymentConfirmation();
+    await waitForPaymentConfirmation(message);
     await sendTelegramMessage(env, message, confirmation);
     return true;
   }
@@ -1939,7 +1994,7 @@ async function handlePaymentSent(env: Env, message: TelegramMessage, chatId: str
     const clarification = "Can you send me a screenshot of the payment?";
     await saveMessage(env.DB, chatId, "user", message.text);
     await saveMessage(env.DB, chatId, "assistant", clarification);
-    await waitForPaymentConfirmation();
+    await waitForPaymentConfirmation(message);
     await sendTelegramMessage(env, message, clarification);
     return true;
   }
@@ -2581,14 +2636,15 @@ function randomResponseDelayMs(activeSexting: boolean, fastTesting = false) {
   return Math.floor((minimumSeconds + Math.random() * (maximumSeconds - minimumSeconds)) * 1000);
 }
 
-async function waitForOnboardingReply() {
+async function waitForOnboardingReply(message?: TelegramMessage) {
+  if (isDashboardTestMessage(message)) return;
   // Age verification is intentionally immediate, but the conversation that
   // follows should feel like the creator is actually reading and replying.
   await new Promise((resolve) => setTimeout(resolve, randomResponseDelayMs(false)));
 }
 
 async function sendDelayedNamePrompt(env: Env, message: TelegramMessage, chatId: string, prompt: string) {
-  await waitForOnboardingReply();
+  await waitForOnboardingReply(message);
   // The fan may answer before this delayed prompt is due. Suppress the stale
   // prompt instead of asking for their name again after it has been saved.
   const profile = await env.DB.prepare(`SELECT name, name_status FROM fan_profiles WHERE chat_id = ?`)
@@ -2621,7 +2677,9 @@ async function collectQuickMessages(db: D1Database, chatId: string, message: Tel
     .run();
   if (!inserted.meta.changes) return null;
 
-  await new Promise((resolve) => setTimeout(resolve, randomResponseDelayMs(activeSexting, fastTesting)));
+  if (!isDashboardTestMessage(message)) {
+    await new Promise((resolve) => setTimeout(resolve, randomResponseDelayMs(activeSexting, fastTesting)));
+  }
 
   const latest = await db.prepare(`SELECT MAX(message_id) AS message_id
     FROM inbound_message_buffer WHERE chat_id = ?`)
@@ -3006,7 +3064,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   if (await handlePaymentSent(env, message, chatId)) {
     return json({ ok: true, payment_review: true });
   }
-  if (settings.response_test_mode !== "on" && isTiffaniSleeping(settings)) {
+  if (!isDashboardTestMessage(message) && settings.response_test_mode !== "on" && isTiffaniSleeping(settings)) {
     await saveMessage(env.DB, chatId, "user", message.text);
     await queueCreatorReply(env.DB, message, "sleep");
     return json({ ok: true });
@@ -3035,7 +3093,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       const knownProfile = await env.DB.prepare(`SELECT name FROM fan_profiles WHERE chat_id = ?`)
         .bind(chatId).first<{ name: string | null }>();
       if (knownProfile?.name) {
-        await waitForOnboardingReply();
+        await waitForOnboardingReply(message);
         await sendTelegramMessage(env, message, creatorIntro(env));
       } else {
         await sendDelayedNamePrompt(env, message, chatId,
@@ -3079,7 +3137,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       if (profile.name_status === "awaiting_name") {
         await sendDelayedNamePrompt(env, message, chatId, NAME_PROMPT);
       } else {
-        await waitForOnboardingReply();
+        await waitForOnboardingReply(message);
         const current = await env.DB.prepare(`SELECT name_status FROM fan_profiles WHERE chat_id = ?`)
           .bind(chatId).first<{ name_status: string }>();
         if (current?.name_status === "awaiting_name_change") {
@@ -3107,7 +3165,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       ? `Got it, I'll call you ${name}.`
       : remainder ? `Nice to meet you, ${name}.` : `Nice to meet you, ${name}. What are you up to?`;
     await saveMessage(env.DB, chatId, "user", originalText);
-    await waitForOnboardingReply();
+    await waitForOnboardingReply(message);
     await saveMessage(env.DB, chatId, "assistant", greeting);
     await sendTelegramMessage(env, message, greeting);
     if (!remainder) return json({ ok: true });
@@ -3121,7 +3179,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     if (!nameChange.name) {
       await env.DB.prepare(`UPDATE fan_profiles SET name_status = 'awaiting_name_change',
         updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?`).bind(chatId).run();
-      await waitForOnboardingReply();
+      await waitForOnboardingReply(message);
       const reply = "What should I call you instead?";
       await saveMessage(env.DB, chatId, "assistant", reply);
       await sendTelegramMessage(env, message, reply);
@@ -3129,7 +3187,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     }
     await env.DB.prepare(`UPDATE fan_profiles SET name = ?, proposed_name = NULL, name_status = 'complete',
       updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?`).bind(nameChange.name, chatId).run();
-    await waitForOnboardingReply();
+    await waitForOnboardingReply(message);
     const reply = `Got it, I'll call you ${nameChange.name}.`;
     await saveMessage(env.DB, chatId, "assistant", reply);
     await sendTelegramMessage(env, message, reply);
@@ -3220,7 +3278,9 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     return json({ ok: true, creator_controlling_session: true });
   }
   if (isSextingTimeQuestion(message.text) && latestSextingSession?.ends_at) {
-    await new Promise((resolve) => setTimeout(resolve, randomResponseDelayMs(true, settings.response_test_mode === "on")));
+    if (!isDashboardTestMessage(message)) {
+      await new Promise((resolve) => setTimeout(resolve, randomResponseDelayMs(true, settings.response_test_mode === "on")));
+    }
     const endTime = Date.parse(`${latestSextingSession.ends_at.replace(" ", "T")}Z`);
     const secondsLeft = Math.max(0, Math.ceil((endTime - Date.now()) / 1000));
     const timeReply = secondsLeft > 0
@@ -3978,13 +4038,148 @@ async function isAdminRequest(request: Request, env: Env) {
   return Boolean(await getPortalUser(request, env));
 }
 
+async function clearDashboardTestChat(db: D1Database, onboarding = false) {
+  const chatTables = [
+    "chat_messages", "voice_notes", "pending_replies", "purchase_requests", "product_interest",
+    "inbound_message_buffer", "sexting_drafts", "sexting_sessions", "custom_drafts", "booking_drafts",
+    "booking_requests", "custom_fulfillments", "video_chat_orders", "physical_orders", "rating_orders",
+    "paid_photo_unlocks", "sexting_media_sends", "paid_media_sales", "conversation_controls",
+    "telegram_contacts", "fan_profiles", "fan_sessions",
+  ];
+  await db.batch(chatTables.map((table) => db.prepare(`DELETE FROM ${table} WHERE chat_id = ?`).bind(DASHBOARD_TEST_CHAT_ID)));
+  await db.prepare("DELETE FROM adult_verifications WHERE telegram_user_id = ?").bind(DASHBOARD_TEST_CHAT_ID).run();
+  if (onboarding) {
+    await db.batch([
+      db.prepare(`INSERT INTO fan_sessions (chat_id, telegram_user_id, age_status)
+        VALUES (?, ?, 'unknown')`).bind(DASHBOARD_TEST_CHAT_ID, DASHBOARD_TEST_CHAT_ID),
+      db.prepare(`INSERT INTO telegram_contacts (chat_id, username, display_name)
+        VALUES (?, '@dashboard_test', 'Test Fan')`).bind(DASHBOARD_TEST_CHAT_ID),
+      db.prepare(`INSERT INTO conversation_controls (chat_id, control_mode)
+        VALUES (?, 'bot')`).bind(DASHBOARD_TEST_CHAT_ID),
+    ]);
+    return;
+  }
+  await db.batch([
+    db.prepare(`INSERT INTO fan_sessions (chat_id, telegram_user_id, age_status)
+      VALUES (?, ?, 'verified')`).bind(DASHBOARD_TEST_CHAT_ID, DASHBOARD_TEST_CHAT_ID),
+    db.prepare(`INSERT INTO adult_verifications (telegram_user_id) VALUES (?)`).bind(DASHBOARD_TEST_CHAT_ID),
+    db.prepare(`INSERT INTO fan_profiles (chat_id, name, proposed_name, name_status)
+      VALUES (?, 'Test Fan', 'Test Fan', 'complete')`).bind(DASHBOARD_TEST_CHAT_ID),
+    db.prepare(`INSERT INTO telegram_contacts (chat_id, username, display_name)
+      VALUES (?, '@dashboard_test', 'Test Fan')`).bind(DASHBOARD_TEST_CHAT_ID),
+    db.prepare(`INSERT INTO conversation_controls (chat_id, control_mode)
+      VALUES (?, 'bot')`).bind(DASHBOARD_TEST_CHAT_ID),
+  ]);
+}
+
+async function dashboardTestChatData(db: D1Database) {
+  const messages = await db.prepare(`SELECT id, role, content, created_at FROM chat_messages
+    WHERE chat_id = ? ORDER BY id ASC LIMIT 300`).bind(DASHBOARD_TEST_CHAT_ID).all();
+  const feedback = await db.prepare(`SELECT id, user_message, assistant_message, correction,
+    action, created_by, created_at FROM test_chat_feedback ORDER BY id DESC LIMIT 50`).all();
+  return { messages: messages.results, feedback: feedback.results };
+}
+
+async function handleAdminTestChat(request: Request, env: Env) {
+  const portalUser = await getPortalUser(request, env);
+  if (!portalUser) return json({ error: "Sign in required" }, 401);
+  await prepareDatabase(env);
+
+  if (request.method === "GET") {
+    const session = await env.DB.prepare("SELECT chat_id FROM fan_sessions WHERE chat_id = ?")
+      .bind(DASHBOARD_TEST_CHAT_ID).first();
+    if (!session) await clearDashboardTestChat(env.DB);
+    return json(await dashboardTestChatData(env.DB));
+  }
+
+  if (request.method === "DELETE") {
+    const body = await request.json().catch(() => ({})) as { onboarding?: boolean };
+    await clearDashboardTestChat(env.DB, Boolean(body.onboarding));
+    return json({ ok: true, ...(await dashboardTestChatData(env.DB)) });
+  }
+
+  if (request.method !== "POST") return json({ error: "Test chat request not found" }, 404);
+  const body = await request.json().catch(() => ({})) as {
+    message?: string;
+    action?: "flag" | "learn";
+    user_message?: string;
+    assistant_message?: string;
+    correction?: string;
+  };
+
+  if (body.action) {
+    const userMessage = body.user_message?.trim().slice(0, 2000) || "";
+    const assistantMessage = body.assistant_message?.trim().slice(0, 4000) || "";
+    const correction = body.correction?.trim().slice(0, 4000) || "";
+    if (!userMessage) return json({ error: "Choose a test message to review" }, 400);
+    if (body.action === "learn" && !correction) return json({ error: "Write the better reply first" }, 400);
+    await env.DB.prepare(`INSERT INTO test_chat_feedback
+      (user_message, assistant_message, correction, action, created_by) VALUES (?, ?, ?, ?, ?)`)
+      .bind(userMessage, assistantMessage, correction, body.action, portalUser.email).run();
+    if (body.action === "learn") {
+      await env.DB.prepare("INSERT INTO learned_answers (question, answer) VALUES (?, ?)")
+        .bind(userMessage, correction).run();
+    }
+    return json({ ok: true, learned: body.action === "learn", ...(await dashboardTestChatData(env.DB)) });
+  }
+
+  const incoming = body.message?.trim().slice(0, 2000) || "";
+  if (!incoming) return json({ error: "Type a message to test" }, 400);
+  const session = await env.DB.prepare("SELECT chat_id FROM fan_sessions WHERE chat_id = ?")
+    .bind(DASHBOARD_TEST_CHAT_ID).first();
+  if (!session) await clearDashboardTestChat(env.DB);
+
+  const requestId = crypto.randomUUID();
+  const updateId = Date.now() * 1000 + Math.floor(Math.random() * 1000);
+  const messageId = Math.floor(Date.now() / 10) % 2_000_000_000;
+  dashboardTestReplyCaptures.set(requestId, []);
+  let outcome: Record<string, unknown> = {};
+  try {
+    const syntheticRequest = new Request("https://dashboard.test/api/telegram/webhook", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-telegram-bot-api-secret-token": env.TELEGRAM_WEBHOOK_SECRET || "dashboard-test",
+      },
+      body: JSON.stringify({
+        update_id: updateId,
+        message: {
+          message_id: messageId,
+          dashboard_test_request_id: requestId,
+          chat: { id: Number(DASHBOARD_TEST_CHAT_ID) },
+          from: { id: Number(DASHBOARD_TEST_CHAT_ID), username: "dashboard_test", first_name: "Test", last_name: "Fan" },
+          text: incoming,
+        },
+      }),
+    });
+    const response = await handleTelegramWebhook(syntheticRequest, env);
+    outcome = await response.json().catch(() => ({})) as Record<string, unknown>;
+
+    const newMessages = await env.DB.prepare(`SELECT role, content FROM chat_messages
+      WHERE chat_id = ? AND created_at >= datetime('now', '-2 minutes') ORDER BY id ASC`)
+      .bind(DASHBOARD_TEST_CHAT_ID).all<{ role: string; content: string }>();
+    if (!newMessages.results.some((item) => item.role === "user" && item.content === incoming)) {
+      await saveMessage(env.DB, DASHBOARD_TEST_CHAT_ID, "user", incoming);
+    }
+    for (const reply of dashboardTestReplyCaptures.get(requestId) || []) {
+      if (!newMessages.results.some((item) => item.role === "assistant" && item.content === reply)) {
+        await saveMessage(env.DB, DASHBOARD_TEST_CHAT_ID, "assistant", reply);
+      }
+    }
+  } finally {
+    dashboardTestReplyCaptures.delete(requestId);
+  }
+  return json({ ok: true, outcome, ...(await dashboardTestChatData(env.DB)) });
+}
+
 async function handleAdminPending(request: Request, env: Env) {
   const portalUser = await getPortalUser(request, env);
   if (!portalUser) return json({ error: "Sign in required" }, 401);
   await prepareDatabase(env);
   const settings = await getSettings(env.DB);
   const misplacedCustoms = await env.DB.prepare(`SELECT id, chat_id, business_connection_id, question
-    FROM pending_replies WHERE status = 'pending' ORDER BY id ASC LIMIT 100`).all<{
+    FROM pending_replies WHERE status = 'pending' AND chat_id <> ? ORDER BY id ASC LIMIT 100`)
+    .bind(DASHBOARD_TEST_CHAT_ID).all<{
       id: number;
       chat_id: string;
       business_connection_id: string | null;
@@ -4007,48 +4202,52 @@ async function handleAdminPending(request: Request, env: Env) {
     await saveMessage(env.DB, item.chat_id, "assistant", customVideoPrompt(settings));
   }
   const pending = await env.DB.prepare(`SELECT id, chat_id, question, created_at
-    FROM pending_replies WHERE status = 'pending' ORDER BY id ASC LIMIT 100`).all();
+    FROM pending_replies WHERE status = 'pending' AND chat_id <> ? ORDER BY id ASC LIMIT 100`)
+    .bind(DASHBOARD_TEST_CHAT_ID).all();
   const purchases = await env.DB.prepare(`SELECT purchase_requests.id, purchase_requests.chat_id, purchase_requests.product_title,
     purchase_requests.price, purchase_requests.payment_note, purchase_requests.payment_proof_file_id,
     purchase_requests.payment_proof_received_at, purchase_requests.created_at,
     content_products.content_type FROM purchase_requests
     LEFT JOIN content_products ON content_products.title = purchase_requests.product_title
-    WHERE purchase_requests.status = 'pending'
+    WHERE purchase_requests.status = 'pending' AND purchase_requests.chat_id <> ?
     ORDER BY purchase_requests.payment_proof_received_at IS NOT NULL DESC,
-      purchase_requests.payment_proof_received_at DESC, purchase_requests.id ASC LIMIT 100`).all();
+      purchase_requests.payment_proof_received_at DESC, purchase_requests.id ASC LIMIT 100`)
+    .bind(DASHBOARD_TEST_CHAT_ID).all();
   const purchaseHistory = await env.DB.prepare(`SELECT id, product_title, price, payment_note,
     status, created_at, resolved_at FROM purchase_requests WHERE status != 'disputed_removed'
-    ORDER BY id DESC LIMIT 200`).all();
-  const bookings = await env.DB.prepare(`SELECT booking_requests.id, booking_requests.details,
+      AND chat_id <> ? ORDER BY id DESC LIMIT 200`).bind(DASHBOARD_TEST_CHAT_ID).all();
+  const bookings = await env.DB.prepare(`SELECT booking_requests.id, booking_requests.chat_id, booking_requests.details,
     booking_requests.created_at,
     COALESCE(fan_profiles.name, telegram_contacts.username, telegram_contacts.display_name, 'Telegram fan') AS telegram_name,
     CASE WHEN details LIKE 'Custom content request:%' THEN 'custom_content' ELSE 'video_chat' END AS suggested_type
     FROM booking_requests
     LEFT JOIN telegram_contacts ON telegram_contacts.chat_id = booking_requests.chat_id
     LEFT JOIN fan_profiles ON fan_profiles.chat_id = booking_requests.chat_id
-    WHERE booking_requests.status = 'pending' ORDER BY booking_requests.id ASC LIMIT 100`).all();
+    WHERE booking_requests.status = 'pending' AND booking_requests.chat_id <> ?
+    ORDER BY booking_requests.id ASC LIMIT 100`).bind(DASHBOARD_TEST_CHAT_ID).all();
   const customs = await env.DB.prepare(`SELECT id, chat_id, telegram_name, duration_minutes, description,
     amount_cents, completion_comment, status, created_at FROM custom_fulfillments
-    WHERE status IN ('awaiting_payment', 'payment_review', 'awaiting_fulfillment')
-    ORDER BY id ASC LIMIT 100`).all();
+    WHERE status IN ('awaiting_payment', 'payment_review', 'awaiting_fulfillment') AND chat_id <> ?
+    ORDER BY id ASC LIMIT 100`).bind(DASHBOARD_TEST_CHAT_ID).all();
   const customHistory = await env.DB.prepare(`SELECT id, telegram_name, duration_minutes, description,
     amount_cents, delivery_url, completion_comment, status, created_at, completed_at FROM custom_fulfillments
-    WHERE status IN ('completed', 'cancelled', 'closed_unpaid')
-    ORDER BY COALESCE(completed_at, created_at) DESC LIMIT 100`).all();
+    WHERE status IN ('completed', 'cancelled', 'closed_unpaid') AND chat_id <> ?
+    ORDER BY COALESCE(completed_at, created_at) DESC LIMIT 100`).bind(DASHBOARD_TEST_CHAT_ID).all();
   const videoChats = await env.DB.prepare(`SELECT id, chat_id, telegram_name, scheduled_at,
     duration_minutes, rate_cents, amount_cents, status, created_at FROM video_chat_orders
-    WHERE status IN ('awaiting_payment', 'payment_review', 'scheduled')
-    ORDER BY datetime(scheduled_at) ASC, id ASC LIMIT 100`).all();
+    WHERE status IN ('awaiting_payment', 'payment_review', 'scheduled') AND chat_id <> ?
+    ORDER BY datetime(scheduled_at) ASC, id ASC LIMIT 100`).bind(DASHBOARD_TEST_CHAT_ID).all();
   const videoChatHistory = await env.DB.prepare(`SELECT id, chat_id, telegram_name, scheduled_at,
     duration_minutes, rate_cents, amount_cents, status, created_at, completed_at FROM video_chat_orders
-    WHERE status IN ('completed', 'cancelled', 'closed_unpaid')
-    ORDER BY COALESCE(completed_at, created_at) DESC LIMIT 100`).all();
-  const sextingSessions = await env.DB.prepare(`SELECT id, telegram_name, package_title,
+    WHERE status IN ('completed', 'cancelled', 'closed_unpaid') AND chat_id <> ?
+    ORDER BY COALESCE(completed_at, created_at) DESC LIMIT 100`).bind(DASHBOARD_TEST_CHAT_ID).all();
+  const sextingSessions = await env.DB.prepare(`SELECT id, chat_id, telegram_name, package_title,
     duration_minutes, stars, status, control_mode, taken_over_at, created_at, started_at, ends_at
-    FROM sexting_sessions WHERE status IN ('paid', 'active') ORDER BY id ASC LIMIT 100`).all();
+    FROM sexting_sessions WHERE status IN ('paid', 'active') AND chat_id <> ? ORDER BY id ASC LIMIT 100`)
+    .bind(DASHBOARD_TEST_CHAT_ID).all();
   const sextingHistory = await env.DB.prepare(`SELECT id, telegram_name, package_title,
-    duration_minutes, stars, completed_at FROM sexting_sessions WHERE status = 'completed'
-    ORDER BY completed_at DESC LIMIT 100`).all();
+    duration_minutes, stars, completed_at FROM sexting_sessions WHERE status = 'completed' AND chat_id <> ?
+    ORDER BY completed_at DESC LIMIT 100`).bind(DASHBOARD_TEST_CHAT_ID).all();
   const starsSummary = await env.DB.prepare(`SELECT COALESCE(SUM(stars), 0) AS total_stars,
     COUNT(*) AS transaction_count,
     COALESCE(SUM(CASE WHEN revenue_type = 'sexting' THEN stars ELSE 0 END), 0) AS sexting_stars,
@@ -4088,19 +4287,20 @@ async function handleAdminPending(request: Request, env: Env) {
   const dailyTasks = await env.DB.prepare(`SELECT id, title, task_type, scheduled_at,
     fan_name, details, amount_cents, status, created_at, completed_at
     FROM daily_tasks ORDER BY datetime(scheduled_at) ASC, id ASC LIMIT 500`).all();
-  const physicalOrders = await env.DB.prepare(`SELECT id, product_title, customer_name,
+  const physicalOrders = await env.DB.prepare(`SELECT id, chat_id, product_title, customer_name,
     shipping_address, tracking_number, amount_cents, status, created_at
-    FROM physical_orders WHERE status IN ('awaiting_name', 'awaiting_address', 'awaiting_shipment')
-    ORDER BY id ASC LIMIT 100`).all();
+    FROM physical_orders WHERE status IN ('awaiting_name', 'awaiting_address', 'awaiting_shipment') AND chat_id <> ?
+    ORDER BY id ASC LIMIT 100`).bind(DASHBOARD_TEST_CHAT_ID).all();
   const physicalOrderHistory = await env.DB.prepare(`SELECT id, product_title, customer_name,
     tracking_number, amount_cents, status, created_at, shipped_at
-    FROM physical_orders WHERE status = 'shipped' ORDER BY shipped_at DESC LIMIT 100`).all();
+    FROM physical_orders WHERE status = 'shipped' AND chat_id <> ? ORDER BY shipped_at DESC LIMIT 100`)
+    .bind(DASHBOARD_TEST_CHAT_ID).all();
   const ratingOrders = await env.DB.prepare(`SELECT id, chat_id, telegram_name, amount_cents, stars, status, created_at
-    FROM rating_orders WHERE status IN ('awaiting_photo', 'awaiting_response')
-    ORDER BY id ASC LIMIT 100`).all();
+    FROM rating_orders WHERE status IN ('awaiting_photo', 'awaiting_response') AND chat_id <> ?
+    ORDER BY id ASC LIMIT 100`).bind(DASHBOARD_TEST_CHAT_ID).all();
   const ratingOrderHistory = await env.DB.prepare(`SELECT id, telegram_name, amount_cents, stars, status,
-    created_at, completed_at FROM rating_orders WHERE status = 'completed'
-    ORDER BY completed_at DESC LIMIT 100`).all();
+    created_at, completed_at FROM rating_orders WHERE status = 'completed' AND chat_id <> ?
+    ORDER BY completed_at DESC LIMIT 100`).bind(DASHBOARD_TEST_CHAT_ID).all();
   const announcements = await env.DB.prepare(`SELECT id, platform, message, stream_url, status,
     recipient_count, delivered_count, failed_count, created_at, sent_at
     FROM announcements ORDER BY id DESC LIMIT 100`).all();
@@ -4118,7 +4318,8 @@ async function handleAdminPending(request: Request, env: Env) {
     FROM fan_profiles JOIN fan_sessions ON fan_sessions.chat_id = fan_profiles.chat_id
     LEFT JOIN telegram_contacts ON telegram_contacts.chat_id = fan_sessions.chat_id
     WHERE fan_profiles.name_status = 'pending_name_approval' AND fan_sessions.is_blocked = 0
-    ORDER BY datetime(submitted_at) ASC LIMIT 100`).all();
+      AND fan_sessions.chat_id <> ?
+    ORDER BY datetime(submitted_at) ASC LIMIT 100`).bind(DASHBOARD_TEST_CHAT_ID).all();
   const conversations = await env.DB.prepare(`SELECT fan_sessions.chat_id,
     COALESCE(fan_profiles.name, telegram_contacts.username, telegram_contacts.display_name, 'Telegram fan') AS telegram_name,
     fan_sessions.age_status,
@@ -4145,7 +4346,8 @@ async function handleAdminPending(request: Request, env: Env) {
     LEFT JOIN fan_profiles ON fan_profiles.chat_id = fan_sessions.chat_id
     LEFT JOIN conversation_controls ON conversation_controls.chat_id = fan_sessions.chat_id
     WHERE COALESCE(fan_profiles.name_status, '') != 'pending_name_approval'
-    ORDER BY datetime(last_message_at) DESC LIMIT 200`).all();
+      AND fan_sessions.chat_id <> ?
+    ORDER BY datetime(last_message_at) DESC LIMIT 200`).bind(DASHBOARD_TEST_CHAT_ID).all();
   const saleDisputes = await env.DB.prepare(`SELECT id, creator_key, earnings_event_id, source_type,
     source_id, description, amount_cents, stars, occurred_at, requester_email, reason, proof, status,
     reviewed_by, created_at, reviewed_at FROM sale_disputes
@@ -5490,6 +5692,10 @@ const worker = {
 
     if (url.pathname === "/api/admin/pending" && request.method === "GET") {
       return handleAdminPending(request, env);
+    }
+
+    if (url.pathname === "/api/admin/test-chat") {
+      return handleAdminTestChat(request, env);
     }
 
     if (url.pathname.startsWith("/api/admin/conversations")) {

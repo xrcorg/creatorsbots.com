@@ -9,6 +9,23 @@ type Message = {
   time: string;
 };
 
+type TestChatMessage = {
+  id: number;
+  role: "user" | "assistant" | "system";
+  content: string;
+  created_at: string;
+};
+
+type TestChatFeedback = {
+  id: number;
+  user_message: string;
+  assistant_message: string;
+  correction: string;
+  action: "flag" | "learn";
+  created_by: string;
+  created_at: string;
+};
+
 type LivePendingReply = {
   id: number;
   chat_id: string;
@@ -501,6 +518,7 @@ export default function Home() {
   const [platformOverview, setPlatformOverview] = useState<PlatformOverview | null>(null);
   const [ownerDayView, setOwnerDayView] = useState<string | null>(null);
   const [earningsView, setEarningsView] = useState<"weekly" | "all" | null>(null);
+  const [earningsReferenceTime] = useState(() => Date.now());
   const [bookingType, setBookingType] = useState<"video_chat" | "custom_content" | "in_person">("video_chat");
   const [bookingDuration, setBookingDuration] = useState("");
   const [bookingAmount, setBookingAmount] = useState("");
@@ -511,7 +529,13 @@ export default function Home() {
   const [liveLoading, setLiveLoading] = useState(false);
   const [liveError, setLiveError] = useState("");
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
-  const [dashboardView, setDashboardView] = useState<"today" | "inbox" | "content" | "settings" | "history">("today");
+  const [dashboardView, setDashboardView] = useState<"today" | "inbox" | "test" | "content" | "settings" | "history">("today");
+  const [testChatMessages, setTestChatMessages] = useState<TestChatMessage[]>([]);
+  const [testChatFeedback, setTestChatFeedback] = useState<TestChatFeedback[]>([]);
+  const [testChatInput, setTestChatInput] = useState("");
+  const [testChatCorrection, setTestChatCorrection] = useState("");
+  const [testChatBusy, setTestChatBusy] = useState(false);
+  const [testChatStatus, setTestChatStatus] = useState("");
   const previousAttentionCount = useRef<number | null>(null);
   const previousPaymentProofCount = useRef<number | null>(null);
   const settingsDirtyRef = useRef(false);
@@ -571,10 +595,122 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    void loadLivePending();
+    const initialLoad = window.setTimeout(() => void loadLivePending(), 0);
     const timer = window.setInterval(() => void loadLivePending(), 10000);
-    return () => window.clearInterval(timer);
+    return () => {
+      window.clearTimeout(initialLoad);
+      window.clearInterval(timer);
+    };
   }, [loadLivePending]);
+
+  const loadTestChat = useCallback(async () => {
+    try {
+      const response = await fetch("/api/admin/test-chat", { cache: "no-store" });
+      if (!response.ok) throw new Error("Unable to open the test chat");
+      const data = await response.json() as { messages: TestChatMessage[]; feedback: TestChatFeedback[] };
+      setTestChatMessages(data.messages || []);
+      setTestChatFeedback(data.feedback || []);
+    } catch {
+      setTestChatStatus("The test chat could not be loaded.");
+    }
+  }, []);
+
+  useEffect(() => {
+    if (dashboardView !== "test") return;
+    const initialLoad = window.setTimeout(() => void loadTestChat(), 0);
+    return () => window.clearTimeout(initialLoad);
+  }, [dashboardView, loadTestChat]);
+
+  async function sendTestChatMessage(event: FormEvent) {
+    event.preventDefault();
+    const message = testChatInput.trim();
+    if (!message || testChatBusy) return;
+    setTestChatBusy(true);
+    setTestChatStatus("Running the real conversation flow...");
+    try {
+      const response = await fetch("/api/admin/test-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message }),
+      });
+      const data = await response.json() as { error?: string; messages?: TestChatMessage[]; feedback?: TestChatFeedback[]; outcome?: { creator_reply_needed?: boolean } };
+      if (!response.ok) throw new Error(data.error || "The test message failed");
+      setTestChatMessages(data.messages || []);
+      setTestChatFeedback(data.feedback || []);
+      setTestChatInput("");
+      setTestChatCorrection("");
+      setTestChatStatus(data.outcome?.creator_reply_needed
+        ? "The flow correctly paused for creator review."
+        : "Instant sandbox reply complete. Nothing was sent to Telegram.");
+    } catch (error) {
+      setTestChatStatus(error instanceof Error ? error.message : "The test message failed.");
+    } finally {
+      setTestChatBusy(false);
+    }
+  }
+
+  async function resetTestChat(onboarding = false) {
+    setTestChatBusy(true);
+    setTestChatStatus(onboarding ? "Resetting to the age gate..." : "Starting a clean verified chat...");
+    try {
+      const response = await fetch("/api/admin/test-chat", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ onboarding }),
+      });
+      const data = await response.json() as { error?: string; messages?: TestChatMessage[]; feedback?: TestChatFeedback[] };
+      if (!response.ok) throw new Error(data.error || "Reset failed");
+      setTestChatMessages(data.messages || []);
+      setTestChatFeedback(data.feedback || []);
+      setTestChatCorrection("");
+      setTestChatStatus(onboarding ? "Age gate test is ready." : "Clean verified test chat is ready.");
+    } catch (error) {
+      setTestChatStatus(error instanceof Error ? error.message : "Reset failed.");
+    } finally {
+      setTestChatBusy(false);
+    }
+  }
+
+  async function reviewTestReply(action: "flag" | "learn") {
+    let assistantIndex = -1;
+    for (let index = testChatMessages.length - 1; index >= 0; index -= 1) {
+      if (testChatMessages[index].role === "assistant") { assistantIndex = index; break; }
+    }
+    let userMessage = "";
+    if (assistantIndex >= 0) {
+      for (let index = assistantIndex - 1; index >= 0; index -= 1) {
+        if (testChatMessages[index].role === "user") { userMessage = testChatMessages[index].content; break; }
+      }
+    }
+    const assistantMessage = assistantIndex >= 0 ? testChatMessages[assistantIndex].content : "";
+    if (!userMessage) {
+      setTestChatStatus("Send a test message before reviewing a reply.");
+      return;
+    }
+    if (action === "learn" && !testChatCorrection.trim()) {
+      setTestChatStatus("Write the better reply first.");
+      return;
+    }
+    setTestChatBusy(true);
+    try {
+      const response = await fetch("/api/admin/test-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action, user_message: userMessage, assistant_message: assistantMessage, correction: testChatCorrection }),
+      });
+      const data = await response.json() as { error?: string; feedback?: TestChatFeedback[] };
+      if (!response.ok) throw new Error(data.error || "Review could not be saved");
+      setTestChatFeedback(data.feedback || []);
+      setTestChatCorrection("");
+      setTestChatStatus(action === "learn"
+        ? "Better reply learned for this creator. Retest it now."
+        : "Reply flagged for conversation flow review.");
+    } catch (error) {
+      setTestChatStatus(error instanceof Error ? error.message : "Review could not be saved.");
+    } finally {
+      setTestChatBusy(false);
+    }
+  }
 
   useEffect(() => {
     if (!selectedConversationId) return;
@@ -1811,7 +1947,7 @@ export default function Home() {
             <div>
               <p className="eyebrow">Platform owner</p>
               <h1>Creator overview</h1>
-              <p>Review platform activity and securely view each creator's control room.</p>
+              <p>Review platform activity and securely view each creator’s control room.</p>
             </div>
             <span className="supportMode">Viewing as {portalUser?.creator_name.split(/\s+/)[0] || "creator"}</span>
           </div>
@@ -1901,9 +2037,9 @@ export default function Home() {
       <section className="workspace creatorDashboard">
         <aside className="creatorPanel visible" data-dashboard-view={dashboardView} id="creator-control-room">
           <nav className="controlRoomNav" aria-label="Control room sections">
-            {(["today", "inbox", "content", "settings", "history"] as const).map((view) => (
+            {(["today", "inbox", "test", "content", "settings", "history"] as const).map((view) => (
               <button className={dashboardView === view ? "active" : ""} key={view} onClick={() => setDashboardView(view)} type="button">
-                {view === "today" ? "Today" : view === "inbox" ? "Inbox" : view === "content" ? "Content" : view === "settings" ? "Settings" : "History"}
+                {view === "today" ? "Today" : view === "inbox" ? "Inbox" : view === "test" ? "Test Chat" : view === "content" ? "Content" : view === "settings" ? "Settings" : "History"}
               </button>
             ))}
           </nav>
@@ -1936,10 +2072,10 @@ export default function Home() {
                 <button aria-label="Close earnings history" onClick={() => setEarningsView(null)}>×</button>
               </div>
               {(earningsView === "weekly"
-                ? earnings.history.filter((item) => new Date(`${item.occurred_at}Z`).getTime() >= Date.now() - 7 * 24 * 60 * 60 * 1000)
+                ? earnings.history.filter((item) => new Date(`${item.occurred_at}Z`).getTime() >= earningsReferenceTime - 7 * 24 * 60 * 60 * 1000)
                 : earnings.history
               ).length ? (earningsView === "weekly"
-                ? earnings.history.filter((item) => new Date(`${item.occurred_at}Z`).getTime() >= Date.now() - 7 * 24 * 60 * 60 * 1000)
+                ? earnings.history.filter((item) => new Date(`${item.occurred_at}Z`).getTime() >= earningsReferenceTime - 7 * 24 * 60 * 60 * 1000)
                 : earnings.history
               ).map((item) => (
                 <div className="historyRow" key={item.id}>
@@ -1975,6 +2111,62 @@ export default function Home() {
               <span><b>⭐ {starsSummary.sexting.toLocaleString()}</b><small>{starsSummary.sexting_count} sexting sessions</small></span>
               <span><b>⭐ {starsSummary.ratings.toLocaleString()}</b><small>{starsSummary.rating_count} dick ratings</small></span>
               <span><b>⭐ {starsSummary.content.toLocaleString()}</b><small>{starsSummary.content_count} content unlocks</small></span>
+            </div>
+          </section>
+
+          <section className="testChatLab dashboardSection dashboardTest">
+            <div className="testChatHeader">
+              <div>
+                <span className="testChatEyebrow">Private sandbox</span>
+                <h3>Test the real conversation flow</h3>
+                <p>Uses this creator’s live tone, training, catalog, prices, and workflows. Replies are immediate and never go to Telegram or real earnings.</p>
+              </div>
+              <div className="testChatResetActions">
+                <button disabled={testChatBusy} onClick={() => void resetTestChat(false)} type="button">New verified chat</button>
+                <button disabled={testChatBusy} onClick={() => void resetTestChat(true)} type="button">Test age gate</button>
+              </div>
+            </div>
+            <div className="testChatGrid">
+              <div className="testChatConversation">
+                <div className="testChatMessages" aria-live="polite">
+                  {testChatMessages.length ? testChatMessages.map((message) => (
+                    <article className={message.role} key={message.id}>
+                      <span>{message.role === "user" ? "Test fan" : message.role === "assistant" ? portalUser?.creator_name || "Creator" : "System"}</span>
+                      <p>{message.content}</p>
+                      <time>{new Date(`${message.created_at.replace(" ", "T")}Z`).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</time>
+                    </article>
+                  )) : <div className="testChatEmpty"><strong>Start anywhere</strong><p>Try a typo, a short message, a sales question, a custom request, or a workflow cancellation.</p></div>}
+                </div>
+                <div className="testPromptChips">
+                  {["wyd?", "vidoes?", "custom?", "how much is videochat", "I don't want to sext", "can I see the trailer?"].map((prompt) => (
+                    <button disabled={testChatBusy} key={prompt} onClick={() => setTestChatInput(prompt)} type="button">{prompt}</button>
+                  ))}
+                </div>
+                <form className="testChatComposer" onSubmit={sendTestChatMessage}>
+                  <textarea maxLength={2000} onChange={(event) => setTestChatInput(event.target.value)} placeholder="Message as a test fan..." value={testChatInput} />
+                  <button disabled={testChatBusy || !testChatInput.trim()}>{testChatBusy ? "Testing..." : "Send instantly"}</button>
+                </form>
+                {testChatStatus && <p className="testChatStatus">{testChatStatus}</p>}
+              </div>
+              <aside className="testChatReview">
+                <div>
+                  <span className="testChatEyebrow">Fix the latest reply</span>
+                  <h4>What should it have said?</h4>
+                  <p>Teach a replacement to this creator immediately, or flag the reply so the shared conversation flow can be improved in code.</p>
+                </div>
+                <textarea maxLength={4000} onChange={(event) => setTestChatCorrection(event.target.value)} placeholder="Write the better response here..." value={testChatCorrection} />
+                <button className="primaryAction" disabled={testChatBusy} onClick={() => void reviewTestReply("learn")} type="button">Teach this answer</button>
+                <button className="secondaryAction" disabled={testChatBusy} onClick={() => void reviewTestReply("flag")} type="button">Flag this reply</button>
+                <div className="testFeedbackHistory">
+                  <strong>Recent fixes</strong>
+                  {testChatFeedback.slice(0, 5).map((item) => <article key={item.id}>
+                    <span>{item.action === "learn" ? "Learned" : "Flagged"}</span>
+                    <p>{item.user_message}</p>
+                    {item.correction && <small>Better reply: {item.correction}</small>}
+                  </article>)}
+                  {!testChatFeedback.length && <small>No test corrections saved yet.</small>}
+                </div>
+              </aside>
             </div>
           </section>
 
@@ -2524,7 +2716,6 @@ export default function Home() {
             <div><span>Custom approval</span><button className="settingToggle" onClick={() => changeSetting("custom_approval", settings.custom_approval === "required" ? "off" : "required")}>{settings.custom_approval === "required" ? "Required" : "Off"}</button></div>
             <div><span>Sexting</span><button className="settingToggle" onClick={() => changeSetting("sexting_enabled", settings.sexting_enabled === "on" ? "off" : "on")}>{settings.sexting_enabled}</button></div>
             <div><span>Sleep hours</span><button className="settingToggle" onClick={() => changeSetting("sleep_hours_enabled", settings.sleep_hours_enabled === "on" ? "off" : "on")}>{settings.sleep_hours_enabled}</button></div>
-            <div><span>Fast testing mode</span><button className="settingToggle" onClick={() => changeSetting("response_test_mode", settings.response_test_mode === "on" ? "off" : "on")}>{settings.response_test_mode}</button></div>
             <div className="rateSetting"><span>Sleep time</span><label><input aria-label="Sleep start time" onChange={(event) => changeSetting("sleep_start", event.target.value)} type="time" value={settings.sleep_start} /></label></div>
             <div className="rateSetting"><span>Wake time</span><label><input aria-label="Wake time" onChange={(event) => changeSetting("sleep_end", event.target.value)} type="time" value={settings.sleep_end} /></label></div>
             <div><span>Sexting intensity</span><section>{(["soft", "hard", "hot"] as const).map((value) => <button className={settings.sexting_intensity === value ? "selected" : ""} key={value} onClick={() => changeSetting("sexting_intensity", value)}>{value}</button>)}</section></div>

@@ -97,3 +97,15 @@ export const conversationTraining = sqliteTable("conversation_training", {
 }, (table) => [
   uniqueIndex("idx_conversation_training_category_suggestion").on(table.category, table.suggestion),
 ]);
+
+export const testChatFeedback = sqliteTable("test_chat_feedback", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userMessage: text("user_message").notNull(),
+  assistantMessage: text("assistant_message").notNull().default(""),
+  correction: text("correction").notNull().default(""),
+  action: text("action").notNull().default("flag"),
+  createdBy: text("created_by").notNull().default(""),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  index("idx_test_chat_feedback_created").on(table.createdAt),
+]);

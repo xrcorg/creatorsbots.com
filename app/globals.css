@@ -211,16 +211,55 @@ button { cursor: pointer; }
 
 .creatorPanel { min-width: 0; overflow: auto; background: white; }
 .creatorHeader { justify-content: space-between; margin-bottom: 22px; }
-.controlRoomNav { position: sticky; top: 0; z-index: 8; display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin: 0 0 16px; padding: 6px; border: 1px solid #efd9e4; border-radius: 14px; background: rgba(255,255,255,.94); box-shadow: 0 8px 24px rgba(93,35,64,.08); backdrop-filter: blur(12px); }
+.controlRoomNav { position: sticky; top: 0; z-index: 8; display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin: 0 0 16px; padding: 6px; border: 1px solid #efd9e4; border-radius: 14px; background: rgba(255,255,255,.94); box-shadow: 0 8px 24px rgba(93,35,64,.08); backdrop-filter: blur(12px); }
 .controlRoomNav button { border: 0; border-radius: 10px; padding: 10px 8px; background: transparent; color: var(--muted); font-size: 10px; font-weight: 800; }
 .controlRoomNav button.active { background: var(--pink); color: white; box-shadow: 0 5px 14px rgba(237,79,154,.24); }
 .creatorPanel .dashboardSection { display: none; }
 .creatorPanel[data-dashboard-view="today"] .dashboardToday,
 .creatorPanel[data-dashboard-view="inbox"] .dashboardInbox,
+.creatorPanel[data-dashboard-view="test"] .dashboardTest,
 .creatorPanel[data-dashboard-view="content"] .dashboardContent,
 .creatorPanel[data-dashboard-view="settings"] .dashboardSettings,
 .creatorPanel[data-dashboard-view="history"] .dashboardHistory { display: block; }
+.creatorPanel[data-dashboard-view="test"] > .earningsOverview,
+.creatorPanel[data-dashboard-view="test"] > .revenueBreakdown,
+.creatorPanel[data-dashboard-view="test"] > .earningsHistory,
+.creatorPanel[data-dashboard-view="test"] > .starsOverview { display: none; }
 .creatorHeader h2 { margin: 0; font-family: Georgia, serif; font-size: 24px; }
+.testChatLab { padding: 20px; border: 1px solid #efb6d2; border-radius: 20px; background: linear-gradient(145deg, #fffafd, #fff4f9); }
+.testChatHeader { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 18px; }
+.testChatHeader h3 { margin: 4px 0 6px; font-family: Georgia, serif; font-size: 25px; color: #34232d; }
+.testChatHeader p, .testChatReview p { max-width: 700px; margin: 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
+.testChatEyebrow { color: #cf2f7b; font-size: 10px; font-weight: 900; letter-spacing: .14em; text-transform: uppercase; }
+.testChatResetActions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.testChatResetActions button, .testPromptChips button { border: 1px solid #e9b8d0; border-radius: 999px; background: white; color: #70445a; font-size: 11px; font-weight: 800; padding: 9px 12px; }
+.testChatGrid { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(260px, .8fr); gap: 16px; }
+.testChatConversation, .testChatReview { min-width: 0; border: 1px solid #efd9e4; border-radius: 17px; background: white; }
+.testChatConversation { padding: 14px; }
+.testChatMessages { min-height: 360px; max-height: 560px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 4px 3px 14px; }
+.testChatMessages article { align-self: flex-start; max-width: min(78%, 620px); padding: 10px 12px; border: 1px solid #eadce4; border-radius: 15px 15px 15px 4px; background: #fffafd; }
+.testChatMessages article.user { align-self: flex-end; border-color: #efb2d0; border-radius: 15px 15px 4px 15px; background: #ffe4f1; }
+.testChatMessages article span { display: block; margin-bottom: 4px; color: #a35f80; font-size: 9px; font-weight: 900; text-transform: uppercase; }
+.testChatMessages article p { white-space: pre-wrap; margin: 0; color: #35232d; font-size: 13px; line-height: 1.45; }
+.testChatMessages article time { display: block; margin-top: 5px; color: #9a8791; font-size: 9px; text-align: right; }
+.testChatEmpty { margin: auto; padding: 45px 20px; text-align: center; color: var(--muted); }
+.testChatEmpty strong { display: block; color: #422b37; font-size: 17px; }
+.testChatEmpty p { margin: 5px 0 0; font-size: 12px; }
+.testPromptChips { display: flex; gap: 6px; flex-wrap: wrap; margin: 2px 0 10px; }
+.testPromptChips button { padding: 6px 10px; font-size: 10px; }
+.testChatComposer { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 9px; }
+.testChatComposer textarea, .testChatReview textarea { width: 100%; min-height: 72px; resize: vertical; border: 1px solid #e8cbd9; border-radius: 13px; padding: 11px; background: white; color: #35232d; font: inherit; font-size: 13px; }
+.testChatComposer button { align-self: stretch; border: 0; border-radius: 13px; padding: 0 18px; background: var(--pink); color: white; font-weight: 900; }
+.testChatStatus { margin: 9px 2px 0; color: #765263; font-size: 11px; font-weight: 700; }
+.testChatReview { display: flex; flex-direction: column; gap: 10px; padding: 16px; }
+.testChatReview h4 { margin: 4px 0 6px; font-size: 17px; }
+.testChatReview textarea { min-height: 120px; }
+.testFeedbackHistory { display: grid; gap: 8px; margin-top: 8px; padding-top: 12px; border-top: 1px solid #f0dce6; }
+.testFeedbackHistory > strong { font-size: 12px; }
+.testFeedbackHistory article { padding: 9px; border-radius: 10px; background: #fff6fa; }
+.testFeedbackHistory article span { color: #ce307a; font-size: 9px; font-weight: 900; text-transform: uppercase; }
+.testFeedbackHistory article p { margin: 3px 0; color: #422b37; font-size: 11px; font-weight: 800; }
+.testFeedbackHistory small { display: block; color: var(--muted); font-size: 10px; line-height: 1.35; }
 .conversationInbox { padding: 16px; border: 1px solid var(--line); border-radius: 18px; background: #fffafd; }
 .newChattersQueue { display: grid; gap: 12px; margin-bottom: 18px; padding: 15px; border: 1px solid #f0a9cc; border-radius: 15px; background: linear-gradient(145deg, #fff5fa, #fffafd); }
 .newChattersHeading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
@@ -610,6 +649,12 @@ button { cursor: pointer; }
   .creatorPanel { position: static; width: 100%; max-height: none; padding: 18px; }
   .controlRoomNav { top: 8px; grid-template-columns: repeat(5, max-content); overflow-x: auto; justify-content: start; }
   .controlRoomNav button { min-width: 78px; }
+  .testChatHeader { display: grid; }
+  .testChatResetActions { justify-content: start; }
+  .testChatGrid { grid-template-columns: 1fr; }
+  .testChatTranscript { min-height: 420px; max-height: 540px; }
+  .testChatComposer { grid-template-columns: 1fr; }
+  .testChatComposer button { width: 100%; }
   .conversationWorkspace { grid-template-columns: 1fr; }
   .newChatterList article { grid-template-columns: 1fr; align-items: stretch; }
   .newChatterList .primaryAction { width: 100%; }
