@@ -906,6 +906,26 @@ export default function Home() {
     }
   }
 
+  async function exitLiveConversationFlow(chatId: string) {
+    if (!window.confirm("Exit the current flow? This stops unfinished booking, custom, sexting, rating, shipping, and catalog steps. Message history, fan details, sales, and completed orders stay saved.")) return;
+    try {
+      setLiveLoading(true);
+      setConversationStatus("Exiting current flow...");
+      const response = await fetch("/api/admin/conversations/exit-flow", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId }),
+      });
+      if (!response.ok) throw new Error("Conversation flow exit failed");
+      setConversationStatus("Current flow exited. The next fan message will return to normal chat.");
+      await loadLivePending();
+    } catch {
+      setConversationStatus("The current flow could not be exited. Please try again.");
+    } finally {
+      setLiveLoading(false);
+    }
+  }
+
   async function clearAllTestChats() {
     if (!window.confirm("Clear every Tiffani fan chat and start testing from the age check again? This removes chat history, fan names, voice memos, and unfinished chat flows. Catalog content, uploads, completed orders, earnings, and creator settings stay saved.")) return;
     try {
@@ -1848,6 +1868,7 @@ export default function Home() {
                         <input aria-label="Bot replies" checked={selectedConversation.control_mode === "bot"} disabled={liveLoading} onChange={(event) => void setConversationBotMode(selectedConversation.chat_id, event.target.checked)} type="checkbox" />
                         <i aria-hidden="true" />
                       </label>
+                      <button className="exitConversationFlow" disabled={liveLoading} onClick={() => void exitLiveConversationFlow(selectedConversation.chat_id)} type="button">Exit flow</button>
                       <button className="resetConversation" disabled={liveLoading} onClick={() => void resetLiveConversation(selectedConversation.chat_id)} type="button">Reset chat</button>
                     </div>
                   </header>

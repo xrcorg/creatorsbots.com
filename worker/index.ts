@@ -1864,6 +1864,27 @@ async function clearSextingState(db: D1Database, chatId: string) {
   ]);
 }
 
+async function exitConversationFlow(db: D1Database, chatId: string) {
+  await db.batch([
+    db.prepare(`UPDATE sexting_drafts SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+      WHERE chat_id = ? AND status IN ('awaiting_package', 'invoice_sent')`).bind(chatId),
+    db.prepare(`UPDATE sexting_sessions SET status = 'completed', completed_at = CURRENT_TIMESTAMP
+      WHERE chat_id = ? AND status = 'active'`).bind(chatId),
+    db.prepare(`UPDATE booking_drafts SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+      WHERE chat_id = ? AND status = 'awaiting_details'`).bind(chatId),
+    db.prepare(`UPDATE custom_drafts SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+      WHERE chat_id = ? AND status = 'awaiting_details'`).bind(chatId),
+    db.prepare(`UPDATE physical_orders SET status = 'cancelled'
+      WHERE chat_id = ? AND status IN ('awaiting_name', 'awaiting_address')`).bind(chatId),
+    db.prepare(`UPDATE rating_orders SET status = 'cancelled'
+      WHERE chat_id = ? AND status = 'awaiting_photo'`).bind(chatId),
+    db.prepare(`UPDATE pending_replies SET status = 'ignored', answered_at = CURRENT_TIMESTAMP
+      WHERE chat_id = ? AND status = 'pending'`).bind(chatId),
+    db.prepare(`DELETE FROM inbound_message_buffer WHERE chat_id = ?`).bind(chatId),
+    db.prepare(`DELETE FROM product_interest WHERE chat_id = ?`).bind(chatId),
+  ]);
+}
+
 async function resetConversationState(db: D1Database, chatId: string) {
   await db.batch([
     db.prepare(`UPDATE sexting_drafts SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
@@ -1992,6 +2013,17 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
       .bind(chatId).first();
     if (!exists) return json({ error: "Conversation not found" }, 404);
     await resetConversationState(env.DB, chatId);
+    return json({ ok: true });
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/admin/conversations/exit-flow") {
+    const body = await request.json<{ chat_id?: string }>();
+    const chatId = String(body.chat_id || "").trim();
+    if (!chatId) return json({ error: "A conversation is required" }, 400);
+    const exists = await env.DB.prepare("SELECT chat_id FROM fan_sessions WHERE chat_id = ?")
+      .bind(chatId).first();
+    if (!exists) return json({ error: "Conversation not found" }, 404);
+    await exitConversationFlow(env.DB, chatId);
     return json({ ok: true });
   }
 
