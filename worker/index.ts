@@ -2390,6 +2390,23 @@ function randomResponseDelayMs(activeSexting: boolean, fastTesting = false) {
   return Math.floor((minimumSeconds + Math.random() * (maximumSeconds - minimumSeconds)) * 1000);
 }
 
+async function waitForOnboardingReply() {
+  // Age verification is intentionally immediate, but the conversation that
+  // follows should feel like the creator is actually reading and replying.
+  await new Promise((resolve) => setTimeout(resolve, randomResponseDelayMs(false)));
+}
+
+async function sendDelayedNamePrompt(env: Env, message: TelegramMessage, chatId: string, prompt: string) {
+  await waitForOnboardingReply();
+  // The fan may answer before this delayed prompt is due. Suppress the stale
+  // prompt instead of asking for their name again after it has been saved.
+  const profile = await env.DB.prepare(`SELECT name, name_status FROM fan_profiles WHERE chat_id = ?`)
+    .bind(chatId).first<{ name: string | null; name_status: string }>();
+  if (profile?.name || profile?.name_status !== "awaiting_name") return false;
+  await sendTelegramMessage(env, message, prompt);
+  return true;
+}
+
 function presenceReply(messageId: number, activeSexting: boolean) {
   const replies = activeSexting
     ? [
@@ -2823,9 +2840,13 @@ async function handleTelegramWebhook(request: Request, env: Env) {
           updated_at = CURRENT_TIMESTAMP`).bind(chatId).run();
       const knownProfile = await env.DB.prepare(`SELECT name FROM fan_profiles WHERE chat_id = ?`)
         .bind(chatId).first<{ name: string | null }>();
-      await sendTelegramMessage(env, message, knownProfile?.name
-        ? creatorIntro(env)
-        : `Hey, it's ${creatorConfig(env).chatName}. What's your name, babe?`);
+      if (knownProfile?.name) {
+        await waitForOnboardingReply();
+        await sendTelegramMessage(env, message, creatorIntro(env));
+      } else {
+        await sendDelayedNamePrompt(env, message, chatId,
+          `Hey, it's ${creatorConfig(env).chatName}. What's your name, babe?`);
+      }
     } else if (isAdultNo(message.text)) {
       await env.DB.prepare("UPDATE fan_sessions SET age_status = 'blocked', updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?")
         .bind(chatId)
@@ -2854,20 +2875,21 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     await env.DB.prepare("INSERT INTO fan_profiles (chat_id, name_status) VALUES (?, 'awaiting_name')")
       .bind(chatId)
       .run();
-    await sendTelegramMessage(env, message, NAME_PROMPT);
+    await sendDelayedNamePrompt(env, message, chatId, NAME_PROMPT);
     return json({ ok: true, name_needed: true });
   }
   if (profile.name_status === "awaiting_name") {
     const originalText = message.text;
     const { name, remainder } = parseNameIntroduction(originalText);
     if (!name) {
-      await sendTelegramMessage(env, message, NAME_PROMPT);
+      await sendDelayedNamePrompt(env, message, chatId, NAME_PROMPT);
       return json({ ok: true, name_needed: true });
     }
     await env.DB.prepare(`UPDATE fan_profiles SET name = ?, name_status = 'complete',
       updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?`).bind(name, chatId).run();
     const greeting = remainder ? `Nice to meet you, ${name}.` : `Nice to meet you, ${name}. What are you up to?`;
     await saveMessage(env.DB, chatId, "user", originalText);
+    await waitForOnboardingReply();
     await saveMessage(env.DB, chatId, "assistant", greeting);
     await sendTelegramMessage(env, message, greeting);
     if (!remainder) return json({ ok: true });
