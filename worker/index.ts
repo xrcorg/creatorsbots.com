@@ -99,6 +99,20 @@ const AGE_PROMPTS = [
 function agePrompt() {
   return AGE_PROMPTS[Math.floor(Math.random() * AGE_PROMPTS.length)];
 }
+
+const PAID_CONTENT_FOLLOW_UPS = [
+  "Hope you enjoy it! Lmk what you think",
+  "Enjoy, babe! Tell me what you think after you watch it",
+  "I hope you love it! Lmk which part you liked most",
+  "Have fun with it, babe. I wanna hear what you think",
+  "It's all yours! Tell me what you think when you're done",
+  "Hope you like it, babe! Lmk how you enjoyed it",
+];
+
+function paidContentFollowUp() {
+  return PAID_CONTENT_FOLLOW_UPS[Math.floor(Math.random() * PAID_CONTENT_FOLLOW_UPS.length)];
+}
+
 function creatorIntro(env: Env) {
   return `Hey, it's ${creatorConfig(env).chatName}. What are you up to?`;
 }
@@ -1810,7 +1824,7 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
           savedReply = `I sent you ${product.title}.`;
           for (const media of uploadedMedia.results) await sendTelegramProductMedia(env, telegramMessage, media);
         }
-        const followUp = "I hope you enjoy it! Lmk what you think";
+        const followUp = paidContentFollowUp();
         await sendTelegramMessage(env, telegramMessage, followUp);
         savedReply += `\n\n${followUp}`;
       }
@@ -3645,7 +3659,7 @@ async function handleAdminPurchase(request: Request, env: Env) {
     }
   }
   if (approved && needsDeliveryLink) {
-    const followUp = "I hope you enjoy it! Lmk what you think";
+    const followUp = paidContentFollowUp();
     await sendTelegramMessage(env, {
       message_id: 0,
       chat: { id: Number(purchase.chat_id) },
