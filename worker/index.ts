@@ -181,12 +181,9 @@ function productPaymentOptions(env: Env, product: ContentProduct) {
   if (product.content_type === "video_rating") {
     return `Video ratings are ${videoRatingStars(product)} Telegram Stars, babe. I'll send the invoice here, then you can send the photo you want rated after it is paid.`;
   }
-  const nextStep = product.content_type === "physical_item"
-    ? "I will verify it, then I'll ask for your shipping name and address."
-    : "I will verify it before I send the content to you.";
   const methods = paymentLines(env);
   if (!methods) return "I still need to finish setting up my payment methods. I'll get back to you with them.";
-  return `Please send ${productPrice(product)} using:\n${methods}\n\nIn the payment notes, put your Telegram username. ${nextStep} Send me a screenshot of the payment after you send it.`;
+  return `Please send ${productPrice(product)} using:\n${methods}\n\nIn the payment notes, put your Telegram username. After you send it, can you send me a screenshot of the payment?`;
 }
 
 function videoRatingStars(product: ContentProduct) {
@@ -1422,9 +1419,11 @@ async function submitProductPaymentReview(env: Env, message: TelegramMessage, ch
       .bind(chatId, message.business_connection_id || null, product.title, productPrice(product), paymentNote)
       .run();
   }
-  const confirmation = product.content_type === "physical_item"
-    ? "Ok, thanks babe. Let me verify it, then I'll get your shipping information."
-    : "Ok, thanks babe. Let me check when I get the chance and I'll send you the link!";
+  const confirmation = message.photo?.length
+    ? product.content_type === "physical_item"
+      ? "Ok, thanks babe. Let me check it, then I'll get your shipping information."
+      : "Ok, thanks babe. Let me check when I get the chance and I'll send you the link!"
+    : "Can you send me a screenshot of the payment?";
   await saveMessage(env.DB, chatId, "user", message.text);
   await saveMessage(env.DB, chatId, "assistant", confirmation);
   await waitForPaymentConfirmation();
@@ -1450,7 +1449,7 @@ async function handlePaymentSent(env: Env, message: TelegramMessage, chatId: str
 
   const product = await getInterestedProduct(env.DB, chatId) || await getRecentProductContext(env.DB, chatId);
   if (!product) {
-    const clarification = "Ok, thanks babe. Which video or item did you pay for so I can verify it?";
+    const clarification = "Can you send me a screenshot of the payment?";
     await saveMessage(env.DB, chatId, "user", message.text);
     await saveMessage(env.DB, chatId, "assistant", clarification);
     await waitForPaymentConfirmation();
@@ -2133,8 +2132,8 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   if (session?.age_status === "blocked") return json({ ok: true });
 
   const settings = await getSettings(env.DB);
-  // Payment confirmations are transactional. Record and acknowledge them
-  // immediately so they cannot be lost to sleep hours or a manual takeover.
+  // Payment confirmations are transactional. Handle them before sleep hours or
+  // manual takeover while preserving the short, natural confirmation delay.
   if (await handlePaymentSent(env, message, chatId)) {
     return json({ ok: true, payment_review: true });
   }

@@ -703,7 +703,7 @@ export default function Home() {
       catalog: catalog ? `Here's what I have available right now:\n\n${catalog}\n\nTell me which one you want and I'll send you the details.` : "I'm adding new content soon, babe. What kind of content do you want to see?",
       trailer: product?.trailer_url ? `Here's the trailer for ${product.title}, babe:\n${product.trailer_url}\n\nThe full video is ${productPrice}. Do you want to buy it?` : product ? `I have ${product.title}, babe. I don't have a trailer link ready here, but the full video is ${productPrice}. Do you want the details?` : "Which video did you want the trailer for, babe?",
       product_details: product ? `I have ${product.title}${product.actors ? ` starring ${product.actors}` : ""}.${product.genre ? ` Tags: ${product.genre}.` : ""} It's ${productPrice}. Do you want to buy it?` : "Which video did you want more details about, babe?",
-      product_payment: product ? `Please send ${productPrice} and put your Telegram username in the notes. Send me a screenshot after you send it and I'll verify it before I send you ${product.title}.` : "Tell me which video you want and I'll send you the payment details.",
+      product_payment: product ? `Please send ${productPrice} and put your Telegram username in the notes. After you send it, can you send me a screenshot of the payment?` : "Tell me which video you want and I'll send you the payment details.",
       custom_start: "Yeah babe, I make customs. Tell me what you want and how long you want it to be.",
       custom_more: "Anything else you want me to add?",
       custom_review: "Got it! I'll review everything and let you know what it will cost.",
