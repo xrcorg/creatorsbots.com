@@ -242,6 +242,12 @@ function moneyTextToCents(value: string | null | undefined, fallbackCents = 0) {
   return Number.isFinite(amount) && amount >= 0 ? Math.round(amount * 100) : fallbackCents;
 }
 
+function productEarningsSource(contentType: string | null | undefined) {
+  if (contentType === "physical_item") return "physical_item";
+  if (contentType === "video_rating") return "video_rating";
+  return "content";
+}
+
 function isVideoChatRequest(text: string) {
   return /\b(video chat|video call)\b/i.test(text);
 }
@@ -877,7 +883,12 @@ async function prepareDatabase(env: Env) {
   // ledger write completed. The unique source key keeps this safe on every load.
   await db.prepare(`INSERT OR IGNORE INTO earnings_events
     (source_type, source_id, description, amount_cents, occurred_at)
-    SELECT 'content', CAST(purchase_requests.id AS TEXT), purchase_requests.product_title,
+    SELECT CASE content_products.content_type
+        WHEN 'physical_item' THEN 'physical_item'
+        WHEN 'video_rating' THEN 'video_rating'
+        ELSE 'content'
+      END,
+      CAST(purchase_requests.id AS TEXT), purchase_requests.product_title,
       COALESCE(
         NULLIF(CAST(ROUND(CAST(REPLACE(REPLACE(purchase_requests.price, '$', ''), ',', '') AS REAL) * 100) AS INTEGER), 0),
         content_products.price_cents,
@@ -890,9 +901,27 @@ async function prepareDatabase(env: Env) {
       AND purchase_requests.payment_note != 'Telegram Stars payment'
       AND NOT EXISTS (
         SELECT 1 FROM earnings_events
-        WHERE earnings_events.source_type = 'content'
-          AND earnings_events.source_id = CAST(purchase_requests.id AS TEXT)
+        WHERE earnings_events.source_id = CAST(purchase_requests.id AS TEXT)
+          AND earnings_events.source_type IN ('content', 'physical_item', 'video_rating')
       )`).run();
+  // Older paid merchandise and rating orders were recorded as generic content.
+  // Reclassify them so the dashboard can itemize every revenue stream without
+  // changing the amount or creating a second earnings entry.
+  await db.prepare(`UPDATE earnings_events SET source_type = CASE
+      WHEN EXISTS (
+        SELECT 1 FROM purchase_requests
+        JOIN content_products ON content_products.title = purchase_requests.product_title
+        WHERE CAST(purchase_requests.id AS TEXT) = earnings_events.source_id
+          AND content_products.content_type = 'physical_item'
+      ) THEN 'physical_item'
+      WHEN EXISTS (
+        SELECT 1 FROM purchase_requests
+        JOIN content_products ON content_products.title = purchase_requests.product_title
+        WHERE CAST(purchase_requests.id AS TEXT) = earnings_events.source_id
+          AND content_products.content_type = 'video_rating'
+      ) THEN 'video_rating'
+      ELSE 'content'
+    END WHERE source_type = 'content'`).run();
 }
 
 async function sendTelegramMessage(env: Env, message: TelegramMessage, text: string) {
@@ -3317,11 +3346,18 @@ async function handleAdminPending(request: Request, env: Env) {
     duration_minutes, stars, completed_at FROM sexting_sessions WHERE status = 'completed'
     ORDER BY completed_at DESC LIMIT 100`).all();
   const starsSummary = await env.DB.prepare(`SELECT COALESCE(SUM(stars), 0) AS total_stars,
-    COUNT(*) AS transaction_count FROM (
-      SELECT stars FROM sexting_sessions WHERE stars > 0 AND status != 'disputed_removed'
+    COUNT(*) AS transaction_count,
+    COALESCE(SUM(CASE WHEN revenue_type = 'sexting' THEN stars ELSE 0 END), 0) AS sexting_stars,
+    COALESCE(SUM(CASE WHEN revenue_type = 'sexting' THEN 1 ELSE 0 END), 0) AS sexting_count,
+    COALESCE(SUM(CASE WHEN revenue_type = 'video_rating' THEN stars ELSE 0 END), 0) AS rating_stars,
+    COALESCE(SUM(CASE WHEN revenue_type = 'video_rating' THEN 1 ELSE 0 END), 0) AS rating_count
+    FROM (
+      SELECT stars, 'sexting' AS revenue_type FROM sexting_sessions
+        WHERE stars > 0 AND status != 'disputed_removed'
       UNION ALL
-      SELECT stars FROM rating_orders WHERE stars > 0
-    )`).first<{ total_stars: number; transaction_count: number }>();
+      SELECT stars, 'video_rating' AS revenue_type FROM rating_orders WHERE stars > 0
+    )`).first<{ total_stars: number; transaction_count: number; sexting_stars: number;
+      sexting_count: number; rating_stars: number; rating_count: number }>();
   const sextingMedia = await env.DB.prepare(`SELECT id, label, media_type, file_name,
     mime_type, active, created_at FROM sexting_media ORDER BY id DESC LIMIT 100`).all();
   const contentProducts = await env.DB.prepare(`SELECT content_products.id, content_type, title, price_cents, stars_price,
@@ -3389,6 +3425,10 @@ async function handleAdminPending(request: Request, env: Env) {
     WHERE occurred_at >= datetime('now', '-7 days')`).first<{ total_cents: number; transaction_count: number }>();
   const allTime = await env.DB.prepare(`SELECT COALESCE(SUM(amount_cents), 0) AS total_cents,
     COUNT(*) AS transaction_count FROM earnings_events`).first<{ total_cents: number; transaction_count: number }>();
+  const earningsByType = await env.DB.prepare(`SELECT source_type,
+    COALESCE(SUM(amount_cents), 0) AS total_cents, COUNT(*) AS transaction_count
+    FROM earnings_events GROUP BY source_type ORDER BY source_type ASC`)
+    .all<{ source_type: string; total_cents: number; transaction_count: number }>();
   const earningsHistory = await env.DB.prepare(`SELECT id, source_type, description, amount_cents, occurred_at
     FROM earnings_events ORDER BY id DESC LIMIT 1000`).all();
   const dailyRows = await env.DB.prepare(`SELECT id, source_type, description, amount_cents, occurred_at FROM earnings_events
@@ -3460,7 +3500,14 @@ async function handleAdminPending(request: Request, env: Env) {
     video_chat_history: videoChatHistory.results,
     sexting_sessions: sextingSessions.results,
     sexting_history: sextingHistory.results,
-    stars: { total: starsSummary?.total_stars || 0, count: starsSummary?.transaction_count || 0 },
+    stars: {
+      total: starsSummary?.total_stars || 0,
+      count: starsSummary?.transaction_count || 0,
+      sexting: starsSummary?.sexting_stars || 0,
+      sexting_count: starsSummary?.sexting_count || 0,
+      ratings: starsSummary?.rating_stars || 0,
+      rating_count: starsSummary?.rating_count || 0,
+    },
     sexting_media: sextingMedia.results,
     products: contentProducts.results,
     sexting_scripts: sextingScripts.results,
@@ -3482,6 +3529,7 @@ async function handleAdminPending(request: Request, env: Env) {
       all_time_count: allTime?.transaction_count || 0,
       recent: earningsHistory.results.slice(0, 20),
       history: earningsHistory.results,
+      by_type: earningsByType.results,
     },
     platform_overview: portalUser.role === "owner" ? {
       creator_count: creatorAccounts.results.length,
@@ -3819,12 +3867,13 @@ async function handleAdminPurchase(request: Request, env: Env) {
     await saveMessage(env.DB, purchase.chat_id, "assistant", followUp);
   }
   if (approved) {
+    const earningsSource = productEarningsSource(purchase.content_type);
     const approvalWrites = [
       env.DB.prepare(`UPDATE purchase_requests SET status = 'approved', resolved_at = CURRENT_TIMESTAMP
         WHERE id = ? AND status = 'pending'`).bind(purchase.id),
       env.DB.prepare(`INSERT OR IGNORE INTO earnings_events
-        (source_type, source_id, description, amount_cents) VALUES ('content', ?, ?, ?)`)
-        .bind(String(purchase.id), purchase.product_title, amountCents),
+        (source_type, source_id, description, amount_cents) VALUES (?, ?, ?, ?)`)
+        .bind(earningsSource, String(purchase.id), purchase.product_title, amountCents),
     ];
     if (fulfillmentType === "physical_item") {
       approvalWrites.push(env.DB.prepare(`INSERT OR IGNORE INTO physical_orders
@@ -4600,7 +4649,7 @@ async function handleSaleDisputes(request: Request, env: Env) {
       env.DB.prepare(`UPDATE sale_disputes SET status = 'approved', reviewed_by = ?,
         reviewed_at = CURRENT_TIMESTAMP WHERE id = ?`).bind(portalUser.email, dispute.id),
     ];
-    if (dispute.source_type === "content") {
+    if (["content", "physical_item", "video_rating"].includes(dispute.source_type)) {
       updates.push(env.DB.prepare(`UPDATE purchase_requests SET status = 'disputed_removed'
         WHERE id = ?`).bind(Number(dispute.source_id)));
     } else if (dispute.source_type === "custom_content" || dispute.source_type === "video_chat") {

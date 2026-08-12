@@ -196,6 +196,16 @@ type EarningsSummary = {
   all_time_count: number;
   recent: Array<{ id: number; source_type: string; description: string; amount_cents: number; occurred_at: string }>;
   history: Array<{ id: number; source_type: string; description: string; amount_cents: number; occurred_at: string }>;
+  by_type: Array<{ source_type: string; total_cents: number; transaction_count: number }>;
+};
+
+type StarsSummary = {
+  total: number;
+  count: number;
+  sexting: number;
+  sexting_count: number;
+  ratings: number;
+  rating_count: number;
 };
 
 type SaleDispute = {
@@ -305,6 +315,16 @@ function money(cents: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 }
 
+function revenueLabel(sourceType: string) {
+  return ({
+    content: "Content sales",
+    custom_content: "Customs",
+    video_chat: "Video chats",
+    physical_item: "Panties and merchandise",
+    video_rating: "Dick ratings",
+  } as Record<string, string>)[sourceType] || sourceType.replaceAll("_", " ");
+}
+
 function portalDate(value: string) {
   return new Date(value.includes("T") ? value : `${value.replace(" ", "T")}Z`);
 }
@@ -406,7 +426,7 @@ export default function Home() {
   const [videoChatHistory, setVideoChatHistory] = useState<VideoChatOrder[]>([]);
   const [sextingSessions, setSextingSessions] = useState<LiveSextingSession[]>([]);
   const [sextingHistory, setSextingHistory] = useState<LiveSextingSession[]>([]);
-  const [starsSummary, setStarsSummary] = useState({ total: 0, count: 0 });
+  const [starsSummary, setStarsSummary] = useState<StarsSummary>({ total: 0, count: 0, sexting: 0, sexting_count: 0, ratings: 0, rating_count: 0 });
   const [sextingMedia, setSextingMedia] = useState<SextingMedia[]>([]);
   const [contentProducts, setContentProducts] = useState<ContentProduct[]>([]);
   const [sextingScripts, setSextingScripts] = useState<SextingScript[]>([]);
@@ -440,7 +460,7 @@ export default function Home() {
   const [mediaUploadStatus, setMediaUploadStatus] = useState("");
   const [customLinks, setCustomLinks] = useState<Record<number, string>>({});
   const [customComments, setCustomComments] = useState<Record<number, string>>({});
-  const [earnings, setEarnings] = useState<EarningsSummary>({ weekly_cents: 0, weekly_count: 0, all_time_cents: 0, all_time_count: 0, recent: [], history: [] });
+  const [earnings, setEarnings] = useState<EarningsSummary>({ weekly_cents: 0, weekly_count: 0, all_time_cents: 0, all_time_count: 0, recent: [], history: [], by_type: [] });
   const [saleDisputes, setSaleDisputes] = useState<SaleDispute[]>([]);
   const [disputedSale, setDisputedSale] = useState<EarningsSummary["history"][number] | null>(null);
   const [disputedStarsSession, setDisputedStarsSession] = useState<LiveSextingSession | null>(null);
@@ -469,7 +489,7 @@ export default function Home() {
       setLiveLoading(true);
       const response = await fetch("/api/admin/pending", { cache: "no-store" });
       if (!response.ok) throw new Error("Unable to load the creator inbox");
-      const data = await response.json() as { portal_user: PortalUser; platform_overview: PlatformOverview | null; pending: LivePendingReply[]; conversations: LiveConversation[]; purchases: LivePurchase[]; purchase_history: LivePurchase[]; bookings: LiveBooking[]; customs: LiveCustom[]; custom_history: LiveCustom[]; video_chats: VideoChatOrder[]; video_chat_history: VideoChatOrder[]; sexting_sessions: LiveSextingSession[]; sexting_history: LiveSextingSession[]; sexting_media: SextingMedia[]; sexting_scripts: SextingScript[]; daily_tasks: DailyTask[]; physical_orders: PhysicalOrder[]; physical_order_history: PhysicalOrder[]; rating_orders: RatingOrder[]; rating_order_history: RatingOrder[]; announcements: Announcement[]; social_links: SocialLink[]; training_suggestions: TrainingSuggestion[]; sale_disputes: SaleDispute[]; products: ContentProduct[]; stars: { total: number; count: number }; learned_count: number; earnings: EarningsSummary; settings: CreatorSettings };
+      const data = await response.json() as { portal_user: PortalUser; platform_overview: PlatformOverview | null; pending: LivePendingReply[]; conversations: LiveConversation[]; purchases: LivePurchase[]; purchase_history: LivePurchase[]; bookings: LiveBooking[]; customs: LiveCustom[]; custom_history: LiveCustom[]; video_chats: VideoChatOrder[]; video_chat_history: VideoChatOrder[]; sexting_sessions: LiveSextingSession[]; sexting_history: LiveSextingSession[]; sexting_media: SextingMedia[]; sexting_scripts: SextingScript[]; daily_tasks: DailyTask[]; physical_orders: PhysicalOrder[]; physical_order_history: PhysicalOrder[]; rating_orders: RatingOrder[]; rating_order_history: RatingOrder[]; announcements: Announcement[]; social_links: SocialLink[]; training_suggestions: TrainingSuggestion[]; sale_disputes: SaleDispute[]; products: ContentProduct[]; stars: StarsSummary; learned_count: number; earnings: EarningsSummary; settings: CreatorSettings };
       setPortalUser(data.portal_user);
       setPlatformOverview(data.platform_overview);
       setLivePending(data.pending);
@@ -483,7 +503,7 @@ export default function Home() {
       setVideoChatHistory(data.video_chat_history || []);
       setSextingSessions(data.sexting_sessions || []);
       setSextingHistory(data.sexting_history || []);
-      setStarsSummary(data.stars || { total: 0, count: 0 });
+      setStarsSummary(data.stars || { total: 0, count: 0, sexting: 0, sexting_count: 0, ratings: 0, rating_count: 0 });
       setSextingMedia(data.sexting_media || []);
       setContentProducts(data.products || []);
       setSextingScripts(data.sexting_scripts || []);
@@ -497,7 +517,7 @@ export default function Home() {
       setTrainingSuggestions(data.training_suggestions || []);
       setSaleDisputes(data.sale_disputes || []);
       if (data.bookings[0]?.suggested_type) setBookingType(data.bookings[0].suggested_type);
-      setEarnings(data.earnings);
+      setEarnings({ ...data.earnings, by_type: data.earnings.by_type || [] });
       if (!settingsDirtyRef.current) setSettings(data.settings);
       setSavedAnswers(data.learned_count);
       setLiveError("");
@@ -1649,7 +1669,7 @@ export default function Home() {
                   <span><b>{creator.name}</b><small>{creator.email || creator.template_name || "Login pending"}</small></span>
                   <span><b>{money(creator.weekly_cents)}</b><small>Past 7 days</small></span>
                   <span><b>{money(creator.all_time_cents)}</b><small>All time</small></span>
-                  <span><b>⭐ {creator.all_time_stars.toLocaleString()}</b><small>Sexting Stars</small></span>
+                  <span><b>⭐ {creator.all_time_stars.toLocaleString()}</b><small>Telegram Stars</small></span>
                   <em className={creator.status === "live" ? "" : "draft"}>{creator.status === "live" ? "Live" : "Setup pending"}</em>
                 </div>
                 <div className="dailyReport" role="table" aria-label={`${creator.name} daily earnings`}>
@@ -1667,13 +1687,13 @@ export default function Home() {
                           <div className="dailyItems">
                             {day.items.map((item) => (
                               <div key={item.id}>
-                                <span><b>{item.description}</b><small>{item.source_type.replaceAll("_", " ")} · {new Date(`${item.occurred_at.replace(" ", "T")}Z`).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</small></span>
+                                <span><b>{item.description}</b><small>{revenueLabel(item.source_type)} · {new Date(`${item.occurred_at.replace(" ", "T")}Z`).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</small></span>
                                 <strong>{money(item.amount_cents)}</strong>
                               </div>
                             ))}
                             {day.star_items.map((item) => (
                               <div key={`stars:${item.id}`}>
-                                <span><b>{item.package_title}</b><small>Sexting session · {new Date(`${item.created_at.replace(" ", "T")}Z`).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</small></span>
+                                <span><b>{item.package_title}</b><small>{item.package_title === "Video rating" ? "Dick rating" : "Sexting session"} · {new Date(`${item.created_at.replace(" ", "T")}Z`).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</small></span>
                                 <strong>⭐ {item.stars.toLocaleString()}</strong>
                               </div>
                             ))}
@@ -1703,6 +1723,23 @@ export default function Home() {
             <button onClick={() => setEarningsView((current) => current === "weekly" ? null : "weekly")}><span>Past 7 days</span><strong>{money(earnings.weekly_cents)}</strong><small>{earnings.weekly_count} approved sales · View history</small></button>
             <button onClick={() => setEarningsView((current) => current === "all" ? null : "all")}><span>All time</span><strong>{money(earnings.all_time_cents)}</strong><small>{earnings.all_time_count} approved sales · View history</small></button>
           </div>
+          <section className="revenueBreakdown" aria-label="Confirmed cash revenue by type">
+            <div className="sectionHeading">
+              <div><strong>Confirmed revenue</strong><small>Each payment is added once when it is confirmed.</small></div>
+            </div>
+            <div className="revenueBreakdownGrid">
+              {(["content", "video_chat", "custom_content", "physical_item", "video_rating"] as const).map((sourceType) => {
+                const total = earnings.by_type.find((item) => item.source_type === sourceType);
+                return (
+                  <article key={sourceType}>
+                    <span>{revenueLabel(sourceType)}</span>
+                    <strong>{money(total?.total_cents || 0)}</strong>
+                    <small>{total?.transaction_count || 0} confirmed</small>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
           {earningsView && (
             <section className="earningsHistory">
               <div className="sectionHeading">
@@ -1717,7 +1754,7 @@ export default function Home() {
                 : earnings.history
               ).map((item) => (
                 <div className="historyRow" key={item.id}>
-                  <span><b>{item.description}</b><small>{item.source_type.replaceAll("_", " ")} · {new Date(`${item.occurred_at}Z`).toLocaleString()}</small></span>
+                  <span><b>{item.description}</b><small>{revenueLabel(item.source_type)} · {new Date(`${item.occurred_at}Z`).toLocaleString()}</small></span>
                   <div className="historyActions">
                     <strong>{money(item.amount_cents)}</strong>
                     {saleDisputes.some((dispute) => dispute.earnings_event_id === item.id && dispute.status === "pending")
@@ -1740,9 +1777,15 @@ export default function Home() {
           )}
 
           <section className="starsOverview">
-            <span>Telegram Stars earned</span>
-            <strong>⭐ {starsSummary.total.toLocaleString()}</strong>
-            <small>{starsSummary.count} Star purchases</small>
+            <div className="starsTotal">
+              <span>Telegram Stars earned</span>
+              <strong>⭐ {starsSummary.total.toLocaleString()}</strong>
+              <small>{starsSummary.count} confirmed Star purchases</small>
+            </div>
+            <div className="starsBreakdown">
+              <span><b>⭐ {starsSummary.sexting.toLocaleString()}</b><small>{starsSummary.sexting_count} sexting sessions</small></span>
+              <span><b>⭐ {starsSummary.ratings.toLocaleString()}</b><small>{starsSummary.rating_count} dick ratings</small></span>
+            </div>
           </section>
 
           <section className="conversationInbox dashboardSection dashboardInbox">
