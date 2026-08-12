@@ -184,7 +184,7 @@ type SocialLink = {
 
 type TrainingSuggestion = {
   id: number;
-  category: "topic" | "avoid" | "tone" | "feedback";
+  category: "topic" | "fact" | "avoid" | "tone" | "feedback";
   suggestion: string;
   created_at: string;
 };
@@ -424,7 +424,7 @@ export default function Home() {
   const [socialForm, setSocialForm] = useState({ platform: "Instagram", label: "", url: "" });
   const [editingSocialId, setEditingSocialId] = useState<number | null>(null);
   const [trainingSuggestions, setTrainingSuggestions] = useState<TrainingSuggestion[]>([]);
-  const [trainingForm, setTrainingForm] = useState({ category: "topic" as TrainingSuggestion["category"], suggestion: "" });
+  const [trainingForm, setTrainingForm] = useState({ category: "fact" as TrainingSuggestion["category"], suggestion: "" });
   const [editingTrainingId, setEditingTrainingId] = useState<number | null>(null);
   const [agendaDate, setAgendaDate] = useState(() => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles" }).format(new Date()));
   const [taskForm, setTaskForm] = useState({ title: "", task_type: "video_chat" as DailyTask["task_type"], scheduled_at: "", fan_name: "", details: "", amount: "" });
@@ -1451,7 +1451,7 @@ export default function Home() {
 
   function cancelTrainingEdit() {
     setEditingTrainingId(null);
-    setTrainingForm({ category: "topic", suggestion: "" });
+    setTrainingForm({ category: "fact", suggestion: "" });
   }
 
   async function deleteTrainingSuggestion(id: number) {
@@ -2279,15 +2279,15 @@ export default function Home() {
 
           <section className="conversationTraining dashboardSection dashboardSettings">
             <div className="sectionHeading"><strong>Conversation training</strong><span>{trainingSuggestions.length}</span></div>
-            <p className="queueNote">Add, edit, or delete instructions. Choose Topic to avoid for a removable creator boundary. Saved changes apply to the bot immediately.</p>
+            <p className="queueNote">Use Personal fact or answer for favorites and profile answers. Include the actual answer, such as “My favorite anime is Sailor Moon.” Use Topic to discuss for general subjects. Saved changes apply to the bot immediately.</p>
             <form onSubmit={addTrainingSuggestion}>
-              <label><span>Training type</span><select value={trainingForm.category} onChange={(event) => setTrainingForm((current) => ({ ...current, category: event.target.value as TrainingSuggestion["category"] }))}><option value="topic">Topic to discuss</option><option value="avoid">Topic to avoid</option><option value="tone">Tone instruction</option><option value="feedback">Behavior feedback</option></select></label>
-              <label><span>Suggestion</span><textarea required maxLength={1000} placeholder="Add one clear instruction..." value={trainingForm.suggestion} onChange={(event) => setTrainingForm((current) => ({ ...current, suggestion: event.target.value }))} /></label>
+              <label><span>Training type</span><select value={trainingForm.category} onChange={(event) => setTrainingForm((current) => ({ ...current, category: event.target.value as TrainingSuggestion["category"] }))}><option value="fact">Personal fact or answer</option><option value="topic">Topic to discuss</option><option value="avoid">Topic to avoid</option><option value="tone">Tone instruction</option><option value="feedback">Behavior feedback</option></select></label>
+              <label><span>Suggestion</span><textarea required maxLength={1000} placeholder={trainingForm.category === "fact" ? "My favorite anime is..." : "Add one clear instruction..."} value={trainingForm.suggestion} onChange={(event) => setTrainingForm((current) => ({ ...current, suggestion: event.target.value }))} /></label>
               <button className="primaryAction" disabled={liveLoading}>{editingTrainingId ? "Save changes" : "Add training suggestion"}</button>
               {editingTrainingId && <button className="secondaryAction" type="button" onClick={cancelTrainingEdit}>Cancel editing</button>}
             </form>
             <div className="trainingSuggestionList">
-              {trainingSuggestions.map((item) => <article key={item.id}><div><span>{item.category === "topic" ? "Talk about" : item.category === "avoid" ? "Avoid" : item.category === "tone" ? "Tone" : "Feedback"}</span><p>{item.suggestion}</p></div><button type="button" disabled={liveLoading} onClick={() => editTrainingSuggestion(item)}>Edit</button><button type="button" disabled={liveLoading} onClick={() => void deleteTrainingSuggestion(item.id)}>Delete</button></article>)}
+              {trainingSuggestions.map((item) => <article key={item.id}><div><span>{item.category === "fact" ? "Personal answer" : item.category === "topic" ? "Talk about" : item.category === "avoid" ? "Avoid" : item.category === "tone" ? "Tone" : "Feedback"}</span><p>{item.suggestion}</p></div><button type="button" disabled={liveLoading} onClick={() => editTrainingSuggestion(item)}>Edit</button><button type="button" disabled={liveLoading} onClick={() => void deleteTrainingSuggestion(item.id)}>Delete</button></article>)}
             </div>
             <div className="fixedBoundaries">
               <strong>Fixed safety boundaries</strong>

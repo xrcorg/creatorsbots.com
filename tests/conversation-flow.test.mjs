@@ -24,6 +24,7 @@ import {
   isLikelyShippingAddress,
   isLikelyShippingName,
   isMessageBurst,
+  isPersonalFactTrainingSuggestion,
   isPhysicalOrderDecline,
   isPresenceCheck,
   isRatingDecline,
@@ -39,6 +40,15 @@ test("natural confirmations are accepted", () => {
   for (const reply of ["yes", "Yes I do", "yeah i do", "let's do it", "ok", "alright", "I guess"]) {
     assert.equal(isAffirmativeReply(reply), true, reply);
   }
+});
+
+test("training distinguishes personal answers from general topic names", () => {
+  assert.equal(isPersonalFactTrainingSuggestion("My favorite anime is Sailor Moon"), true);
+  assert.equal(isPersonalFactTrainingSuggestion("Favorite anime is Sailor Moon"), true);
+  assert.equal(isPersonalFactTrainingSuggestion("Favorite comic book character: Harley Quinn"), true);
+  assert.equal(isPersonalFactTrainingSuggestion("Tiffani loves Sailor Moon"), true);
+  assert.equal(isPersonalFactTrainingSuggestion("Favorite anime"), false);
+  assert.equal(isPersonalFactTrainingSuggestion("Comic books"), false);
 });
 
 test("short presence checks stay in automatic conversation", () => {

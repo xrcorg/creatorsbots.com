@@ -180,6 +180,15 @@ export function isConversationQuestion(text: string) {
   return /\?/.test(text) || /^(?:what|which|who|whose|where|when|why|how|can|could|would|will|do|does|did|is|are|am|should|have|has)\b/i.test(text.trim());
 }
 
+export function isPersonalFactTrainingSuggestion(text: string) {
+  const value = text.trim();
+  if (!value) return false;
+  return /^(?:(?:my|her|tiffani(?:'s)?)\s+)?favou?rite\s+(?:anime|anime character|comic(?: book)? character|superhero|villain|video game|video game character|food|dessert|ice cream|brand|movie|show|book|animal|color)\s*(?:is|are|:|=)\s*\S+/i.test(value) ||
+    /\b(?:my|her|tiffani(?:'s)?)\s+(?:favou?rite|preferred?)\b[\s\S]*\b(?:is|are)\b/i.test(value) ||
+    /\b(?:i|she|tiffani)\s+(?:like|likes|love|loves|prefer|prefers)\b/i.test(value) ||
+    /^(?:favou?rite\s+)?(?:anime|anime character|comic(?: book)? character|superhero|villain|video game|video game character|food|dessert|ice cream|brand|movie|show|book|animal|color)\s*[:=]\s*\S+/i.test(value);
+}
+
 export function isLikelyShippingName(text: string) {
   const value = text.trim().replace(/[,.!]+$/g, "");
   if (isConversationQuestion(value) || /\b(?:sext|video chat|video call|custom|buy|book|payment|pay)\b/i.test(value)) return false;
