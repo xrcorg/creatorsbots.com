@@ -264,6 +264,14 @@ type LiveConversation = {
   control_mode: "bot" | "human";
 };
 
+type NewChatter = {
+  chat_id: string;
+  proposed_name: string;
+  telegram_name: string;
+  last_message: string;
+  submitted_at: string;
+};
+
 type ConversationMessage = {
   id: number;
   role: "user" | "assistant";
@@ -425,6 +433,8 @@ export default function Home() {
   const [savedAnswers, setSavedAnswers] = useState(12);
   const [livePending, setLivePending] = useState<LivePendingReply[]>([]);
   const [conversations, setConversations] = useState<LiveConversation[]>([]);
+  const [newChatters, setNewChatters] = useState<NewChatter[]>([]);
+  const [newChatterNames, setNewChatterNames] = useState<Record<string, string>>({});
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [conversationMessages, setConversationMessages] = useState<ConversationMessage[]>([]);
   const [conversationSearch, setConversationSearch] = useState("");
@@ -511,12 +521,20 @@ export default function Home() {
       setLiveLoading(true);
       const response = await fetch("/api/admin/pending", { cache: "no-store" });
       if (!response.ok) throw new Error("Unable to load the creator inbox");
-      const data = await response.json() as { portal_user: PortalUser; payment_methods: PaymentMethods; platform_overview: PlatformOverview | null; pending: LivePendingReply[]; conversations: LiveConversation[]; purchases: LivePurchase[]; purchase_history: LivePurchase[]; bookings: LiveBooking[]; customs: LiveCustom[]; custom_history: LiveCustom[]; video_chats: VideoChatOrder[]; video_chat_history: VideoChatOrder[]; sexting_sessions: LiveSextingSession[]; sexting_history: LiveSextingSession[]; sexting_media: SextingMedia[]; catalog_photo_media: CatalogPhotoMedia[]; sexting_scripts: SextingScript[]; daily_tasks: DailyTask[]; physical_orders: PhysicalOrder[]; physical_order_history: PhysicalOrder[]; rating_orders: RatingOrder[]; rating_order_history: RatingOrder[]; announcements: Announcement[]; social_links: SocialLink[]; training_suggestions: TrainingSuggestion[]; sale_disputes: SaleDispute[]; products: ContentProduct[]; stars: StarsSummary; learned_count: number; earnings: EarningsSummary; settings: CreatorSettings };
+      const data = await response.json() as { portal_user: PortalUser; payment_methods: PaymentMethods; platform_overview: PlatformOverview | null; pending: LivePendingReply[]; conversations: LiveConversation[]; new_chatters: NewChatter[]; purchases: LivePurchase[]; purchase_history: LivePurchase[]; bookings: LiveBooking[]; customs: LiveCustom[]; custom_history: LiveCustom[]; video_chats: VideoChatOrder[]; video_chat_history: VideoChatOrder[]; sexting_sessions: LiveSextingSession[]; sexting_history: LiveSextingSession[]; sexting_media: SextingMedia[]; catalog_photo_media: CatalogPhotoMedia[]; sexting_scripts: SextingScript[]; daily_tasks: DailyTask[]; physical_orders: PhysicalOrder[]; physical_order_history: PhysicalOrder[]; rating_orders: RatingOrder[]; rating_order_history: RatingOrder[]; announcements: Announcement[]; social_links: SocialLink[]; training_suggestions: TrainingSuggestion[]; sale_disputes: SaleDispute[]; products: ContentProduct[]; stars: StarsSummary; learned_count: number; earnings: EarningsSummary; settings: CreatorSettings };
       setPortalUser(data.portal_user);
       setPaymentMethods(data.payment_methods || { cashapp: "", venmo: "", zelle: "" });
       setPlatformOverview(data.platform_overview);
       setLivePending(data.pending);
       setConversations(data.conversations || []);
+      setNewChatters(data.new_chatters || []);
+      setNewChatterNames((current) => {
+        const next: Record<string, string> = {};
+        for (const chatter of data.new_chatters || []) {
+          next[chatter.chat_id] = current[chatter.chat_id] ?? chatter.proposed_name;
+        }
+        return next;
+      });
       setLivePurchases(data.purchases);
       setPurchaseHistory(data.purchase_history || []);
       setLiveBookings(data.bookings);
@@ -574,7 +592,7 @@ export default function Home() {
     return () => window.clearInterval(timer);
   }, [selectedConversationId]);
 
-  const attentionCount = livePending.length + livePurchases.length + liveBookings.length + liveCustoms.length + videoChats.length + sextingSessions.length;
+  const attentionCount = newChatters.length + livePending.length + livePurchases.length + liveBookings.length + liveCustoms.length + videoChats.length + sextingSessions.length;
   const paymentProofCount = livePurchases.filter((purchase) => Boolean(purchase.payment_proof_received_at)).length;
   const statusText = attentionCount ? `${attentionCount} ${attentionCount === 1 ? "item needs" : "items need"} attention` : "Bot active";
   const onboardingPhotoCount = sextingMedia.filter((item) => item.media_type === "image").length;
@@ -725,6 +743,33 @@ export default function Home() {
     } catch {
       setConversationMessages([]);
       setConversationStatus("This conversation could not be loaded.");
+    }
+  }
+
+  async function confirmNewChatterName(chatId: string) {
+    const name = (newChatterNames[chatId] || "").trim();
+    if (!name) {
+      setConversationStatus("Enter the fan's name before confirming it.");
+      return;
+    }
+    try {
+      setLiveLoading(true);
+      setConversationStatus("Confirming name...");
+      const response = await fetch("/api/admin/conversations/confirm-name", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, name }),
+      });
+      const data = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(data.error || "The name could not be confirmed");
+      await loadLivePending();
+      setSelectedConversationId(chatId);
+      await openConversation(chatId);
+      setConversationStatus(`Name confirmed as ${name}. The bot is active for this chat.`);
+    } catch (error) {
+      setConversationStatus(error instanceof Error ? error.message : "The name could not be confirmed.");
+    } finally {
+      setLiveLoading(false);
     }
   }
 
@@ -1934,11 +1979,27 @@ export default function Home() {
           </section>
 
           <section className="conversationInbox dashboardSection dashboardInbox">
+            {newChatters.length > 0 && <section className="newChattersQueue">
+              <div className="newChattersHeading">
+                <div><strong>New chatters</strong><small>Confirm or correct each name before the bot continues.</small></div>
+                <span>{newChatters.length} waiting</span>
+              </div>
+              <div className="newChatterList">
+                {newChatters.map((chatter) => <article key={chatter.chat_id}>
+                  <div className="newChatterIdentity">
+                    <span className="conversationAvatar">{chatter.telegram_name.replace(/^@/, "").slice(0, 1).toUpperCase()}</span>
+                    <div><strong>{chatter.telegram_name}</strong><small>They wrote: “{chatter.last_message}”</small><time>{new Date(`${chatter.submitted_at.replace(" ", "T")}Z`).toLocaleString()}</time></div>
+                  </div>
+                  <label><span>Fan name</span><input aria-label={`Name for ${chatter.telegram_name}`} maxLength={60} onChange={(event) => setNewChatterNames((current) => ({ ...current, [chatter.chat_id]: event.target.value }))} value={newChatterNames[chatter.chat_id] ?? chatter.proposed_name} /></label>
+                  <button className="primaryAction" disabled={liveLoading || !(newChatterNames[chatter.chat_id] ?? chatter.proposed_name).trim()} onClick={() => void confirmNewChatterName(chatter.chat_id)} type="button">Confirm name and start bot</button>
+                </article>)}
+              </div>
+            </section>}
             <div className="sectionHeading">
               <div><strong>Current chats</strong><small>{conversations.length} conversations</small></div>
               <div className="conversationInboxActions">
                 <span>{conversations.reduce((total, conversation) => total + Number(conversation.pending_count || 0), 0)} need attention</span>
-                {portalUser?.role === "owner" && <button className="clearAllConversations" disabled={liveLoading || conversations.length === 0} onClick={() => void clearAllTestChats()} type="button">Clear all test chats</button>}
+                {portalUser?.role === "owner" && <button className="clearAllConversations" disabled={liveLoading || (conversations.length === 0 && newChatters.length === 0)} onClick={() => void clearAllTestChats()} type="button">Clear all test chats</button>}
               </div>
             </div>
             <label className="conversationSearch">

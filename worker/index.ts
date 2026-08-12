@@ -472,6 +472,7 @@ async function prepareDatabase(env: Env) {
     db.prepare(`CREATE TABLE IF NOT EXISTS fan_profiles (
       chat_id TEXT PRIMARY KEY,
       name TEXT,
+      proposed_name TEXT,
       name_status TEXT NOT NULL DEFAULT 'awaiting_name',
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`),
@@ -916,6 +917,10 @@ async function prepareDatabase(env: Env) {
   const fanSessionColumns = await db.prepare("PRAGMA table_info(fan_sessions)").all<{ name: string }>();
   if (!fanSessionColumns.results.some((column) => column.name === "is_blocked")) {
     await db.prepare("ALTER TABLE fan_sessions ADD COLUMN is_blocked INTEGER NOT NULL DEFAULT 0").run();
+  }
+  const fanProfileColumns = await db.prepare("PRAGMA table_info(fan_profiles)").all<{ name: string }>();
+  if (!fanProfileColumns.results.some((column) => column.name === "proposed_name")) {
+    await db.prepare("ALTER TABLE fan_profiles ADD COLUMN proposed_name TEXT").run();
   }
   // A creator may deliver paid content from the Inbox before the browser has
   // refreshed its pending-order list. Older builds treated that as a manual
@@ -1951,6 +1956,9 @@ async function resetConversationState(db: D1Database, chatId: string) {
     db.prepare(`DELETE FROM inbound_message_buffer WHERE chat_id = ?`).bind(chatId),
     db.prepare(`DELETE FROM product_interest WHERE chat_id = ?`).bind(chatId),
     db.prepare(`DELETE FROM chat_messages WHERE chat_id = ?`).bind(chatId),
+    db.prepare(`UPDATE fan_profiles SET proposed_name = NULL,
+      name_status = CASE WHEN name IS NULL THEN 'awaiting_name' ELSE 'complete' END,
+      updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?`).bind(chatId),
     db.prepare(`INSERT INTO conversation_controls (chat_id, control_mode, taken_over_by, updated_at)
       VALUES (?, 'bot', NULL, CURRENT_TIMESTAMP)
       ON CONFLICT(chat_id) DO UPDATE SET control_mode = 'bot', taken_over_by = NULL,
@@ -2066,6 +2074,48 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
     if (!exists) return json({ error: "Conversation not found" }, 404);
     await resetConversationState(env.DB, chatId);
     return json({ ok: true });
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/admin/conversations/confirm-name") {
+    const body = await request.json<{ chat_id?: string; name?: string }>();
+    const chatId = String(body.chat_id || "").trim();
+    const submittedName = String(body.name || "").trim();
+    const parsed = parseNameIntroduction(submittedName);
+    if (!chatId) return json({ error: "A new chatter is required" }, 400);
+    if (!parsed.name || parsed.remainder) {
+      return json({ error: "Enter only the fan's name, without a message or greeting" }, 400);
+    }
+    const conversation = await env.DB.prepare(`SELECT fan_sessions.chat_id,
+      fan_sessions.business_connection_id, fan_sessions.is_blocked, fan_profiles.name_status
+      FROM fan_sessions JOIN fan_profiles ON fan_profiles.chat_id = fan_sessions.chat_id
+      WHERE fan_sessions.chat_id = ?`).bind(chatId).first<{
+        chat_id: string; business_connection_id: string | null; is_blocked: number; name_status: string;
+      }>();
+    if (!conversation) return json({ error: "New chatter not found" }, 404);
+    if (conversation.is_blocked) return json({ error: "Unblock this fan before starting the chat" }, 409);
+    if (conversation.name_status !== "pending_name_approval") {
+      return json({ error: "This name has already been reviewed" }, 409);
+    }
+    const greeting = `Nice to meet you, ${parsed.name}. What are you up to?`;
+    await env.DB.batch([
+      env.DB.prepare(`UPDATE fan_profiles SET name = ?, proposed_name = NULL,
+        name_status = 'complete', updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?`)
+        .bind(parsed.name, chatId),
+      env.DB.prepare(`INSERT INTO conversation_controls (chat_id, control_mode, taken_over_by, updated_at)
+        VALUES (?, 'bot', NULL, CURRENT_TIMESTAMP)
+        ON CONFLICT(chat_id) DO UPDATE SET control_mode = 'bot', taken_over_by = NULL,
+        updated_at = CURRENT_TIMESTAMP`).bind(chatId),
+    ]);
+    const telegramMessage: TelegramMessage = {
+      message_id: 0,
+      chat: { id: Number(chatId) },
+      ...(conversation.business_connection_id
+        ? { business_connection_id: conversation.business_connection_id }
+        : {}),
+    };
+    await saveMessage(env.DB, chatId, "assistant", greeting);
+    await sendTelegramMessage(env, telegramMessage, greeting);
+    return json({ ok: true, name: parsed.name, control_mode: "bot" });
   }
 
   if (request.method === "POST" && url.pathname === "/api/admin/conversations/exit-flow") {
@@ -2868,9 +2918,9 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     return json({ ok: true, voice_creator_reply_needed: true });
   }
 
-  const profile = await env.DB.prepare("SELECT name, name_status FROM fan_profiles WHERE chat_id = ?")
+  const profile = await env.DB.prepare("SELECT name, proposed_name, name_status FROM fan_profiles WHERE chat_id = ?")
     .bind(chatId)
-    .first<{ name: string | null; name_status: string }>();
+    .first<{ name: string | null; proposed_name: string | null; name_status: string }>();
   if (!profile) {
     await env.DB.prepare("INSERT INTO fan_profiles (chat_id, name_status) VALUES (?, 'awaiting_name')")
       .bind(chatId)
@@ -2894,9 +2944,21 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       }
       return json({ ok: true, name_needed: true, name_change: profile.name_status === "awaiting_name_change" });
     }
-    await env.DB.prepare(`UPDATE fan_profiles SET name = ?, name_status = 'complete',
-      updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?`).bind(name, chatId).run();
     const changingName = profile.name_status === "awaiting_name_change";
+    if (!changingName) {
+      await saveMessage(env.DB, chatId, "user", originalText);
+      await env.DB.batch([
+        env.DB.prepare(`UPDATE fan_profiles SET proposed_name = ?, name_status = 'pending_name_approval',
+          updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?`).bind(name, chatId),
+        env.DB.prepare(`INSERT INTO conversation_controls (chat_id, control_mode, taken_over_by, updated_at)
+          VALUES (?, 'human', 'name_approval', CURRENT_TIMESTAMP)
+          ON CONFLICT(chat_id) DO UPDATE SET control_mode = 'human', taken_over_by = 'name_approval',
+          updated_at = CURRENT_TIMESTAMP`).bind(chatId),
+      ]);
+      return json({ ok: true, name_approval_needed: true, proposed_name: name });
+    }
+    await env.DB.prepare(`UPDATE fan_profiles SET name = ?, proposed_name = NULL, name_status = 'complete',
+      updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?`).bind(name, chatId).run();
     const greeting = changingName
       ? `Got it, I'll call you ${name}.`
       : remainder ? `Nice to meet you, ${name}.` : `Nice to meet you, ${name}. What are you up to?`;
@@ -2921,7 +2983,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       await sendTelegramMessage(env, message, reply);
       return json({ ok: true, name_change_needed: true });
     }
-    await env.DB.prepare(`UPDATE fan_profiles SET name = ?, name_status = 'complete',
+    await env.DB.prepare(`UPDATE fan_profiles SET name = ?, proposed_name = NULL, name_status = 'complete',
       updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?`).bind(nameChange.name, chatId).run();
     await waitForOnboardingReply();
     const reply = `Got it, I'll call you ${nameChange.name}.`;
@@ -3897,6 +3959,17 @@ async function handleAdminPending(request: Request, env: Env) {
     FROM creator_social_links ORDER BY id ASC`).all();
   const trainingSuggestions = await env.DB.prepare(`SELECT id, category, suggestion, created_at
     FROM conversation_training ORDER BY category ASC, id ASC`).all();
+  const newChatters = await env.DB.prepare(`SELECT fan_sessions.chat_id,
+    fan_profiles.proposed_name,
+    COALESCE(telegram_contacts.username, telegram_contacts.display_name, 'New Telegram fan') AS telegram_name,
+    COALESCE((SELECT content FROM chat_messages WHERE chat_messages.chat_id = fan_sessions.chat_id
+      AND role = 'user' ORDER BY id DESC LIMIT 1), '') AS last_message,
+    COALESCE((SELECT created_at FROM chat_messages WHERE chat_messages.chat_id = fan_sessions.chat_id
+      AND role = 'user' ORDER BY id DESC LIMIT 1), fan_profiles.updated_at) AS submitted_at
+    FROM fan_profiles JOIN fan_sessions ON fan_sessions.chat_id = fan_profiles.chat_id
+    LEFT JOIN telegram_contacts ON telegram_contacts.chat_id = fan_sessions.chat_id
+    WHERE fan_profiles.name_status = 'pending_name_approval' AND fan_sessions.is_blocked = 0
+    ORDER BY datetime(submitted_at) ASC LIMIT 100`).all();
   const conversations = await env.DB.prepare(`SELECT fan_sessions.chat_id,
     COALESCE(fan_profiles.name, telegram_contacts.username, telegram_contacts.display_name, 'Telegram fan') AS telegram_name,
     fan_sessions.age_status,
@@ -3922,6 +3995,7 @@ async function handleAdminPending(request: Request, env: Env) {
     LEFT JOIN telegram_contacts ON telegram_contacts.chat_id = fan_sessions.chat_id
     LEFT JOIN fan_profiles ON fan_profiles.chat_id = fan_sessions.chat_id
     LEFT JOIN conversation_controls ON conversation_controls.chat_id = fan_sessions.chat_id
+    WHERE COALESCE(fan_profiles.name_status, '') != 'pending_name_approval'
     ORDER BY datetime(last_message_at) DESC LIMIT 200`).all();
   const saleDisputes = await env.DB.prepare(`SELECT id, creator_key, earnings_event_id, source_type,
     source_id, description, amount_cents, stars, occurred_at, requester_email, reason, proof, status,
@@ -4045,6 +4119,7 @@ async function handleAdminPending(request: Request, env: Env) {
     announcements: announcements.results,
     social_links: socialLinks.results,
     training_suggestions: trainingSuggestions.results,
+    new_chatters: newChatters.results,
     conversations: conversations.results,
     sale_disputes: saleDisputes.results,
     learned_count: learned?.count || 0,
