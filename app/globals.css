@@ -445,6 +445,9 @@ button { cursor: pointer; }
 .customMeta strong { color: var(--deep-pink); }
 .customMeta span { color: var(--muted); }
 .customCard p { margin: 10px 0; color: var(--ink); font-size: 11px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.calendarActions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.calendarActions a, .calendarActions button { display: flex; min-height: 39px; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 11px; padding: 9px 10px; background: white; color: var(--ink); font: inherit; font-size: 10px; font-weight: 800; line-height: 1.25; text-align: center; text-decoration: none; cursor: pointer; }
+.calendarActions a:hover, .calendarActions button:hover { border-color: var(--pink); color: var(--pink); }
 .queueNote { margin: 0; color: var(--muted); font-size: 10px; }
 .requestOwner { margin-top: 12px; color: var(--deep-pink); font-size: 11px; font-weight: 850; }
 .takeoverCard { padding: 18px; border: 1px solid #f3c4da; border-radius: 20px; background: linear-gradient(160deg, #fff6fa, #fff); box-shadow: 0 12px 30px rgba(200,47,121,.08); }

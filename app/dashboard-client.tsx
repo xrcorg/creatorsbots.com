@@ -347,6 +347,71 @@ function videoChatSchedule(value: string) {
   }).format(portalDate(value));
 }
 
+function compactCalendarDate(value: Date) {
+  return value.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+}
+
+function videoChatCalendarEvent(order: VideoChatOrder) {
+  const start = portalDate(order.scheduled_at);
+  const end = new Date(start.getTime() + order.duration_minutes * 60_000);
+  const title = `Telegram video chat with ${order.telegram_name}`;
+  const details = [
+    `Fan: ${order.telegram_name}`,
+    `Duration: ${order.duration_minutes} minutes`,
+    `Confirmed amount: ${money(order.amount_cents)}`,
+    "Video chat takes place on Telegram.",
+  ].join("\n");
+
+  return { start, end, title, details };
+}
+
+function googleCalendarLink(order: VideoChatOrder) {
+  const event = videoChatCalendarEvent(order);
+  const query = new URLSearchParams({
+    action: "TEMPLATE",
+    text: event.title,
+    dates: `${compactCalendarDate(event.start)}/${compactCalendarDate(event.end)}`,
+    details: event.details,
+    location: "Telegram",
+  });
+  return `https://calendar.google.com/calendar/render?${query.toString()}`;
+}
+
+function downloadAppleCalendar(order: VideoChatOrder) {
+  const event = videoChatCalendarEvent(order);
+  const escapeCalendarText = (value: string) => value
+    .replaceAll("\\", "\\\\")
+    .replaceAll("\n", "\\n")
+    .replaceAll(",", "\\,")
+    .replaceAll(";", "\\;");
+  const calendar = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//CreatorsBots//Video Chat//EN",
+    "CALSCALE:GREGORIAN",
+    "METHOD:PUBLISH",
+    "BEGIN:VEVENT",
+    `UID:video-chat-${order.id}@creatorsbots.com`,
+    `DTSTAMP:${compactCalendarDate(new Date())}`,
+    `DTSTART:${compactCalendarDate(event.start)}`,
+    `DTEND:${compactCalendarDate(event.end)}`,
+    `SUMMARY:${escapeCalendarText(event.title)}`,
+    `DESCRIPTION:${escapeCalendarText(event.details)}`,
+    "LOCATION:Telegram",
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ].join("\r\n");
+  const file = new Blob([calendar], { type: "text/calendar;charset=utf-8" });
+  const fileUrl = URL.createObjectURL(file);
+  const download = document.createElement("a");
+  download.href = fileUrl;
+  download.download = `telegram-video-chat-${order.id}.ics`;
+  document.body.appendChild(download);
+  download.click();
+  download.remove();
+  URL.revokeObjectURL(fileUrl);
+}
+
 const initialMessages: Message[] = [
   {
     id: 1,
@@ -2211,6 +2276,10 @@ export default function Home() {
                 </>}
                 {order.status === "scheduled" && <>
                   <p className="queueNote">Payment confirmed. This appointment is on the daily task list.</p>
+                  <div className="calendarActions">
+                    <a aria-label={`Add video chat with ${order.telegram_name} to Google Calendar`} href={googleCalendarLink(order)} rel="noreferrer" target="_blank">Add to Google Calendar</a>
+                    <button aria-label={`Add video chat with ${order.telegram_name} to Apple Calendar`} onClick={() => downloadAppleCalendar(order)} type="button">Add to Apple Calendar</button>
+                  </div>
                   <button className="primaryAction" disabled={liveLoading} onClick={() => void resolveVideoChat(order.id, "complete")}>Mark video chat complete</button>
                 </>}
                 <button className="secondaryAction" disabled={liveLoading} onClick={() => void resolveVideoChat(order.id, "cancel")}>Cancel video chat</button>
