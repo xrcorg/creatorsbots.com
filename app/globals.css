@@ -438,6 +438,10 @@ button { cursor: pointer; }
 .alertTitle span { width: 23px; height: 23px; display: grid; place-items: center; border-radius: 8px; background: var(--pink); color: white; }
 .fanQuestion { margin: 18px 0 10px; font-family: Georgia, serif; font-size: 20px; line-height: 1.25; }
 .botPaused { margin-bottom: 13px; color: var(--muted); font-size: 10px; }
+.paymentProofStatus { margin: 10px 0; padding: 10px 12px; border-radius: 12px; font-size: 11px; font-weight: 800; }
+.paymentProofStatus.received { color: #17633b; background: #e9f9ef; border: 1px solid #bce8cc; }
+.paymentProofStatus.needed { color: #82540f; background: #fff7e7; border: 1px solid #f3dca9; }
+.quickReplyOptions .quickSendContent { color: white; background: var(--deep-pink); border-color: var(--deep-pink); }
 .purchasePrice { margin: -4px 0 12px; color: var(--deep-pink); font-size: 22px; font-weight: 900; }
 .takeoverCard textarea { width: 100%; min-height: 105px; resize: vertical; border: 1px solid var(--line); border-radius: 13px; outline: none; padding: 12px; background: white; font-size: 12px; }
 .takeoverCard textarea:focus { border-color: var(--pink); box-shadow: 0 0 0 3px rgba(237,79,154,.1); }

@@ -18,9 +18,12 @@ type LivePendingReply = {
 
 type LivePurchase = {
   id: number;
+  chat_id?: string;
   product_title: string;
   price: string;
   payment_note: string;
+  payment_proof_file_id?: string;
+  payment_proof_received_at?: string;
   created_at: string;
   status?: "pending" | "approved" | "declined" | "closed_unpaid";
   resolved_at?: string;
@@ -422,6 +425,7 @@ export default function Home() {
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [dashboardView, setDashboardView] = useState<"today" | "inbox" | "content" | "settings" | "history">("today");
   const previousAttentionCount = useRef<number | null>(null);
+  const previousPaymentProofCount = useRef<number | null>(null);
   const settingsDirtyRef = useRef(false);
 
   const loadLivePending = useCallback(async () => {
@@ -489,6 +493,7 @@ export default function Home() {
   }, [selectedConversationId]);
 
   const attentionCount = livePending.length + livePurchases.length + liveBookings.length + liveCustoms.length + sextingSessions.length;
+  const paymentProofCount = livePurchases.filter((purchase) => Boolean(purchase.payment_proof_received_at)).length;
   const statusText = attentionCount ? `${attentionCount} ${attentionCount === 1 ? "item needs" : "items need"} attention` : "Bot active";
   const onboardingPhotoCount = sextingMedia.filter((item) => item.media_type === "image").length;
   const onboardingClipCount = sextingMedia.filter((item) => item.media_type === "video").length;
@@ -504,6 +509,16 @@ export default function Home() {
       icon: "/favicon.svg",
     });
   }, [attentionCount, notificationsEnabled, statusText]);
+
+  useEffect(() => {
+    const previous = previousPaymentProofCount.current;
+    previousPaymentProofCount.current = paymentProofCount;
+    if (!notificationsEnabled || previous === null || paymentProofCount <= previous || typeof Notification === "undefined") return;
+    new Notification(`${portalUser?.creator_name || "Creator"} payment`, {
+      body: "A payment screenshot is ready for approval.",
+      icon: "/favicon.svg",
+    });
+  }, [notificationsEnabled, paymentProofCount, portalUser?.creator_name]);
 
   async function enableNotifications() {
     if (typeof Notification === "undefined") {
@@ -704,6 +719,7 @@ export default function Home() {
       trailer: product?.trailer_url ? `Here's the trailer for ${product.title}, babe:\n${product.trailer_url}\n\nThe full video is ${productPrice}. Do you want to buy it?` : product ? `I have ${product.title}, babe. I don't have a trailer link ready here, but the full video is ${productPrice}. Do you want the details?` : "Which video did you want the trailer for, babe?",
       product_details: product ? `I have ${product.title}${product.actors ? ` starring ${product.actors}` : ""}.${product.genre ? ` Tags: ${product.genre}.` : ""} It's ${productPrice}. Do you want to buy it?` : "Which video did you want more details about, babe?",
       product_payment: product ? `Please send ${productPrice} and put your Telegram username in the notes. After you send it, can you send me a screenshot of the payment?` : "Tell me which video you want and I'll send you the payment details.",
+      product_delivery: product?.delivery_url ? `Here you go, babe. Here's ${product.title}:\n${product.delivery_url}\n\nI hope you enjoy it! Lmk what you think` : product ? `I'm sending you ${product.title} here now. I hope you enjoy it! Lmk what you think` : "Which video or photo set did you buy, babe?",
       custom_start: "Yeah babe, I make customs. Tell me what you want and how long you want it to be.",
       custom_more: "Anything else you want me to add?",
       custom_review: "Got it! I'll review everything and let you know what it will cost.",
@@ -724,6 +740,45 @@ export default function Home() {
       unavailable: "I can't help with that, babe. We can talk about something else if you want.",
     };
     setConversationReply(replies[template] || "");
+  }
+
+  async function sendQuickProduct(action: "send_trailer" | "send_product") {
+    if (!selectedConversation) return;
+    const products = contentProducts.filter((product) => product.active && !["physical_item", "video_rating"].includes(product.content_type));
+    const product = products.find((item) => item.id === quickReplyProductId) || products[0];
+    if (!product) {
+      setConversationStatus("Add an active video or photo item first.");
+      return;
+    }
+    const description = action === "send_trailer" ? `the trailer for ${product.title}` : product.title;
+    if (!window.confirm(`Send ${description} to ${selectedConversation.telegram_name} now?`)) return;
+    try {
+      setLiveLoading(true);
+      setConversationStatus("Sending content...");
+      const pendingPurchase = action === "send_product"
+        ? livePurchases.find((purchase) => purchase.chat_id === selectedConversation.chat_id && purchase.product_title === product.title)
+        : undefined;
+      const response = await fetch(pendingPurchase ? "/api/admin/purchase" : "/api/admin/conversations/reply", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(pendingPurchase
+          ? { id: pendingPurchase.id, action: "approve" }
+          : { chat_id: selectedConversation.chat_id, action, product_id: product.id }),
+      });
+      const data = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(data.error || "Content could not be sent");
+      setConversationStatus(action === "send_trailer"
+        ? "Trailer sent. Bot replies are paused for this chat."
+        : pendingPurchase
+          ? "Payment approved, content sent, and the sale was added to earnings."
+          : "Content sent. Bot replies are paused for this chat.");
+      await openConversation(selectedConversation.chat_id);
+      await loadLivePending();
+    } catch (error) {
+      setConversationStatus(error instanceof Error ? error.message : "Content could not be sent.");
+    } finally {
+      setLiveLoading(false);
+    }
   }
 
   async function setConversationBotMode(chatId: string, botEnabled: boolean) {
@@ -1643,7 +1698,7 @@ export default function Home() {
                     {quickReplyCategory === "content" && <label className="quickReplyProduct"><span>Video or content</span><select value={quickReplyProductId || quickReplyProducts[0]?.id || 0} onChange={(event) => setQuickReplyProductId(Number(event.target.value))}>{quickReplyProducts.length ? quickReplyProducts.map((product) => <option key={product.id} value={product.id}>{product.title}</option>) : <option value={0}>No active content</option>}</select></label>}
                     <div className="quickReplyOptions">
                       {quickReplyCategory === "general" && <><button onClick={() => fillQuickReply("saw_message")} type="button">Saw your message</button><button onClick={() => fillQuickReply("busy")} type="button">Busy right now</button><button onClick={() => fillQuickReply("anything_else")} type="button">Anything else</button></>}
-                      {quickReplyCategory === "content" && <><button onClick={() => fillQuickReply("catalog")} type="button">Show catalog</button><button onClick={() => fillQuickReply("trailer")} type="button">Send trailer for</button><button onClick={() => fillQuickReply("product_details")} type="button">Send details</button><button onClick={() => fillQuickReply("product_payment")} type="button">Payment instructions</button></>}
+                      {quickReplyCategory === "content" && <><button onClick={() => fillQuickReply("catalog")} type="button">Show catalog</button><button onClick={() => fillQuickReply("trailer")} type="button">Preview trailer reply</button><button onClick={() => void sendQuickProduct("send_trailer")} type="button">Send trailer now</button><button onClick={() => fillQuickReply("product_details")} type="button">Send details</button><button onClick={() => fillQuickReply("product_payment")} type="button">Payment instructions</button><button onClick={() => fillQuickReply("product_delivery")} type="button">Preview delivery reply</button><button className="quickSendContent" onClick={() => void sendQuickProduct("send_product")} type="button">Send video or photos now</button></>}
                       {quickReplyCategory === "custom" && <><button onClick={() => fillQuickReply("custom_start")} type="button">Ask for idea</button><button onClick={() => fillQuickReply("custom_more")} type="button">Anything else</button><button onClick={() => fillQuickReply("custom_review")} type="button">Review request</button><button onClick={() => fillQuickReply("custom_quote")} type="button">Need details first</button></>}
                       {quickReplyCategory === "bookings" && <><button onClick={() => fillQuickReply("booking_options")} type="button">Booking options</button><button onClick={() => fillQuickReply("booking_schedule")} type="button">Date and time</button><button onClick={() => fillQuickReply("booking_contact")} type="button">City and contact</button></>}
                       {quickReplyCategory === "video_chat" && <><button onClick={() => fillQuickReply("video_chat")} type="button">Rate and minimum</button><button onClick={() => fillQuickReply("video_chat_schedule")} type="button">Ask for schedule</button><button onClick={() => fillQuickReply("video_chat_confirm")} type="button">Confirm Telegram call</button></>}
@@ -1934,10 +1989,13 @@ export default function Home() {
 
           {livePurchases.length ? (
             <div className="takeoverCard purchaseApproval dashboardSection dashboardToday">
-              <div className="alertTitle"><span>$</span> Payment approval</div>
+              <div className="alertTitle"><span>$</span> {livePurchases[0].payment_proof_received_at ? "Payment screenshot received" : "Payment claimed"}</div>
               <p className="fanQuestion">{livePurchases[0].product_title}</p>
               <div className="purchasePrice">{livePurchases[0].price}</div>
               <small>Requested {new Date(`${livePurchases[0].created_at}Z`).toLocaleDateString()}</small>
+              <div className={`paymentProofStatus ${livePurchases[0].payment_proof_received_at ? "received" : "needed"}`}>
+                {livePurchases[0].payment_proof_received_at ? "Screenshot received. Verify it before approving." : "Waiting for a payment screenshot."}
+              </div>
               <div className="botPaused">Fan message: “{livePurchases[0].payment_note}”</div>
               <button className="primaryAction" disabled={liveLoading} onClick={() => void resolvePurchase("approve")}>
                 {livePurchases[0].content_type === "physical_item" ? "Approve payment and collect shipping" : livePurchases[0].content_type === "video_rating" ? "Approve payment and request photo" : "Approve and send content"}

@@ -460,6 +460,8 @@ async function prepareDatabase(env: Env) {
       product_title TEXT NOT NULL,
       price TEXT NOT NULL,
       payment_note TEXT NOT NULL,
+      payment_proof_file_id TEXT NOT NULL DEFAULT '',
+      payment_proof_received_at TEXT,
       status TEXT NOT NULL DEFAULT 'pending',
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       resolved_at TEXT
@@ -809,6 +811,13 @@ async function prepareDatabase(env: Env) {
   const pendingReplyColumns = await db.prepare("PRAGMA table_info(pending_replies)").all<{ name: string }>();
   if (!pendingReplyColumns.results.some((column) => column.name === "source")) {
     await db.prepare("ALTER TABLE pending_replies ADD COLUMN source TEXT NOT NULL DEFAULT 'creator'").run();
+  }
+  const purchaseColumns = await db.prepare("PRAGMA table_info(purchase_requests)").all<{ name: string }>();
+  if (!purchaseColumns.results.some((column) => column.name === "payment_proof_file_id")) {
+    await db.prepare("ALTER TABLE purchase_requests ADD COLUMN payment_proof_file_id TEXT NOT NULL DEFAULT ''").run();
+  }
+  if (!purchaseColumns.results.some((column) => column.name === "payment_proof_received_at")) {
+    await db.prepare("ALTER TABLE purchase_requests ADD COLUMN payment_proof_received_at TEXT").run();
   }
 }
 
@@ -1409,15 +1418,25 @@ async function rememberProductInterest(db: D1Database, chatId: string,
 
 async function submitProductPaymentReview(env: Env, message: TelegramMessage, chatId: string,
   product: ContentProduct, paymentNote: string) {
+  const proofFileId = message.photo?.at(-1)?.file_id || "";
   const existing = await env.DB.prepare(`SELECT id FROM purchase_requests
     WHERE chat_id = ? AND product_title = ? AND status = 'pending' LIMIT 1`)
-    .bind(chatId, product.title).first();
+    .bind(chatId, product.title).first<{ id: number }>();
   if (!existing) {
     await env.DB.prepare(`INSERT INTO purchase_requests
-      (chat_id, business_connection_id, product_title, price, payment_note)
-      VALUES (?, ?, ?, ?, ?)`)
-      .bind(chatId, message.business_connection_id || null, product.title, productPrice(product), paymentNote)
+      (chat_id, business_connection_id, product_title, price, payment_note,
+       payment_proof_file_id, payment_proof_received_at)
+      VALUES (?, ?, ?, ?, ?, ?, CASE WHEN ? != '' THEN CURRENT_TIMESTAMP ELSE NULL END)`)
+      .bind(chatId, message.business_connection_id || null, product.title, productPrice(product),
+        paymentNote, proofFileId, proofFileId)
       .run();
+  } else if (proofFileId) {
+    await env.DB.prepare(`UPDATE purchase_requests SET payment_note = ?, payment_proof_file_id = ?,
+      payment_proof_received_at = CURRENT_TIMESTAMP WHERE id = ?`)
+      .bind("Payment screenshot received", proofFileId, existing.id).run();
+  } else {
+    await env.DB.prepare(`UPDATE purchase_requests SET payment_note = ? WHERE id = ?`)
+      .bind(paymentNote, existing.id).run();
   }
   const confirmation = message.photo?.length
     ? product.content_type === "physical_item"
@@ -1717,7 +1736,9 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
   }
 
   if (request.method === "POST" && url.pathname === "/api/admin/conversations/reply") {
-    const body = await request.json<{ chat_id?: string; text?: string; action?: "send" | "pause" | "resume" | "dismiss"; learn?: boolean }>();
+    const body = await request.json<{ chat_id?: string; text?: string;
+      action?: "send" | "pause" | "resume" | "dismiss" | "send_trailer" | "send_product";
+      product_id?: number; learn?: boolean }>();
     const chatId = String(body.chat_id || "").trim();
     if (!chatId) return json({ error: "A conversation is required" }, 400);
     const conversation = await env.DB.prepare(`SELECT fan_sessions.chat_id,
@@ -1753,6 +1774,55 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
         env.DB.prepare(`UPDATE sexting_sessions SET control_mode = 'human', taken_over_at = CURRENT_TIMESTAMP
           WHERE chat_id = ? AND status = 'active' AND ends_at IS NOT NULL
           AND ends_at > CURRENT_TIMESTAMP`).bind(chatId),
+      ]);
+      return json({ ok: true, control_mode: "human" });
+    }
+
+    if (body.action === "send_trailer" || body.action === "send_product") {
+      const productId = Number(body.product_id || 0);
+      if (!productId) return json({ error: "Choose content first" }, 400);
+      const product = await env.DB.prepare(`SELECT id, content_type, title, price_cents, stars_price,
+        genre, actors, trailer_url, delivery_url, active, created_at
+        FROM content_products WHERE id = ? AND active = 1`)
+        .bind(productId).first<ContentProduct>();
+      if (!product) return json({ error: "That content is not available" }, 404);
+      const telegramMessage: TelegramMessage = {
+        message_id: 0,
+        chat: { id: Number(chatId) },
+        ...(conversation.business_connection_id ? { business_connection_id: conversation.business_connection_id } : {}),
+      };
+      let savedReply = "";
+      if (body.action === "send_trailer") {
+        if (!product.trailer_url) return json({ error: "This item does not have a trailer link" }, 409);
+        savedReply = `Here's the trailer for ${product.title}, babe:\n${product.trailer_url}`;
+        await sendTelegramMessage(env, telegramMessage, savedReply);
+      } else {
+        const uploadedMedia = await env.DB.prepare(`SELECT id, product_id, media_type, file_name, mime_type, r2_key
+          FROM content_product_media WHERE product_id = ? ORDER BY id ASC`)
+          .bind(product.id).all<ProductMedia>();
+        if (!product.delivery_url && !uploadedMedia.results.length) {
+          return json({ error: "Add a Dropbox link or uploaded files to this item first" }, 409);
+        }
+        if (product.delivery_url) {
+          savedReply = `Here you go, babe. Here's ${product.title}:\n${product.delivery_url}`;
+          await sendTelegramMessage(env, telegramMessage, savedReply);
+        } else {
+          savedReply = `I sent you ${product.title}.`;
+          for (const media of uploadedMedia.results) await sendTelegramProductMedia(env, telegramMessage, media);
+        }
+        const followUp = "I hope you enjoy it! Lmk what you think";
+        await sendTelegramMessage(env, telegramMessage, followUp);
+        savedReply += `\n\n${followUp}`;
+      }
+      await env.DB.batch([
+        env.DB.prepare(`INSERT INTO conversation_controls (chat_id, control_mode, taken_over_by, updated_at)
+          VALUES (?, 'human', ?, CURRENT_TIMESTAMP)
+          ON CONFLICT(chat_id) DO UPDATE SET control_mode = 'human', taken_over_by = excluded.taken_over_by,
+          updated_at = CURRENT_TIMESTAMP`).bind(chatId, portalUser.email),
+        env.DB.prepare(`INSERT INTO chat_messages (chat_id, role, content) VALUES (?, 'assistant', ?)`)
+          .bind(chatId, savedReply),
+        env.DB.prepare(`UPDATE pending_replies SET status = 'answered', answer = ?, answered_at = CURRENT_TIMESTAMP
+          WHERE chat_id = ? AND status = 'pending'`).bind(savedReply, chatId),
       ]);
       return json({ ok: true, control_mode: "human" });
     }
@@ -3054,11 +3124,14 @@ async function handleAdminPending(request: Request, env: Env) {
   }
   const pending = await env.DB.prepare(`SELECT id, chat_id, question, created_at
     FROM pending_replies WHERE status = 'pending' ORDER BY id ASC LIMIT 100`).all();
-  const purchases = await env.DB.prepare(`SELECT purchase_requests.id, purchase_requests.product_title,
-    purchase_requests.price, purchase_requests.payment_note, purchase_requests.created_at,
+  const purchases = await env.DB.prepare(`SELECT purchase_requests.id, purchase_requests.chat_id, purchase_requests.product_title,
+    purchase_requests.price, purchase_requests.payment_note, purchase_requests.payment_proof_file_id,
+    purchase_requests.payment_proof_received_at, purchase_requests.created_at,
     content_products.content_type FROM purchase_requests
     LEFT JOIN content_products ON content_products.title = purchase_requests.product_title
-    WHERE purchase_requests.status = 'pending' ORDER BY purchase_requests.id ASC LIMIT 100`).all();
+    WHERE purchase_requests.status = 'pending'
+    ORDER BY purchase_requests.payment_proof_received_at IS NOT NULL DESC,
+      purchase_requests.payment_proof_received_at DESC, purchase_requests.id ASC LIMIT 100`).all();
   const purchaseHistory = await env.DB.prepare(`SELECT id, product_title, price, payment_note,
     status, created_at, resolved_at FROM purchase_requests WHERE status != 'disputed_removed'
     ORDER BY id DESC LIMIT 200`).all();
