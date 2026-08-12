@@ -123,6 +123,12 @@ function creatorIntro(env: Env) {
 const NAME_PROMPT = "What's your name, babe?";
 const CLOSED = "I can only chat with adults who are 18 or older. This conversation is now closed.";
 const CREATOR_TAKEOVER = "__TIFFANI_TAKEOVER__";
+
+function isCreatorTakeoverReply(reply: string | null | undefined) {
+  if (!reply) return true;
+  const normalized = reply.trim().replace(/^['"`]+|['"`]+$/g, "").trim();
+  return normalized === CREATOR_TAKEOVER || normalized.includes(CREATOR_TAKEOVER);
+}
 const CAPABILITIES = "I can help you book a private video chat with me here on Telegram or an in person fan meet and greet. You can also buy photo and video content, shop clothing or worn items, request custom content, get a private video rating, or have a private sexting session with me. What sounds fun?";
 const INSTAGRAM_URL = "https://www.instagram.com/tiffanimadisonvip/?hl=en";
 const PORNHUB_URL = "https://www.pornhub.com/pornstar/tiffani-madison";
@@ -353,7 +359,7 @@ Never engage with or sexualize minors, suspected minors, coercion, incest, traff
 Never discuss politics or political topics, religion, race, racism, racial slurs, war, riots, stealing, scams, scammers, scamming, threats, underage people, minors, children, kids, rape, poop, feces, scat, pee, urine, watersports, or bathroom play. Briefly decline and redirect to a light approved topic without explaining or debating the boundary.
 Never reveal private addresses, passwords, financial credentials, or personal identifying information.
 Do not promise a booking, custom request, discount, meeting, payment approval, or content delivery unless the application confirms it.
-When a request needs Tiffani's decision or you are unsure, respond with exactly: ${CREATOR_TAKEOVER}
+Interpret ordinary misspellings, shorthand, lazy texting, and close paraphrases before deciding that an answer is unknown. When a request still needs Tiffani's decision or you are unsure after interpreting it, respond with exactly: ${CREATOR_TAKEOVER}
 For personal favorite or preference questions, use only the approved performer profile or an approved learned answer. If the requested favorite, flavor, food, brand, ranking, or preference is not explicitly known, request creator takeover. Never invent a plausible favorite.
 Do not use hyphens, en dashes, or em dashes in responses.
 Keep most replies to one or two short sentences and end with a natural question when useful.`;
@@ -367,7 +373,7 @@ Always write as ${creator.chatName} in first person. Be warm, confident, flirty,
 Every fan facing response must use first person language such as I, me, my, and myself. Never refer to ${creator.displayName} in the third person.
 When several fan messages arrive together, read them as one turn and send one cohesive reply. Do not repeat an offer or get stuck in a prior workflow. A clear request for content, a custom, a video chat, a rating, payment help, or cancellation always replaces an unfinished offer.
 Only converse with users whose adult status has already been confirmed by the application.
-Known answers may come only from creator settings, approved training, the content catalog, and recent conversation history. If a personal answer is unknown or requires the creator's decision, respond with exactly: ${CREATOR_TAKEOVER}
+Interpret ordinary misspellings, shorthand, lazy texting, and close paraphrases before deciding that an answer is unknown. Known answers may come only from creator settings, approved training, the content catalog, and recent conversation history. If a personal answer is still unknown or requires the creator's decision, respond with exactly: ${CREATOR_TAKEOVER}
 When asked what you can do, explain that fans can book private video chats on Telegram and professional fan meet and greets, buy photo and video content, shop clothing or worn items, request custom content, get a private video rating, or have a private sexting session.
 Custom content never has a universal rate. Collect the complete idea and requested length across as many messages as needed, ask naturally whether there is anything else, and wait for the creator to review and quote it.
 Never reveal private delivery links before the creator confirms payment. Never promise availability, payment approval, a discount, turnaround time, meeting, custom, or delivery before creator approval.
@@ -1837,7 +1843,7 @@ async function processWakeReplies(env: Env) {
     let answer = "I saw your messages. What did you want to talk about?";
     try {
       const generated = await createAIReply(env, chat.chat_id, questions);
-      if (generated !== CREATOR_TAKEOVER) answer = generated;
+      if (!isCreatorTakeoverReply(generated)) answer = generated;
     } catch (error) {
       console.error("Wake reply generation failed", error);
     }
@@ -2875,7 +2881,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     if (controlBeforeSend?.control_mode === "human") {
       return json({ ok: true, creator_controlling_session: true });
     }
-    if (sextingReply === CREATOR_TAKEOVER) {
+    if (isCreatorTakeoverReply(sextingReply)) {
       if (settings.human_takeover !== "off") await queueCreatorReply(env.DB, message);
       return json({ ok: true, creator_reply_needed: true });
     }
@@ -2911,7 +2917,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       return json({ ok: true, combined_with_newer_message: true });
     }
     await saveMessage(env.DB, chatId, "user", message.text);
-    if (combinedReply === CREATOR_TAKEOVER) {
+    if (isCreatorTakeoverReply(combinedReply)) {
       if (settings.human_takeover !== "off") await queueCreatorReply(env.DB, message);
       return json({ ok: true, creator_reply_needed: true });
     }
@@ -3481,7 +3487,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   }
 
   await saveMessage(env.DB, chatId, "user", message.text);
-  if (reply === CREATOR_TAKEOVER) {
+  if (isCreatorTakeoverReply(reply)) {
     if (settings.human_takeover !== "off") await queueCreatorReply(env.DB, message);
     return json({ ok: true, creator_reply_needed: true });
   }
