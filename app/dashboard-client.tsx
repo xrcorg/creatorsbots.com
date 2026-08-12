@@ -302,7 +302,6 @@ type CreatorSettings = {
   custom_content_rate: string;
   in_person_rate: string;
   video_rating_rate: string;
-  video_rating_stars: string;
   preferred_topics: string;
   avoid_topics: string;
   tone_guidance: string;
@@ -482,7 +481,7 @@ export default function Home() {
   const [bookingDuration, setBookingDuration] = useState("");
   const [bookingAmount, setBookingAmount] = useState("");
   const [bookingScheduledAt, setBookingScheduledAt] = useState("");
-  const [settings, setSettings] = useState<CreatorSettings>({ flirty_level: "very", human_takeover: "on", learning: "approval", custom_approval: "required", video_chat_rate: "50", custom_content_rate: "50", in_person_rate: "1500", video_rating_rate: "75", video_rating_stars: "5000", preferred_topics: "", avoid_topics: "", tone_guidance: "Short, blunt, warm, confident, flirty, and natural", creator_feedback: "", sexting_enabled: "on", sexting_intensity: "soft", sexting_rate: "10", sexting_min_minutes: "5", sexting_5_stars: "500", sexting_10_stars: "1000", sleep_hours_enabled: "on", response_test_mode: "off", sleep_start: "02:00", sleep_end: "08:00" });
+  const [settings, setSettings] = useState<CreatorSettings>({ flirty_level: "very", human_takeover: "on", learning: "approval", custom_approval: "required", video_chat_rate: "50", custom_content_rate: "50", in_person_rate: "1500", video_rating_rate: "75", preferred_topics: "", avoid_topics: "", tone_guidance: "Short, blunt, warm, confident, flirty, and natural", creator_feedback: "", sexting_enabled: "on", sexting_intensity: "soft", sexting_rate: "10", sexting_min_minutes: "5", sexting_5_stars: "500", sexting_10_stars: "1000", sleep_hours_enabled: "on", response_test_mode: "off", sleep_start: "02:00", sleep_end: "08:00" });
   const [settingsDirty, setSettingsDirty] = useState(false);
   const [settingsSaveStatus, setSettingsSaveStatus] = useState("");
   const [liveLoading, setLiveLoading] = useState(false);
@@ -782,7 +781,6 @@ export default function Home() {
     const product = products.find((item) => item.id === quickReplyProductId) || products[0];
     const productPrice = product ? money(product.price_cents) : "";
     const ratingPrice = `$${Number(settings.video_rating_rate || 75).toFixed(2)}`;
-    const ratingStars = `${Number(settings.video_rating_stars || 5000).toLocaleString()} Stars`;
     const catalog = products.slice(0, 8).map((item) => `${item.title} · ${money(item.price_cents)}`).join("\n");
     const paymentList = [
       paymentMethods.cashapp && `Cash App: ${paymentMethods.cashapp}`,
@@ -792,6 +790,9 @@ export default function Home() {
     const videoChatPayment = paymentList
       ? `You can pay for the video chat with:\n${paymentList}\n\nPut your Telegram username in the notes and send me a screenshot after you pay.`
       : "I'll send you my payment information as soon as we confirm the video chat length and total.";
+    const ratingPayment = paymentList
+      ? `The private video rating is ${ratingPrice}. You can pay with Cash App, Venmo, or Zelle:\n${paymentList}\n\nPut your Telegram username in the notes and send me a screenshot after you pay.`
+      : `The private video rating is ${ratingPrice}. I'll send you my Cash App, Venmo, or Zelle information as soon as it is ready.`;
     const replies: Record<string, string> = {
       saw_message: "Hey babe, I saw your message. What did you want to know?",
       busy: "Hey babe, I'm busy right now, but I'll reply as soon as I can. Please be patient with me.",
@@ -814,9 +815,9 @@ export default function Home() {
       video_chat_schedule: "Send me your preferred date, time, and how many minutes you want. I'll check my schedule and get back to you.",
       video_chat_confirm: "Yes babe, the video chat will happen right here on Telegram. Once we confirm the date, time, and payment, I'll call you here.",
       video_chat_payment: videoChatPayment,
-      rating_offer: `Yes babe, I do private video ratings. It's ${ratingPrice} or ${ratingStars}. You send me a photo and I'll respond with a short private video rating.`,
+      rating_offer: `Yes babe, I do private video ratings. It's ${ratingPrice}. You send me a photo and I'll respond with a short private video rating.`,
       rating_photo: "Send me the photo you want me to rate here. I'll review it after I verify your payment.",
-      rating_payment: `The private video rating is ${ratingPrice} or ${ratingStars}. You can pay with Cash App, Venmo, Zelle, or Telegram Stars. Put your Telegram username in the notes and send me a screenshot after you pay.`,
+      rating_payment: ratingPayment,
       payment_options: "I accept Cash App, Venmo, and Zelle. Tell me what you're buying and I'll send you the payment information.",
       payment_screenshot: "Please put your Telegram username in the payment notes and send me a screenshot after you send it.",
       payment_received: "Ok, thanks babe. Let me check when I get the chance and I'll send you the link!",
@@ -2108,7 +2109,7 @@ export default function Home() {
               <label><span>Product type</span><select value={productForm.content_type} onChange={(event) => setProductForm((current) => ({ ...current, content_type: event.target.value as ContentProduct["content_type"] }))}><option value="photo">Photo</option><option value="photo_package">Photo package</option><option value="video">Video</option><option value="video_bundle">Video bundle</option><option value="physical_item">Panties or clothing item</option><option value="video_rating">Private video rating</option></select></label>
               <label><span>Title</span><input required value={productForm.title} onChange={(event) => setProductForm((current) => ({ ...current, title: event.target.value }))} placeholder="Content title" /></label>
               <label><span>Price</span><input inputMode="decimal" min="1" required type="number" step="0.01" value={productForm.price} onChange={(event) => setProductForm((current) => ({ ...current, price: event.target.value }))} placeholder="24.99" /></label>
-              {["photo", "photo_package", "video", "video_bundle", "video_rating"].includes(productForm.content_type) && <label><span>{productForm.content_type === "video_rating" ? "Telegram Stars price" : "Locked Telegram Stars price (optional)"}</span><input inputMode="numeric" min={productForm.content_type === "video_rating" ? "1" : "0"} max="25000" required={productForm.content_type === "video_rating"} type="number" step="1" value={productForm.stars_price} onChange={(event) => setProductForm((current) => ({ ...current, stars_price: event.target.value }))} placeholder={productForm.content_type === "video_rating" ? "5000" : "Leave blank to disable"} /><small>{productForm.content_type === "video_rating" ? "Set this separately from the listed dollar value because Telegram’s Star exchange rate can vary." : "Fans can unlock this exact item once inside Telegram. A Stars unlock requires 1 to 10 files uploaded here; Dropbox links remain part of the manual payment flow."}</small></label>}
+              {["photo", "photo_package", "video", "video_bundle"].includes(productForm.content_type) && <label><span>Locked Telegram Stars price (optional)</span><input inputMode="numeric" min="0" max="25000" type="number" step="1" value={productForm.stars_price} onChange={(event) => setProductForm((current) => ({ ...current, stars_price: event.target.value }))} placeholder="Leave blank to disable" /><small>Fans can unlock this exact item once inside Telegram. A Stars unlock requires 1 to 10 files uploaded here; Dropbox links remain part of the manual payment flow.</small></label>}
               <label className="tagField">
                 <span>Tags</span>
                 {productTags(productForm.genre).length > 0 && <div className="tagPool">
@@ -2328,7 +2329,6 @@ export default function Home() {
             <div className="rateSetting"><span>Video chat per minute</span><label>$<input aria-label="Video chat rate per minute" inputMode="decimal" min="1" onChange={(event) => changeSetting("video_chat_rate", event.target.value)} type="number" value={settings.video_chat_rate} /></label></div>
             <div className="rateSetting"><span>In person meet per hour</span><label>$<input aria-label="In person meet rate per hour" inputMode="decimal" min="1" onChange={(event) => changeSetting("in_person_rate", event.target.value)} type="number" value={settings.in_person_rate} /></label></div>
             <div className="rateSetting"><span>Dick rating price</span><label>$<input aria-label="Dick rating price" inputMode="decimal" min="1" onChange={(event) => changeSetting("video_rating_rate", event.target.value)} step="0.01" type="number" value={settings.video_rating_rate} /></label></div>
-            <div className="rateSetting"><span>Dick rating Stars price</span><label>⭐<input aria-label="Dick rating price in Telegram Stars" inputMode="numeric" min="1" onChange={(event) => changeSetting("video_rating_stars", event.target.value)} step="1" type="number" value={settings.video_rating_stars} /></label></div>
             <div className="rateSetting"><span>Sexting per minute</span><label>$<input aria-label="Sexting rate per minute" inputMode="decimal" min="1" onChange={(event) => changeSetting("sexting_rate", event.target.value)} type="number" value={settings.sexting_rate} /></label></div>
             <div className="rateSetting"><span>Sexting minimum minutes</span><label><input aria-label="Minimum sexting session length" inputMode="numeric" min="1" max="9" onChange={(event) => changeSetting("sexting_min_minutes", event.target.value)} type="number" value={settings.sexting_min_minutes} /></label></div>
             <div className="rateSetting"><span>{settings.sexting_min_minutes || "5"} minute Stars price</span><label>⭐<input aria-label="Minimum sexting package price in Stars" inputMode="numeric" min="1" onChange={(event) => changeSetting("sexting_5_stars", event.target.value)} type="number" value={settings.sexting_5_stars} /></label></div>

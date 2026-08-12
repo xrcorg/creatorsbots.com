@@ -208,7 +208,7 @@ function productOffer(product: ContentProduct) {
     return `I have ${product.title} available for ${productPrice(product)}, babe. Do you want to buy it?`;
   }
   if (product.content_type === "video_rating") {
-    return `I can give you a private video rating for ${videoRatingStars(product).toLocaleString()} Telegram Stars, babe. It's listed at ${productPrice(product)}. After payment, send me your photo and I'll respond with a short video clip. Do you want one?`;
+    return `I can give you a private video rating for ${productPrice(product)}, babe. After payment, send me your photo and I'll respond with a short video clip. Do you want one?`;
   }
   const stars = product.stars_price > 0 ? `, or ⭐ ${product.stars_price.toLocaleString()} to unlock it here` : "";
   const trailer = product.trailer_url ? `\n\nDo you want to buy it? Here's a trailer I have as well:\n${product.trailer_url}` : "\n\nDo you want to buy it?";
@@ -217,7 +217,8 @@ function productOffer(product: ContentProduct) {
 
 function productPaymentOptions(env: Env, product: ContentProduct) {
   if (product.content_type === "video_rating") {
-    return `Video ratings are ${videoRatingStars(product)} Telegram Stars, babe. I'll send the invoice here, then you can send the photo you want rated after it is paid.`;
+    return manualPaymentMethods(env,
+      `The private video rating is ${productPrice(product)}. You can pay with Cash App, Venmo, or Zelle.`);
   }
   const methods = paymentLines(env);
   const stars = product.stars_price > 0
@@ -225,24 +226,6 @@ function productPaymentOptions(env: Env, product: ContentProduct) {
     : "";
   if (!methods) return stars || "I still need to finish setting up my payment methods. I'll get back to you with them.";
   return `${stars}Or send ${productPrice(product)} using:\n${methods}\n\nIn the payment notes, put your Telegram username. After you send it, can you send me a screenshot of the payment?`;
-}
-
-function videoRatingStars(product: ContentProduct) {
-  return Math.max(1, Math.round(product.stars_price || 5000));
-}
-
-async function createVideoRatingCheckout(env: Env, message: TelegramMessage, product: ContentProduct) {
-  const stars = videoRatingStars(product);
-  await sendStarsInvoice(env, message, product.title,
-    "Private video rating delivered as a short Telegram video clip.",
-    `rating:${product.id}:${stars}:${product.title}`, stars);
-}
-
-async function sendVideoRatingCheckout(env: Env, db: D1Database, message: TelegramMessage, product: ContentProduct) {
-  await createVideoRatingCheckout(env, message, product);
-  const note = "I sent the Telegram Stars invoice, babe. Once it's paid, send me the photo you want rated.";
-  await saveMessage(db, String(message.chat.id), "assistant", note);
-  await sendTelegramMessage(env, message, note);
 }
 
 function dollars(value: string | undefined, fallback: number) {
@@ -814,7 +797,6 @@ async function prepareDatabase(env: Env) {
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('custom_content_rate', '50')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('in_person_rate', '1500')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('video_rating_rate', '75')"),
-    db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('video_rating_stars', '5000')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('preferred_topics', '')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('avoid_topics', '')"),
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('tone_guidance', ?)")
@@ -837,6 +819,7 @@ async function prepareDatabase(env: Env) {
     db.prepare("UPDATE app_settings SET value = 'off', updated_at = CURRENT_TIMESTAMP WHERE key = 'sexting_test_mode'"),
     db.prepare("UPDATE app_settings SET value = 'on', updated_at = CURRENT_TIMESTAMP WHERE key = 'human_takeover'"),
     db.prepare("UPDATE app_settings SET value = '500', updated_at = CURRENT_TIMESTAMP WHERE key = 'sexting_5_stars' AND value = '3850'"),
+    db.prepare("DELETE FROM app_settings WHERE key = 'video_rating_stars'"),
     ...(seedTiffani ? [
       db.prepare(`INSERT OR IGNORE INTO creator_social_links (platform, label, url)
         VALUES ('Instagram', '@tiffanimadisonvip', ?)`).bind(INSTAGRAM_URL),
@@ -900,8 +883,8 @@ async function prepareDatabase(env: Env) {
   if (!contentColumns.results.some((column) => column.name === "stars_price")) {
     await db.prepare("ALTER TABLE content_products ADD COLUMN stars_price INTEGER NOT NULL DEFAULT 0").run();
   }
-  await db.prepare(`UPDATE content_products SET stars_price = 5000
-    WHERE content_type = 'video_rating' AND stars_price = 0`).run();
+  await db.prepare(`UPDATE content_products SET stars_price = 0, updated_at = CURRENT_TIMESTAMP
+    WHERE content_type = 'video_rating' AND stars_price != 0`).run();
   const pendingReplyColumns = await db.prepare("PRAGMA table_info(pending_replies)").all<{ name: string }>();
   if (!pendingReplyColumns.results.some((column) => column.name === "source")) {
     await db.prepare("ALTER TABLE pending_replies ADD COLUMN source TEXT NOT NULL DEFAULT 'creator'").run();
@@ -1582,6 +1565,11 @@ function isStarsUnlockRequest(text: string) {
 
 async function sendStarsUnlockForProduct(env: Env, message: TelegramMessage, chatId: string,
   connectionId: string | null, product: ContentProduct) {
+  if (product.content_type === "video_rating") {
+    await rememberProductInterest(env.DB, chatId, connectionId, product.id);
+    await sendSavedReply(env, message, chatId, productPaymentOptions(env, product));
+    return { ok: true, manual_payment_only: true };
+  }
   if (product.stars_price <= 0) {
     await sendSavedReply(env, message, chatId,
       `${product.title} isn't set up for an instant Stars unlock, babe. I can send you the regular payment options instead.`);
@@ -1759,9 +1747,8 @@ async function handlePaymentSent(env: Env, message: TelegramMessage, chatId: str
     return true;
   }
   if (product.content_type === "video_rating") {
-    await saveMessage(env.DB, chatId, "user", message.text);
-    await waitForPaymentConfirmation();
-    await sendVideoRatingCheckout(env, env.DB, message, product);
+    await rememberProductInterest(env.DB, chatId, message.business_connection_id || null, product.id);
+    await submitProductPaymentReview(env, message, chatId, product, message.text);
     return true;
   }
 
@@ -2390,13 +2377,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     const payload = update.pre_checkout_query.invoice_payload;
     const [, key] = payload.split(":");
     let valid = false;
-    if (payload.startsWith("rating:")) {
-      const product = await env.DB.prepare(`SELECT id, content_type, title, price_cents, stars_price, genre, actors,
-        trailer_url, delivery_url, active, created_at FROM content_products
-        WHERE id = ? AND content_type = 'video_rating' AND active = 1`).bind(Number(key)).first<ContentProduct>();
-      valid = Boolean(product) && update.pre_checkout_query.currency === "XTR" &&
-        update.pre_checkout_query.total_amount === (product ? videoRatingStars(product) : 0);
-    } else {
+    if (!payload.startsWith("rating:")) {
       const expectedStars = key === "text5" ? Number(settings.sexting_5_stars || 500)
         : key === "text10" ? Number(settings.sexting_10_stars || 1000) : 0;
       valid = settings.sexting_enabled !== "off" && update.pre_checkout_query.currency === "XTR" &&
@@ -2446,7 +2427,8 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     const product = await env.DB.prepare(`SELECT id, content_type, title, price_cents, stars_price, genre, actors,
       trailer_url, delivery_url, active, created_at FROM content_products
       WHERE id = ? AND content_type = 'video_rating'`).bind(Number(productIdText)).first<ContentProduct>();
-    if (!product || message.successful_payment.total_amount !== videoRatingStars(product)) {
+    const legacyStarsPrice = Math.max(1, Math.round(product?.stars_price || 5000));
+    if (!product || message.successful_payment.total_amount !== legacyStarsPrice) {
       return json({ ok: false, error: "The video rating package changed before payment completed." }, 409);
     }
     const chatId = String(message.chat.id);
@@ -3336,8 +3318,10 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       if (product) {
         await rememberProductInterest(env.DB, chatId, connectionId, product.id);
         if (product.content_type === "video_rating") {
+          const paymentOptions = productPaymentOptions(env, product);
           await saveMessage(env.DB, chatId, "user", message.text);
-          await sendVideoRatingCheckout(env, env.DB, message, product);
+          await saveMessage(env.DB, chatId, "assistant", paymentOptions);
+          await sendTelegramMessage(env, message, paymentOptions);
           return json({ ok: true });
         }
         const paymentOptions = productPaymentOptions(env, product);
@@ -3468,8 +3452,10 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     }
     await rememberProductInterest(env.DB, chatId, connectionId, product.id);
     if (product.content_type === "video_rating") {
+      const paymentOptions = productPaymentOptions(env, product);
       await saveMessage(env.DB, chatId, "user", message.text);
-      await sendVideoRatingCheckout(env, env.DB, message, product);
+      await saveMessage(env.DB, chatId, "assistant", paymentOptions);
+      await sendTelegramMessage(env, message, paymentOptions);
       return json({ ok: true });
     }
     const paymentOptions = productPaymentOptions(env, product);
@@ -3891,7 +3877,7 @@ async function handleAdminProducts(request: Request, env: Env, url: URL) {
     const title = String(body.title || "").trim();
     const contentType = String(body.content_type || "").trim();
     const priceCents = Math.round(Number(body.price || 0) * 100);
-    const starsEligible = ["photo", "photo_package", "video", "video_bundle", "video_rating"].includes(contentType);
+    const starsEligible = ["photo", "photo_package", "video", "video_bundle"].includes(contentType);
     const starsPrice = starsEligible ? Math.round(Number(body.stars_price || 0)) : 0;
     const trailerUrl = String(body.trailer_url || "").trim();
     const deliveryUrl = String(body.delivery_url || "").trim();
@@ -3899,7 +3885,6 @@ async function handleAdminProducts(request: Request, env: Env, url: URL) {
     if (!title || !allowedTypes.includes(contentType) ||
       !Number.isFinite(priceCents) || priceCents < 100 || priceCents > 10000000 ||
       (!Number.isFinite(starsPrice) || starsPrice < 0 || starsPrice > 25000) ||
-      (contentType === "video_rating" && starsPrice < 1) ||
       !validHttpUrl(trailerUrl) || !validHttpUrl(deliveryUrl)) {
       return json({ error: "Complete the title, type, price, and use valid links" }, 400);
     }
@@ -3915,9 +3900,6 @@ async function handleAdminProducts(request: Request, env: Env, url: URL) {
           env.DB.prepare(`INSERT INTO app_settings (key, value, updated_at) VALUES ('video_rating_rate', ?, CURRENT_TIMESTAMP)
             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`)
             .bind(String(priceCents / 100)),
-          env.DB.prepare(`INSERT INTO app_settings (key, value, updated_at) VALUES ('video_rating_stars', ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`)
-            .bind(String(starsPrice)),
         ]);
       }
       return json({ ok: true, id: result.meta.last_row_id });
@@ -3939,7 +3921,7 @@ async function handleAdminProducts(request: Request, env: Env, url: URL) {
     const title = String(body.title || "").trim();
     const contentType = String(body.content_type || "").trim();
     const priceCents = Math.round(Number(body.price || 0) * 100);
-    const starsEligible = ["photo", "photo_package", "video", "video_bundle", "video_rating"].includes(contentType);
+    const starsEligible = ["photo", "photo_package", "video", "video_bundle"].includes(contentType);
     const starsPrice = starsEligible ? Math.round(Number(body.stars_price || 0)) : 0;
     const trailerUrl = String(body.trailer_url || "").trim();
     const deliveryUrl = String(body.delivery_url || "").trim();
@@ -3947,7 +3929,6 @@ async function handleAdminProducts(request: Request, env: Env, url: URL) {
     if (!title || !allowedTypes.includes(contentType) ||
       !Number.isFinite(priceCents) || priceCents < 100 || priceCents > 10000000 ||
       (!Number.isFinite(starsPrice) || starsPrice < 0 || starsPrice > 25000) ||
-      (contentType === "video_rating" && starsPrice < 1) ||
       !validHttpUrl(trailerUrl) || !validHttpUrl(deliveryUrl)) {
       return json({ error: "Complete the title, type, price, and use valid links" }, 400);
     }
@@ -3967,9 +3948,6 @@ async function handleAdminProducts(request: Request, env: Env, url: URL) {
           env.DB.prepare(`INSERT INTO app_settings (key, value, updated_at) VALUES ('video_rating_rate', ?, CURRENT_TIMESTAMP)
             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`)
             .bind(String(priceCents / 100)),
-          env.DB.prepare(`INSERT INTO app_settings (key, value, updated_at) VALUES ('video_rating_stars', ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`)
-            .bind(String(starsPrice)),
         ]);
       }
     } catch {
@@ -4840,7 +4818,7 @@ async function handleAdminSettings(request: Request, env: Env) {
     response_test_mode: ["on", "off"],
   };
   const rateKeys = ["video_chat_rate", "custom_content_rate", "in_person_rate", "video_rating_rate", "sexting_rate"];
-  const starKeys = ["video_rating_stars", "sexting_5_stars", "sexting_10_stars"];
+  const starKeys = ["sexting_5_stars", "sexting_10_stars"];
   const minuteKeys = ["sexting_min_minutes"];
   const textKeys = ["preferred_topics", "avoid_topics", "tone_guidance", "creator_feedback"];
   const timeKeys = ["sleep_start", "sleep_end"];
@@ -4863,11 +4841,6 @@ async function handleAdminSettings(request: Request, env: Env) {
     await env.DB.prepare(`UPDATE content_products SET price_cents = ?, updated_at = CURRENT_TIMESTAMP
       WHERE content_type = 'video_rating' AND active = 1`)
       .bind(Math.round(Number(body.value) * 100)).run();
-  }
-  if (body.key === "video_rating_stars") {
-    await env.DB.prepare(`UPDATE content_products SET stars_price = ?, updated_at = CURRENT_TIMESTAMP
-      WHERE content_type = 'video_rating' AND active = 1`)
-      .bind(Math.round(Number(body.value))).run();
   }
   return json({ ok: true, settings: await getSettings(env.DB) });
 }
