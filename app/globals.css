@@ -450,6 +450,10 @@ button { cursor: pointer; }
 .paidFulfillmentPanel article small { color: var(--muted); font-size: 8px; text-align: right; }
 .paidFulfillmentPanel input, .paidFulfillmentPanel textarea { width: 100%; border: 1px solid var(--line); border-radius: 9px; padding: 9px; background: #fff; color: var(--ink); font-size: 10px; }
 .paidFulfillmentPanel textarea { min-height: 58px; resize: vertical; }
+.fulfillmentActionBar { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.fulfillmentActionBar button { min-height: 42px; padding: 9px 10px; font-size: 10px; line-height: 1.25; }
+.fulfillmentActionBar button:disabled { cursor: not-allowed; opacity: .42; }
+.fulfillmentEmpty { margin: 0; border: 1px dashed #ecc7d8; border-radius: 10px; padding: 10px 12px; background: white; color: var(--muted); font-size: 10px; line-height: 1.45; }
 .fulfillmentActions { display: grid; gap: 8px; margin-top: 10px; }
 .fulfillmentActions .filePicker { display: grid; gap: 5px; color: var(--muted); font-size: 9px; }
 .fulfillmentActions input[type="file"] { width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 9px; background: white; font-size: 9px; }
@@ -560,6 +564,7 @@ button { cursor: pointer; }
   .quickReplyHeading { display: grid; gap: 4px; }
   .quickReplyHeading small { max-width: none; text-align: left; }
   .quickReplyProduct { grid-template-columns: 1fr; gap: 6px; }
+  .fulfillmentActionBar { grid-template-columns: 1fr; }
   .conversationReplyForm { grid-template-columns: 1fr; }
   .conversationReplyActions { grid-template-columns: 1fr 1fr; grid-template-rows: auto auto; }
   .conversationReplyActions .clearRequestAction { grid-column: 1 / -1; }

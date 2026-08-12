@@ -1732,8 +1732,14 @@ export default function Home() {
                     )) : <p className="conversationPlaceholder">{conversationStatus || "No saved messages in this conversation."}</p>}
                   </div>
                   {conversationStatus && conversationMessages.length > 0 && <p className="conversationNotice">{conversationStatus}</p>}
-                  {(selectedPurchase || selectedCustom || selectedRating) && <div className="paidFulfillmentPanel">
-                    <div className="quickReplyHeading"><strong>Confirmed payment and delivery</strong><small>Send the paid item directly from this chat.</small></div>
+                  <div className="paidFulfillmentPanel">
+                    <div className="quickReplyHeading"><strong>Paid order fulfillment</strong><small>These controls stay visible. Each one unlocks when this chat has the matching order.</small></div>
+                    <div className="fulfillmentActionBar">
+                      <button className="primaryAction" disabled={liveLoading || !selectedPurchase} onClick={() => selectedPurchase && void resolvePurchaseById(selectedPurchase.id, "approve")} type="button">Confirm payment + send video/photos</button>
+                      <button className="secondaryAction" disabled={!selectedCustom} onClick={() => document.querySelector<HTMLInputElement>(`.paidFulfillmentPanel input[type="url"]`)?.focus()} type="button">Send completed custom</button>
+                      <button className="secondaryAction" disabled={!selectedRating} onClick={() => document.querySelector<HTMLInputElement>(`.paidFulfillmentPanel input[type="file"]`)?.click()} type="button">Send dick rating video</button>
+                    </div>
+                    {!selectedPurchase && !selectedCustom && !selectedRating && <p className="fulfillmentEmpty">No paid order is linked to this chat yet. The correct button will unlock as soon as payment is submitted and the order appears for approval.</p>}
                     {selectedPurchase && <article>
                       <div><strong>{selectedPurchase.product_title}</strong><small>{selectedPurchase.price} · {selectedPurchase.payment_proof_received_at ? "payment screenshot received" : "payment claimed"}</small></div>
                       <button className="primaryAction" disabled={liveLoading} onClick={() => void resolvePurchaseById(selectedPurchase.id, "approve")} type="button">
@@ -1751,7 +1757,7 @@ export default function Home() {
                       <input accept="video/*" onChange={(event) => setRatingResponseFiles((current) => ({ ...current, [selectedRating.id]: event.target.files?.[0] || null }))} type="file" />
                       <button className="primaryAction" disabled={liveLoading || !ratingResponseFiles[selectedRating.id]} onClick={() => void completeRatingOrder(selectedRating.id)} type="button">Send rating video and complete order</button>
                     </article>}
-                  </div>}
+                  </div>
                   <div className="quickReplies">
                     <div className="quickReplyHeading"><strong>Quick replies</strong><small>Choose one to fill the message, then edit or send it.</small></div>
                     <div className="quickReplyCategories">
