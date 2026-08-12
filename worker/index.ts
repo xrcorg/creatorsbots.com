@@ -1354,6 +1354,27 @@ async function getInterestedProduct(db: D1Database, chatId: string) {
     .bind(chatId).first<ContentProduct>();
 }
 
+async function getRecentProductContext(db: D1Database, chatId: string) {
+  const [messages, products] = await Promise.all([
+    db.prepare(`SELECT content FROM chat_messages WHERE chat_id = ? AND role = 'assistant'
+      ORDER BY id DESC LIMIT 8`).bind(chatId).all<{ content: string }>(),
+    getActiveProducts(db),
+  ]);
+  for (const message of messages.results) {
+    const matches = products.filter((product) =>
+      message.content.toLowerCase().includes(product.title.toLowerCase()) ||
+      productTitleMatchesMessage(product.title, message.content));
+    if (matches.length === 1) return matches[0];
+  }
+  return null;
+}
+
+async function isAwaitingPaidProductTitle(db: D1Database, chatId: string) {
+  const latest = await db.prepare(`SELECT content FROM chat_messages WHERE chat_id = ? AND role = 'assistant'
+    ORDER BY id DESC LIMIT 1`).bind(chatId).first<{ content: string }>();
+  return Boolean(latest && /which video or item did you pay for/i.test(latest.content));
+}
+
 async function getTrailerFollowUpProduct(db: D1Database, chatId: string) {
   const [lastAssistant, products] = await Promise.all([
     db.prepare(`SELECT content FROM chat_messages WHERE chat_id = ? AND role = 'assistant'
@@ -1379,6 +1400,26 @@ async function rememberProductInterest(db: D1Database, chatId: string,
     .bind(chatId, productId, businessConnectionId).run();
 }
 
+async function submitProductPaymentReview(env: Env, message: TelegramMessage, chatId: string,
+  product: ContentProduct, paymentNote: string) {
+  const existing = await env.DB.prepare(`SELECT id FROM purchase_requests
+    WHERE chat_id = ? AND product_title = ? AND status = 'pending' LIMIT 1`)
+    .bind(chatId, product.title).first();
+  if (!existing) {
+    await env.DB.prepare(`INSERT INTO purchase_requests
+      (chat_id, business_connection_id, product_title, price, payment_note)
+      VALUES (?, ?, ?, ?, ?)`)
+      .bind(chatId, message.business_connection_id || null, product.title, productPrice(product), paymentNote)
+      .run();
+  }
+  const confirmation = product.content_type === "physical_item"
+    ? "Ok, thanks babe. Let me verify it, then I'll get your shipping information."
+    : "Ok, thanks babe. Let me check when I get the chance and I'll send you the link!";
+  await saveMessage(env.DB, chatId, "user", message.text);
+  await saveMessage(env.DB, chatId, "assistant", confirmation);
+  await sendTelegramMessage(env, message, confirmation);
+}
+
 async function handlePaymentSent(env: Env, message: TelegramMessage, chatId: string) {
   if (!isPaymentSent(message.text)) return false;
 
@@ -1395,7 +1436,7 @@ async function handlePaymentSent(env: Env, message: TelegramMessage, chatId: str
     return true;
   }
 
-  const product = await getInterestedProduct(env.DB, chatId);
+  const product = await getInterestedProduct(env.DB, chatId) || await getRecentProductContext(env.DB, chatId);
   if (!product) {
     const clarification = "Ok, thanks babe. Which video or item did you pay for so I can verify it?";
     await saveMessage(env.DB, chatId, "user", message.text);
@@ -1409,22 +1450,8 @@ async function handlePaymentSent(env: Env, message: TelegramMessage, chatId: str
     return true;
   }
 
-  const existing = await env.DB.prepare(`SELECT id FROM purchase_requests
-    WHERE chat_id = ? AND product_title = ? AND status = 'pending' LIMIT 1`)
-    .bind(chatId, product.title).first();
-  if (!existing) {
-    await env.DB.prepare(`INSERT INTO purchase_requests
-      (chat_id, business_connection_id, product_title, price, payment_note)
-      VALUES (?, ?, ?, ?, ?)`)
-      .bind(chatId, message.business_connection_id || null, product.title, productPrice(product), message.text)
-      .run();
-  }
-  const confirmation = product.content_type === "physical_item"
-    ? "Ok, thanks babe. Let me verify it, then I'll get your shipping information."
-    : "Ok, thanks babe. Let me check when I get the chance and I'll send you the link!";
-  await saveMessage(env.DB, chatId, "user", message.text);
-  await saveMessage(env.DB, chatId, "assistant", confirmation);
-  await sendTelegramMessage(env, message, confirmation);
+  await rememberProductInterest(env.DB, chatId, message.business_connection_id || null, product.id);
+  await submitProductPaymentReview(env, message, chatId, product, message.text);
   return true;
 }
 
@@ -2897,6 +2924,11 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       searchableTerms.some((term) => normalizedMessage.includes(term));
   });
   const mentionedProduct = matchingProducts[0];
+  if (mentionedProduct && await isAwaitingPaidProductTitle(env.DB, chatId)) {
+    await rememberProductInterest(env.DB, chatId, connectionId, mentionedProduct.id);
+    await submitProductPaymentReview(env, message, chatId, mentionedProduct, message.text);
+    return json({ ok: true, payment_review: true, product_identified: true });
+  }
   if (isProductQuestion(message.text) || mentionedProduct) {
     const requestedType = isVideoRatingQuestion(message.text) ? "video_rating"
       : isPhysicalItemQuestion(message.text) ? "physical_item" : null;
