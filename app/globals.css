@@ -277,8 +277,11 @@ button { cursor: pointer; }
 .quickReplyOptions { padding-top: 2px; }
 .quickReplyOptions button { border-radius: 10px; background: #fff; font-weight: 750; }
 .quickReplyOptions button:hover { border-color: var(--pink); background: #fff0f7; }
+.quickReplyProductRow { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 10px; }
 .quickReplyProduct { display: grid; grid-template-columns: 120px minmax(0, 1fr); align-items: center; gap: 10px; color: var(--muted); font-size: 11px; font-weight: 800; }
 .quickReplyProduct select { min-width: 0; border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; background: white; color: var(--ink); font: inherit; font-size: 11px; }
+.quickReplyProductRow .quickSendContent { min-height: 38px; padding: 9px 18px; border: 1px solid var(--deep-pink); border-radius: 10px; background: var(--deep-pink); color: white; font-size: 10px; font-weight: 850; white-space: nowrap; }
+.quickReplyProductRow .quickSendContent:disabled { cursor: not-allowed; opacity: .42; }
 .conversationReplyForm { display: grid; grid-template-columns: minmax(0, 1fr) minmax(190px, 220px); gap: 12px; padding: 16px 18px; border-top: 1px solid #eddde5; background: white; }
 .conversationReplyForm textarea { min-height: 110px; resize: vertical; border: 1px solid var(--line); border-radius: 12px; padding: 12px 13px; color: var(--ink); font: inherit; font-size: 13px; line-height: 1.5; }
 .conversationReplyForm textarea:focus { border-color: var(--pink); outline: none; box-shadow: 0 0 0 3px rgba(237,79,154,.1); }
@@ -574,7 +577,9 @@ button { cursor: pointer; }
   .conversationDetail { min-height: 380px; }
   .quickReplyHeading { display: grid; gap: 4px; }
   .quickReplyHeading small { max-width: none; text-align: left; }
+  .quickReplyProductRow { grid-template-columns: 1fr; align-items: stretch; }
   .quickReplyProduct { grid-template-columns: 1fr; gap: 6px; }
+  .quickReplyProductRow .quickSendContent { width: 100%; }
   .fulfillmentActionBar { grid-template-columns: 1fr; }
   .conversationReplyForm { grid-template-columns: 1fr; }
   .conversationReplyActions { grid-template-columns: 1fr 1fr; grid-template-rows: auto auto; }
