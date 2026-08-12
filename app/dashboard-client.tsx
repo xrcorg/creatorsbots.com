@@ -841,23 +841,18 @@ export default function Home() {
     try {
       setLiveLoading(true);
       setConversationStatus("Sending content...");
-      const pendingPurchase = action === "send_product"
-        ? livePurchases.find((purchase) => purchase.chat_id === selectedConversation.chat_id && purchase.product_title === product.title)
-        : undefined;
-      const response = await fetch(pendingPurchase ? "/api/admin/purchase" : "/api/admin/conversations/reply", {
+      const response = await fetch("/api/admin/conversations/reply", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(pendingPurchase
-          ? { id: pendingPurchase.id, action: "approve" }
-          : { chat_id: selectedConversation.chat_id, action, product_id: product.id }),
+        body: JSON.stringify({ chat_id: selectedConversation.chat_id, action, product_id: product.id }),
       });
-      const data = await response.json() as { error?: string };
+      const data = await response.json() as { error?: string; sale_recorded?: boolean };
       if (!response.ok) throw new Error(data.error || "Content could not be sent");
       setConversationStatus(action === "send_trailer"
         ? "Trailer sent. Bot replies are paused for this chat."
-        : pendingPurchase
+        : data.sale_recorded
           ? "Payment approved, content sent, and the sale was added to earnings."
-          : "Content sent. Bot replies are paused for this chat.");
+          : "Content sent. No pending payment was matched, so earnings were not changed.");
       await openConversation(selectedConversation.chat_id);
       await loadLivePending();
     } catch (error) {

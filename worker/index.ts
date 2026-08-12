@@ -887,6 +887,33 @@ async function prepareDatabase(env: Env) {
   if (!purchaseColumns.results.some((column) => column.name === "payment_proof_received_at")) {
     await db.prepare("ALTER TABLE purchase_requests ADD COLUMN payment_proof_received_at TEXT").run();
   }
+  // A creator may deliver paid content from the Inbox before the browser has
+  // refreshed its pending-order list. Older builds treated that as a manual
+  // message, leaving the purchase pending even though its exact delivery link
+  // was sent. Reconcile those completed deliveries before rebuilding earnings.
+  await db.prepare(`UPDATE purchase_requests SET
+      status = 'approved',
+      resolved_at = COALESCE(resolved_at, (
+        SELECT MIN(chat_messages.created_at)
+        FROM content_products
+        JOIN chat_messages ON chat_messages.chat_id = purchase_requests.chat_id
+          AND chat_messages.role = 'assistant'
+          AND chat_messages.created_at >= purchase_requests.created_at
+          AND content_products.delivery_url != ''
+          AND instr(chat_messages.content, content_products.delivery_url) > 0
+        WHERE content_products.title = purchase_requests.product_title
+      ), CURRENT_TIMESTAMP)
+    WHERE purchase_requests.status = 'pending'
+      AND EXISTS (
+        SELECT 1
+        FROM content_products
+        JOIN chat_messages ON chat_messages.chat_id = purchase_requests.chat_id
+          AND chat_messages.role = 'assistant'
+          AND chat_messages.created_at >= purchase_requests.created_at
+          AND content_products.delivery_url != ''
+          AND instr(chat_messages.content, content_products.delivery_url) > 0
+        WHERE content_products.title = purchase_requests.product_title
+      )`).run();
   // Repair any confirmed manual orders that were approved before their matching
   // ledger write completed. The unique source key keeps this safe on every load.
   await db.prepare(`INSERT OR IGNORE INTO earnings_events
@@ -912,6 +939,21 @@ async function prepareDatabase(env: Env) {
         WHERE earnings_events.source_id = CAST(purchase_requests.id AS TEXT)
           AND earnings_events.source_type IN ('content', 'physical_item', 'video_rating')
       )`).run();
+  // Confirmed custom orders and video chats are also ledger-backed. These
+  // repair queries make their totals self-healing if a deploy stopped between
+  // changing the workflow status and writing the earnings event.
+  await db.prepare(`INSERT OR IGNORE INTO earnings_events
+    (source_type, source_id, description, amount_cents, occurred_at)
+    SELECT 'custom_content', CAST(booking_request_id AS TEXT),
+      'Custom content for ' || telegram_name, amount_cents, created_at
+    FROM custom_fulfillments
+    WHERE status IN ('awaiting_fulfillment', 'completed') AND amount_cents > 0`).run();
+  await db.prepare(`INSERT OR IGNORE INTO earnings_events
+    (source_type, source_id, description, amount_cents, occurred_at)
+    SELECT 'video_chat', CAST(id AS TEXT),
+      'Video chat with ' || telegram_name, amount_cents, created_at
+    FROM video_chat_orders
+    WHERE status IN ('scheduled', 'completed') AND amount_cents > 0`).run();
   // Older paid merchandise and rating orders were recorded as generic content.
   // Reclassify them so the dashboard can itemize every revenue stream without
   // changing the amount or creating a second earnings entry.
@@ -1933,6 +1975,9 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
         savedReply = `Here's the trailer for ${product.title}, babe:\n${product.trailer_url}`;
         await sendTelegramMessage(env, telegramMessage, savedReply);
       } else {
+        if (["physical_item", "video_rating"].includes(product.content_type)) {
+          return json({ error: "Use the matching order fulfillment control for this item" }, 409);
+        }
         const uploadedMedia = await env.DB.prepare(`SELECT id, product_id, media_type, file_name, mime_type, r2_key
           FROM content_product_media WHERE product_id = ? ORDER BY id ASC`)
           .bind(product.id).all<ProductMedia>();
@@ -1950,7 +1995,16 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
         await sendTelegramMessage(env, telegramMessage, followUp);
         savedReply += `\n\n${followUp}`;
       }
-      await env.DB.batch([
+      const pendingPurchase = body.action === "send_product"
+        ? await env.DB.prepare(`SELECT id, price FROM purchase_requests
+            WHERE chat_id = ? AND product_title = ? AND status = 'pending'
+            ORDER BY id DESC LIMIT 1`)
+          .bind(chatId, product.title).first<{ id: number; price: string }>()
+        : null;
+      const amountCents = pendingPurchase
+        ? moneyTextToCents(pendingPurchase.price, product.price_cents)
+        : 0;
+      const updates = [
         env.DB.prepare(`INSERT INTO conversation_controls (chat_id, control_mode, taken_over_by, updated_at)
           VALUES (?, 'human', ?, CURRENT_TIMESTAMP)
           ON CONFLICT(chat_id) DO UPDATE SET control_mode = 'human', taken_over_by = excluded.taken_over_by,
@@ -1959,8 +2013,23 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
           .bind(chatId, savedReply),
         env.DB.prepare(`UPDATE pending_replies SET status = 'answered', answer = ?, answered_at = CURRENT_TIMESTAMP
           WHERE chat_id = ? AND status = 'pending'`).bind(savedReply, chatId),
-      ]);
-      return json({ ok: true, control_mode: "human" });
+      ];
+      if (pendingPurchase && amountCents > 0) {
+        updates.push(
+          env.DB.prepare(`UPDATE purchase_requests SET status = 'approved', resolved_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND status = 'pending'`).bind(pendingPurchase.id),
+          env.DB.prepare(`INSERT OR IGNORE INTO earnings_events
+            (source_type, source_id, description, amount_cents)
+            VALUES ('content', ?, ?, ?)`).bind(String(pendingPurchase.id), product.title, amountCents),
+        );
+      }
+      await env.DB.batch(updates);
+      return json({
+        ok: true,
+        control_mode: "human",
+        sale_recorded: Boolean(pendingPurchase && amountCents > 0),
+        earnings_added_cents: pendingPurchase && amountCents > 0 ? amountCents : 0,
+      });
     }
 
     const reply = String(body.text || "").trim();
