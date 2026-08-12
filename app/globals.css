@@ -343,7 +343,7 @@ button { cursor: pointer; }
 .quickReplyOptions { padding-top: 2px; }
 .quickReplyOptions button { border-radius: 10px; background: #fff; font-weight: 750; }
 .quickReplyOptions button:hover { border-color: var(--pink); background: #fff0f7; }
-.quickReplyProductRow { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 10px; }
+.quickReplyProductRow { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 12px; border: 1px solid #efc9db; border-radius: 12px; background: #fff; }
 .quickReplyProduct { display: grid; grid-template-columns: 120px minmax(0, 1fr); align-items: center; gap: 10px; color: var(--muted); font-size: 11px; font-weight: 800; }
 .quickReplyProduct select { min-width: 0; border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; background: white; color: var(--ink); font: inherit; font-size: 11px; }
 .quickReplyProductRow .quickSendContent { min-height: 38px; padding: 9px 18px; border: 1px solid var(--deep-pink); border-radius: 10px; background: var(--deep-pink); color: white; font-size: 10px; font-weight: 850; white-space: nowrap; }
@@ -541,7 +541,7 @@ button { cursor: pointer; }
 .paidFulfillmentPanel article small { color: var(--muted); font-size: 8px; text-align: right; }
 .paidFulfillmentPanel input, .paidFulfillmentPanel textarea { width: 100%; border: 1px solid var(--line); border-radius: 9px; padding: 9px; background: #fff; color: var(--ink); font-size: 10px; }
 .paidFulfillmentPanel textarea { min-height: 58px; resize: vertical; }
-.fulfillmentActionBar { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.fulfillmentActionBar { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
 .fulfillmentActionBar button { min-height: 42px; padding: 9px 10px; font-size: 10px; line-height: 1.25; }
 .fulfillmentActionBar button:disabled { cursor: not-allowed; opacity: .42; }
 .fulfillmentEmpty { margin: 0; border: 1px dashed #ecc7d8; border-radius: 10px; padding: 10px 12px; background: white; color: var(--muted); font-size: 10px; line-height: 1.45; }
