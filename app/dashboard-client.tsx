@@ -40,6 +40,7 @@ type LiveBooking = {
 
 type LiveCustom = {
   id: number;
+  chat_id?: string;
   telegram_name: string;
   duration_minutes: number;
   description: string;
@@ -115,6 +116,7 @@ type PhysicalOrder = {
 
 type RatingOrder = {
   id: number;
+  chat_id?: string;
   telegram_name: string;
   amount_cents: number;
   stars: number;
@@ -381,6 +383,7 @@ export default function Home() {
   const [physicalOrderHistory, setPhysicalOrderHistory] = useState<PhysicalOrder[]>([]);
   const [ratingOrders, setRatingOrders] = useState<RatingOrder[]>([]);
   const [ratingOrderHistory, setRatingOrderHistory] = useState<RatingOrder[]>([]);
+  const [ratingResponseFiles, setRatingResponseFiles] = useState<Record<number, File | null>>({});
   const [trackingNumbers, setTrackingNumbers] = useState<Record<number, string>>({});
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [announcementForm, setAnnouncementForm] = useState({ platform: "Instagram", message: "", stream_url: "" });
@@ -846,8 +849,8 @@ export default function Home() {
     }
   }
 
-  async function resolvePurchase(action: "approve" | "decline" | "close_unpaid") {
-    const current = livePurchases[0];
+  async function resolvePurchaseById(id: number, action: "approve" | "decline" | "close_unpaid") {
+    const current = livePurchases.find((purchase) => purchase.id === id);
     if (!current) return;
     try {
       setLiveLoading(true);
@@ -863,6 +866,12 @@ export default function Home() {
     } finally {
       setLiveLoading(false);
     }
+  }
+
+  async function resolvePurchase(action: "approve" | "decline" | "close_unpaid") {
+    const current = livePurchases[0];
+    if (!current) return;
+    await resolvePurchaseById(current.id, action);
   }
 
   async function resolveBooking(action: "approve" | "decline" | "ignore" | "close_unpaid") {
@@ -958,6 +967,29 @@ export default function Home() {
       await loadLivePending();
     } catch {
       setLiveError("The custom payment update was not sent. Please try again.");
+    } finally {
+      setLiveLoading(false);
+    }
+  }
+
+  async function completeRatingOrder(id: number) {
+    const file = ratingResponseFiles[id];
+    if (!file) return;
+    try {
+      setLiveLoading(true);
+      setConversationStatus("Sending the private rating video...");
+      const form = new FormData();
+      form.set("id", String(id));
+      form.set("file", file);
+      const response = await fetch("/api/admin/rating", { method: "POST", body: form });
+      const data = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(data.error || "Rating video could not be sent");
+      setRatingResponseFiles((current) => ({ ...current, [id]: null }));
+      setConversationStatus("Private rating video sent and the order is complete.");
+      await loadLivePending();
+      if (selectedConversation) await openConversation(selectedConversation.chat_id);
+    } catch (error) {
+      setLiveError(error instanceof Error ? error.message : "The rating video could not be sent.");
     } finally {
       setLiveLoading(false);
     }
@@ -1442,6 +1474,15 @@ export default function Home() {
       conversation.last_message.toLowerCase().includes(search);
   });
   const selectedConversation = conversations.find((conversation) => conversation.chat_id === selectedConversationId) || null;
+  const selectedPurchase = selectedConversation
+    ? livePurchases.find((purchase) => purchase.chat_id === selectedConversation.chat_id)
+    : undefined;
+  const selectedCustom = selectedConversation
+    ? liveCustoms.find((custom) => custom.chat_id === selectedConversation.chat_id && custom.status === "awaiting_fulfillment")
+    : undefined;
+  const selectedRating = selectedConversation
+    ? ratingOrders.find((order) => order.chat_id === selectedConversation.chat_id && order.status === "awaiting_response")
+    : undefined;
   const quickReplyProducts = contentProducts.filter((product) => product.active && !["physical_item", "video_rating"].includes(product.content_type));
   const openAgendaCount = selectedAgendaTasks.filter((task) => task.status === "open").length + physicalOrders.length + ratingOrders.length;
   const unscheduledCount = liveBookings.length + liveCustoms.length + livePurchases.length + sextingSessions.length + physicalOrders.length + ratingOrders.length;
@@ -1691,6 +1732,26 @@ export default function Home() {
                     )) : <p className="conversationPlaceholder">{conversationStatus || "No saved messages in this conversation."}</p>}
                   </div>
                   {conversationStatus && conversationMessages.length > 0 && <p className="conversationNotice">{conversationStatus}</p>}
+                  {(selectedPurchase || selectedCustom || selectedRating) && <div className="paidFulfillmentPanel">
+                    <div className="quickReplyHeading"><strong>Confirmed payment and delivery</strong><small>Send the paid item directly from this chat.</small></div>
+                    {selectedPurchase && <article>
+                      <div><strong>{selectedPurchase.product_title}</strong><small>{selectedPurchase.price} · {selectedPurchase.payment_proof_received_at ? "payment screenshot received" : "payment claimed"}</small></div>
+                      <button className="primaryAction" disabled={liveLoading} onClick={() => void resolvePurchaseById(selectedPurchase.id, "approve")} type="button">
+                        {selectedPurchase.content_type === "video_rating" ? "Confirm payment and request rating photo" : selectedPurchase.content_type === "physical_item" ? "Confirm payment and collect shipping" : "Confirm payment and send video or photos"}
+                      </button>
+                    </article>}
+                    {selectedCustom && <article>
+                      <div><strong>Finished custom for {selectedCustom.telegram_name}</strong><small>{money(selectedCustom.amount_cents)} confirmed</small></div>
+                      <input onChange={(event) => setCustomLinks((current) => ({ ...current, [selectedCustom.id]: event.target.value }))} placeholder="Dropbox or delivery link" type="url" value={customLinks[selectedCustom.id] || ""} />
+                      <textarea maxLength={1000} onChange={(event) => setCustomComments((current) => ({ ...current, [selectedCustom.id]: event.target.value }))} placeholder="Optional message" value={customComments[selectedCustom.id] || ""} />
+                      <button className="primaryAction" disabled={liveLoading || !customLinks[selectedCustom.id]?.trim()} onClick={() => void completeCustom(selectedCustom.id)} type="button">Send finished custom and complete order</button>
+                    </article>}
+                    {selectedRating && <article>
+                      <div><strong>Private video rating for {selectedRating.telegram_name}</strong><small>Photo received · ready for your response clip</small></div>
+                      <input accept="video/*" onChange={(event) => setRatingResponseFiles((current) => ({ ...current, [selectedRating.id]: event.target.files?.[0] || null }))} type="file" />
+                      <button className="primaryAction" disabled={liveLoading || !ratingResponseFiles[selectedRating.id]} onClick={() => void completeRatingOrder(selectedRating.id)} type="button">Send rating video and complete order</button>
+                    </article>}
+                  </div>}
                   <div className="quickReplies">
                     <div className="quickReplyHeading"><strong>Quick replies</strong><small>Choose one to fill the message, then edit or send it.</small></div>
                     <div className="quickReplyCategories">
@@ -1700,10 +1761,10 @@ export default function Home() {
                     <div className="quickReplyOptions">
                       {quickReplyCategory === "general" && <><button onClick={() => fillQuickReply("saw_message")} type="button">Saw your message</button><button onClick={() => fillQuickReply("busy")} type="button">Busy right now</button><button onClick={() => fillQuickReply("anything_else")} type="button">Anything else</button></>}
                       {quickReplyCategory === "content" && <><button onClick={() => fillQuickReply("catalog")} type="button">Show catalog</button><button onClick={() => fillQuickReply("trailer")} type="button">Preview trailer reply</button><button onClick={() => void sendQuickProduct("send_trailer")} type="button">Send trailer now</button><button onClick={() => fillQuickReply("product_details")} type="button">Send details</button><button onClick={() => fillQuickReply("product_payment")} type="button">Payment instructions</button><button onClick={() => fillQuickReply("product_delivery")} type="button">Preview delivery reply</button><button onClick={() => fillQuickReply("content_disclaimer")} type="button">Usage disclaimer</button><button className="quickSendContent" onClick={() => void sendQuickProduct("send_product")} type="button">Send video or photos now</button></>}
-                      {quickReplyCategory === "custom" && <><button onClick={() => fillQuickReply("custom_start")} type="button">Ask for idea</button><button onClick={() => fillQuickReply("custom_more")} type="button">Anything else</button><button onClick={() => fillQuickReply("custom_review")} type="button">Review request</button><button onClick={() => fillQuickReply("custom_quote")} type="button">Need details first</button></>}
+                      {quickReplyCategory === "custom" && <><button onClick={() => fillQuickReply("custom_start")} type="button">Ask for idea</button><button onClick={() => fillQuickReply("custom_more")} type="button">Anything else</button><button onClick={() => fillQuickReply("custom_review")} type="button">Review request</button><button onClick={() => fillQuickReply("custom_quote")} type="button">Need details first</button>{selectedCustom && <button className="quickSendContent" onClick={() => document.querySelector<HTMLInputElement>(`.paidFulfillmentPanel input[type="url"]`)?.focus()} type="button">Send finished custom</button>}</>}
                       {quickReplyCategory === "bookings" && <><button onClick={() => fillQuickReply("booking_options")} type="button">Booking options</button><button onClick={() => fillQuickReply("booking_schedule")} type="button">Date and time</button><button onClick={() => fillQuickReply("booking_contact")} type="button">City and contact</button></>}
                       {quickReplyCategory === "video_chat" && <><button onClick={() => fillQuickReply("video_chat")} type="button">Rate and minimum</button><button onClick={() => fillQuickReply("video_chat_schedule")} type="button">Ask for schedule</button><button onClick={() => fillQuickReply("video_chat_confirm")} type="button">Confirm Telegram call</button></>}
-                      {quickReplyCategory === "ratings" && <><button onClick={() => fillQuickReply("rating_offer")} type="button">Offer video rating</button><button onClick={() => fillQuickReply("rating_photo")} type="button">Request photo</button><button onClick={() => fillQuickReply("rating_payment")} type="button">Rating payment</button></>}
+                      {quickReplyCategory === "ratings" && <><button onClick={() => fillQuickReply("rating_offer")} type="button">Offer video rating</button><button onClick={() => fillQuickReply("rating_photo")} type="button">Request photo</button><button onClick={() => fillQuickReply("rating_payment")} type="button">Rating payment</button>{selectedRating && <button className="quickSendContent" onClick={() => document.querySelector<HTMLInputElement>(`.paidFulfillmentPanel input[type="file"]`)?.click()} type="button">Upload and send rating video</button>}</>}
                       {quickReplyCategory === "payment" && <><button onClick={() => fillQuickReply("payment_options")} type="button">Payment options</button><button onClick={() => fillQuickReply("payment_screenshot")} type="button">Request screenshot</button><button onClick={() => fillQuickReply("payment_received")} type="button">Payment received</button></>}
                       {quickReplyCategory === "boundaries" && <><button onClick={() => fillQuickReply("telegram_tos")} type="button">Telegram TOS</button><button onClick={() => fillQuickReply("unavailable")} type="button">Cannot help</button></>}
                     </div>
@@ -1769,7 +1830,13 @@ export default function Home() {
               <strong>Video ratings</strong>
               {ratingOrders.map((order) => <article key={order.id}>
                 <div><span>{order.status.replaceAll("_", " ")}</span><b>{order.telegram_name}</b><small>⭐ {order.stars} · {money(order.amount_cents)} listed value</small></div>
-                <p>{order.status === "awaiting_photo" ? "Waiting for the client to send their photo." : "Photo received. Reply to the client with a short video clip in Telegram. The task completes automatically when the clip is sent."}</p>
+                <p>{order.status === "awaiting_photo" ? "Waiting for the client to send their photo." : "Payment and photo confirmed. Upload the private response clip here to send it and complete the order."}</p>
+                {order.status === "awaiting_response" && <div className="fulfillmentActions">
+                  <label className="filePicker">Rating response video
+                    <input accept="video/*" onChange={(event) => setRatingResponseFiles((current) => ({ ...current, [order.id]: event.target.files?.[0] ?? null }))} type="file" />
+                  </label>
+                  <button disabled={!ratingResponseFiles[order.id]} onClick={() => completeRatingOrder(order.id)} type="button">Send rating video and complete order</button>
+                </div>}
               </article>)}
             </div>}
             <div className="agendaList">
@@ -1999,7 +2066,7 @@ export default function Home() {
               </div>
               <div className="botPaused">Fan message: “{livePurchases[0].payment_note}”</div>
               <button className="primaryAction" disabled={liveLoading} onClick={() => void resolvePurchase("approve")}>
-                {livePurchases[0].content_type === "physical_item" ? "Approve payment and collect shipping" : livePurchases[0].content_type === "video_rating" ? "Approve payment and request photo" : "Approve and send content"}
+                {livePurchases[0].content_type === "physical_item" ? "Confirm payment and collect shipping" : livePurchases[0].content_type === "video_rating" ? "Confirm payment and request rating photo" : "Confirm payment and send video or photos"}
               </button>
               <button className="secondaryAction" disabled={liveLoading} onClick={() => void resolvePurchase("decline")}>
                 Payment not verified

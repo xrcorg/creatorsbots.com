@@ -442,6 +442,18 @@ button { cursor: pointer; }
 .paymentProofStatus.received { color: #17633b; background: #e9f9ef; border: 1px solid #bce8cc; }
 .paymentProofStatus.needed { color: #82540f; background: #fff7e7; border: 1px solid #f3dca9; }
 .quickReplyOptions .quickSendContent { color: white; background: var(--deep-pink); border-color: var(--deep-pink); }
+.paidFulfillmentPanel { display: grid; gap: 10px; padding: 14px 16px; border-top: 1px solid #eddde5; background: #fff8fb; }
+.paidFulfillmentPanel article { display: grid; gap: 8px; padding: 12px; border: 1px solid #efb9d3; border-radius: 12px; background: white; }
+.paidFulfillmentPanel article > div { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.paidFulfillmentPanel article strong { color: var(--deep-pink); font-size: 11px; }
+.paidFulfillmentPanel article small { color: var(--muted); font-size: 8px; text-align: right; }
+.paidFulfillmentPanel input, .paidFulfillmentPanel textarea { width: 100%; border: 1px solid var(--line); border-radius: 9px; padding: 9px; background: #fff; color: var(--ink); font-size: 10px; }
+.paidFulfillmentPanel textarea { min-height: 58px; resize: vertical; }
+.fulfillmentActions { display: grid; gap: 8px; margin-top: 10px; }
+.fulfillmentActions .filePicker { display: grid; gap: 5px; color: var(--muted); font-size: 9px; }
+.fulfillmentActions input[type="file"] { width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 9px; background: white; font-size: 9px; }
+.fulfillmentActions button { border: 0; border-radius: 9px; padding: 10px 12px; color: white; background: var(--deep-pink); font-weight: 800; }
+.fulfillmentActions button:disabled { cursor: not-allowed; opacity: .45; }
 .purchasePrice { margin: -4px 0 12px; color: var(--deep-pink); font-size: 22px; font-weight: 900; }
 .takeoverCard textarea { width: 100%; min-height: 105px; resize: vertical; border: 1px solid var(--line); border-radius: 13px; outline: none; padding: 12px; background: white; font-size: 12px; }
 .takeoverCard textarea:focus { border-color: var(--pink); box-shadow: 0 0 0 3px rgba(237,79,154,.1); }

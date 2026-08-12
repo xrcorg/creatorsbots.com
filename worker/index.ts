@@ -3143,7 +3143,7 @@ async function handleAdminPending(request: Request, env: Env) {
     LEFT JOIN telegram_contacts ON telegram_contacts.chat_id = booking_requests.chat_id
     LEFT JOIN fan_profiles ON fan_profiles.chat_id = booking_requests.chat_id
     WHERE booking_requests.status = 'pending' ORDER BY booking_requests.id ASC LIMIT 100`).all();
-  const customs = await env.DB.prepare(`SELECT id, telegram_name, duration_minutes, description,
+  const customs = await env.DB.prepare(`SELECT id, chat_id, telegram_name, duration_minutes, description,
     amount_cents, completion_comment, status, created_at FROM custom_fulfillments
     WHERE status IN ('awaiting_payment', 'payment_review', 'awaiting_fulfillment')
     ORDER BY id ASC LIMIT 100`).all();
@@ -3181,7 +3181,7 @@ async function handleAdminPending(request: Request, env: Env) {
   const physicalOrderHistory = await env.DB.prepare(`SELECT id, product_title, customer_name,
     tracking_number, amount_cents, status, created_at, shipped_at
     FROM physical_orders WHERE status = 'shipped' ORDER BY shipped_at DESC LIMIT 100`).all();
-  const ratingOrders = await env.DB.prepare(`SELECT id, telegram_name, amount_cents, stars, status, created_at
+  const ratingOrders = await env.DB.prepare(`SELECT id, chat_id, telegram_name, amount_cents, stars, status, created_at
     FROM rating_orders WHERE status IN ('awaiting_photo', 'awaiting_response')
     ORDER BY id ASC LIMIT 100`).all();
   const ratingOrderHistory = await env.DB.prepare(`SELECT id, telegram_name, amount_cents, stars, status,
@@ -3609,9 +3609,6 @@ async function handleAdminPurchase(request: Request, env: Env) {
 
   const approved = body.action === "approve";
   const fulfillmentType = purchase.content_type || "video";
-  if (approved && fulfillmentType === "video_rating") {
-    return json({ error: "Video ratings must be purchased through a Telegram Stars invoice in chat" }, 409);
-  }
   const needsDeliveryLink = !["physical_item", "video_rating"].includes(fulfillmentType);
   const uploadedMedia = approved && needsDeliveryLink && purchase.product_id
     ? await env.DB.prepare(`SELECT id, product_id, media_type, file_name, mime_type, r2_key
@@ -3626,6 +3623,8 @@ async function handleAdminPurchase(request: Request, env: Env) {
     : approved
     ? fulfillmentType === "physical_item"
       ? `Payment approved, babe. What's the full name you want me to use for shipping?`
+      : fulfillmentType === "video_rating"
+        ? "I got your payment, babe. Send the photo you want me to rate here and I'll respond with a private video clip."
       : purchase.delivery_url
         ? `Payment approved. Here is ${purchase.product_title}:\n${purchase.delivery_url}`
         : `Payment approved. I'm sending ${purchase.product_title} here now.`
@@ -3663,6 +3662,18 @@ async function handleAdminPurchase(request: Request, env: Env) {
         (purchase_request_id, chat_id, business_connection_id, product_title, amount_cents)
         VALUES (?, ?, ?, ?, ?)`)
         .bind(purchase.id, purchase.chat_id, purchase.business_connection_id, purchase.product_title, amountCents).run();
+    }
+    if (fulfillmentType === "video_rating") {
+      const contact = await env.DB.prepare(`SELECT COALESCE(telegram_contacts.username,
+        telegram_contacts.display_name, fan_profiles.name, 'Telegram fan') AS telegram_name
+        FROM fan_sessions LEFT JOIN telegram_contacts ON telegram_contacts.chat_id = fan_sessions.chat_id
+        LEFT JOIN fan_profiles ON fan_profiles.chat_id = fan_sessions.chat_id
+        WHERE fan_sessions.chat_id = ?`).bind(purchase.chat_id).first<{ telegram_name: string }>();
+      await env.DB.prepare(`INSERT OR IGNORE INTO rating_orders
+        (purchase_request_id, chat_id, business_connection_id, telegram_name, amount_cents,
+        stars, telegram_charge_id) VALUES (?, ?, ?, ?, ?, 0, ?)`)
+        .bind(purchase.id, purchase.chat_id, purchase.business_connection_id,
+          contact?.telegram_name || "Telegram fan", amountCents, `manual:${purchase.id}`).run();
     }
     await env.DB.prepare(`INSERT OR IGNORE INTO earnings_events
       (source_type, source_id, description, amount_cents) VALUES ('content', ?, ?, ?)`)
@@ -3855,6 +3866,37 @@ async function handleAdminCustom(request: Request, env: Env) {
   await saveMessage(env.DB, custom.chat_id, "assistant", followUp);
   await env.DB.prepare(`UPDATE custom_fulfillments SET delivery_url = ?, completion_comment = ?, status = 'completed',
     completed_at = CURRENT_TIMESTAMP WHERE id = ?`).bind(deliveryUrl!, comment, custom.id).run();
+  return json({ ok: true });
+}
+
+async function handleAdminRating(request: Request, env: Env) {
+  if (!await isAdminRequest(request, env)) return json({ error: "Sign in required" }, 401);
+  await prepareDatabase(env);
+  const form = await request.formData();
+  const id = Number(form.get("id"));
+  const file = form.get("file");
+  if (!id || !(file instanceof File) || !file.type.startsWith("video/")) {
+    return json({ error: "Choose a video clip to send" }, 400);
+  }
+  if (file.size > 50 * 1024 * 1024) return json({ error: "The rating video must be 50 MB or smaller" }, 413);
+  const order = await env.DB.prepare(`SELECT id, chat_id, business_connection_id, telegram_name
+    FROM rating_orders WHERE id = ? AND status = 'awaiting_response'`).bind(id).first<{
+      id: number; chat_id: string; business_connection_id: string | null; telegram_name: string;
+    }>();
+  if (!order) return json({ error: "This rating order is not waiting for a response video" }, 404);
+  const upload = new FormData();
+  upload.set("chat_id", order.chat_id);
+  if (order.business_connection_id) upload.set("business_connection_id", order.business_connection_id);
+  upload.set("caption", "Here's your private video rating, babe.");
+  upload.set("video", file, file.name || "private-rating.mp4");
+  const sent = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendVideo`, {
+    method: "POST",
+    body: upload,
+  });
+  if (!sent.ok) return json({ error: `Telegram could not send the rating video (${sent.status})` }, 502);
+  await saveMessage(env.DB, order.chat_id, "assistant", "Creator sent the private video rating.");
+  await env.DB.prepare(`UPDATE rating_orders SET status = 'completed', completed_at = CURRENT_TIMESTAMP
+    WHERE id = ?`).bind(order.id).run();
   return json({ ok: true });
 }
 
@@ -4364,6 +4406,10 @@ const worker = {
 
     if (url.pathname === "/api/admin/custom" && request.method === "POST") {
       return handleAdminCustom(request, env);
+    }
+
+    if (url.pathname === "/api/admin/rating" && request.method === "POST") {
+      return handleAdminRating(request, env);
     }
 
     if (url.pathname === "/api/admin/physical-order" && request.method === "POST") {
