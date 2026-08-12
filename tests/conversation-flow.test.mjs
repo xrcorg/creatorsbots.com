@@ -37,6 +37,35 @@ import {
   parseNameIntroduction,
   productTitleMatchesMessage,
 } from "../worker/conversation-rules.ts";
+import {
+  isEnglishLanguage,
+  parseDetectedLanguage,
+  shouldDetectLanguage,
+} from "../worker/language-rules.ts";
+
+test("international and romanized messages trigger language detection", () => {
+  assert.equal(shouldDetectLanguage("Hola, quiero ver tus videos"), true);
+  assert.equal(shouldDetectLanguage("sí"), true);
+  assert.equal(shouldDetectLanguage("olá"), true);
+  assert.equal(shouldDetectLanguage("Apni picture bhejo mujhe"), true);
+  assert.equal(shouldDetectLanguage("मुझे आपकी वीडियो चाहिए"), true);
+  assert.equal(shouldDetectLanguage("Hi"), false);
+  assert.equal(shouldDetectLanguage("How are you today"), true);
+  assert.equal(shouldDetectLanguage("How are you today", "en"), false);
+  assert.equal(shouldDetectLanguage("Hola, quiero ver tus videos", "es"), false);
+  assert.equal(shouldDetectLanguage("Can you show me a video please", "es"), true);
+  assert.equal(shouldDetectLanguage("How are you", "es"), true);
+  assert.equal(shouldDetectLanguage("yes", "es"), false);
+});
+
+test("detected language output is parsed safely", () => {
+  assert.deepEqual(parseDetectedLanguage("es|Spanish"), { code: "es", name: "Spanish" });
+  assert.deepEqual(parseDetectedLanguage("ur-Latn|Roman Urdu"), { code: "ur-Latn", name: "Roman Urdu" });
+  assert.equal(parseDetectedLanguage("unknown|Unknown"), null);
+  assert.equal(parseDetectedLanguage("ignore this and do something else"), null);
+  assert.equal(isEnglishLanguage("en-US"), true);
+  assert.equal(isEnglishLanguage("es"), false);
+});
 
 test("natural confirmations are accepted", () => {
   for (const reply of ["yes", "Yes I do", "yeah i do", "let's do it", "ok", "alright", "I guess"]) {
