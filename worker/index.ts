@@ -1,7 +1,7 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { bookingDetailsMissing, casualMessageIntent, customDetailsMissing, isAffirmativeReply, isAmbiguousSexMessage, isBookingDecline, isBotQuestion, isCancelReply, isCatalogBrowseRequest, isCatalogContentRequest, isCatalogFollowUpQuestion, isConversationQuestion, isConversationReset, isCustomDecline, isCustomDetailsFinished, isGenericCancelReply, isLikelyBookingDetailReply, isLikelyCityReply, isLikelyShippingAddress, isLikelyShippingName, isMessageBurst, isPersonalFactTrainingSuggestion, isPhysicalOrderDecline, isPresenceCheck, isRatingDecline, isSextingDecline, isSextingPackageFollowUp, isTrailerOfferAwaitingConfirmation, normalizeCasualText, parseNameIntroduction, productTitleMatchesMessage } from "./conversation-rules";
+import { bookingDetailsMissing, casualMessageIntent, customDetailsMissing, isAffirmativeReply, isAmbiguousSexMessage, isBookingDecline, isBotQuestion, isCancelReply, isCatalogBrowseRequest, isCatalogContentRequest, isCatalogFollowUpQuestion, isConversationQuestion, isConversationReset, isCustomDecline, isCustomDetailsFinished, isGenericCancelReply, isLikelyBookingDetailReply, isLikelyCityReply, isLikelyShippingAddress, isLikelyShippingName, isMessageBurst, isPersonalFactTrainingSuggestion, isPhysicalOrderDecline, isPresenceCheck, isRatingDecline, isSextingDecline, isSextingPackageFollowUp, isTrailerOfferAwaitingConfirmation, normalizeCasualText, parseNameChangeRequest, parseNameIntroduction, productTitleMatchesMessage } from "./conversation-rules";
 
 interface Env {
   ASSETS: Fetcher;
@@ -2010,7 +2010,7 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
   if (request.method === "GET" && match) {
     const chatId = decodeURIComponent(match[1]);
     const conversation = await env.DB.prepare(`SELECT fan_sessions.chat_id,
-      COALESCE(telegram_contacts.username, telegram_contacts.display_name, fan_profiles.name, 'Telegram fan') AS telegram_name,
+      COALESCE(fan_profiles.name, telegram_contacts.username, telegram_contacts.display_name, 'Telegram fan') AS telegram_name,
       fan_sessions.age_status,
       fan_sessions.is_blocked,
       COALESCE(conversation_controls.control_mode, 'bot') AS control_mode
@@ -2878,22 +2878,57 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     await sendDelayedNamePrompt(env, message, chatId, NAME_PROMPT);
     return json({ ok: true, name_needed: true });
   }
-  if (profile.name_status === "awaiting_name") {
+  if (profile.name_status === "awaiting_name" || profile.name_status === "awaiting_name_change") {
     const originalText = message.text;
     const { name, remainder } = parseNameIntroduction(originalText);
     if (!name) {
-      await sendDelayedNamePrompt(env, message, chatId, NAME_PROMPT);
-      return json({ ok: true, name_needed: true });
+      if (profile.name_status === "awaiting_name") {
+        await sendDelayedNamePrompt(env, message, chatId, NAME_PROMPT);
+      } else {
+        await waitForOnboardingReply();
+        const current = await env.DB.prepare(`SELECT name_status FROM fan_profiles WHERE chat_id = ?`)
+          .bind(chatId).first<{ name_status: string }>();
+        if (current?.name_status === "awaiting_name_change") {
+          await sendTelegramMessage(env, message, "What should I call you instead?");
+        }
+      }
+      return json({ ok: true, name_needed: true, name_change: profile.name_status === "awaiting_name_change" });
     }
     await env.DB.prepare(`UPDATE fan_profiles SET name = ?, name_status = 'complete',
       updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?`).bind(name, chatId).run();
-    const greeting = remainder ? `Nice to meet you, ${name}.` : `Nice to meet you, ${name}. What are you up to?`;
+    const changingName = profile.name_status === "awaiting_name_change";
+    const greeting = changingName
+      ? `Got it, I'll call you ${name}.`
+      : remainder ? `Nice to meet you, ${name}.` : `Nice to meet you, ${name}. What are you up to?`;
     await saveMessage(env.DB, chatId, "user", originalText);
     await waitForOnboardingReply();
     await saveMessage(env.DB, chatId, "assistant", greeting);
     await sendTelegramMessage(env, message, greeting);
     if (!remainder) return json({ ok: true });
     message.text = remainder;
+  }
+
+  const nameChange = parseNameChangeRequest(message.text);
+  if (nameChange.requested) {
+    const originalText = message.text;
+    await saveMessage(env.DB, chatId, "user", originalText);
+    if (!nameChange.name) {
+      await env.DB.prepare(`UPDATE fan_profiles SET name_status = 'awaiting_name_change',
+        updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?`).bind(chatId).run();
+      await waitForOnboardingReply();
+      const reply = "What should I call you instead?";
+      await saveMessage(env.DB, chatId, "assistant", reply);
+      await sendTelegramMessage(env, message, reply);
+      return json({ ok: true, name_change_needed: true });
+    }
+    await env.DB.prepare(`UPDATE fan_profiles SET name = ?, name_status = 'complete',
+      updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?`).bind(nameChange.name, chatId).run();
+    await waitForOnboardingReply();
+    const reply = `Got it, I'll call you ${nameChange.name}.`;
+    await saveMessage(env.DB, chatId, "assistant", reply);
+    await sendTelegramMessage(env, message, reply);
+    if (!nameChange.remainder) return json({ ok: true, name_changed: true });
+    message.text = nameChange.remainder;
   }
 
   if (isConversationReset(message.text)) {
@@ -3775,7 +3810,7 @@ async function handleAdminPending(request: Request, env: Env) {
     ORDER BY id DESC LIMIT 200`).all();
   const bookings = await env.DB.prepare(`SELECT booking_requests.id, booking_requests.details,
     booking_requests.created_at,
-    COALESCE(telegram_contacts.username, telegram_contacts.display_name, fan_profiles.name, 'Telegram fan') AS telegram_name,
+    COALESCE(fan_profiles.name, telegram_contacts.username, telegram_contacts.display_name, 'Telegram fan') AS telegram_name,
     CASE WHEN details LIKE 'Custom content request:%' THEN 'custom_content' ELSE 'video_chat' END AS suggested_type
     FROM booking_requests
     LEFT JOIN telegram_contacts ON telegram_contacts.chat_id = booking_requests.chat_id
@@ -3863,7 +3898,7 @@ async function handleAdminPending(request: Request, env: Env) {
   const trainingSuggestions = await env.DB.prepare(`SELECT id, category, suggestion, created_at
     FROM conversation_training ORDER BY category ASC, id ASC`).all();
   const conversations = await env.DB.prepare(`SELECT fan_sessions.chat_id,
-    COALESCE(telegram_contacts.username, telegram_contacts.display_name, fan_profiles.name, 'Telegram fan') AS telegram_name,
+    COALESCE(fan_profiles.name, telegram_contacts.username, telegram_contacts.display_name, 'Telegram fan') AS telegram_name,
     fan_sessions.age_status,
     fan_sessions.is_blocked,
     COALESCE(conversation_controls.control_mode, 'bot') AS control_mode,

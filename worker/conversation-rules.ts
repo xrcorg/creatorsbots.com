@@ -240,14 +240,53 @@ export function isSextingDecline(text: string) {
   return /\b(?:i\s+)?(?:do not|don't|dont|no longer)\s+(?:(?:want|wanna)\s+(?:to\s+)?)?(?:sext|sexting)\b|\b(?:not interested in|no|not)\s+sexting\b|\b(?:stop|quit)\s+(?:asking\s+(?:me\s+)?about\s+)?sexting\b/i.test(text);
 }
 
+const NON_NAME_WORDS = new Set([
+  "hi", "hello", "hey", "greetings", "there", "babe", "baby",
+  "yes", "yeah", "yep", "no", "nope", "ok", "okay", "alright",
+  "good", "great", "fine", "morning", "afternoon", "evening", "night",
+  "thanks", "thank", "please", "what", "whats", "who", "how", "why",
+  "where", "when", "which", "want", "wanna", "need", "sext", "sexting",
+  "video", "videos", "custom", "customs", "content", "chat", "sex",
+]);
+
+function normalizeFanName(rawName: string) {
+  const parts = rawName
+    .replace(/^[,!.?\s]+|[,!.?\s]+$/g, "")
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!parts.length || parts.length > 3) return "";
+  if (parts.some((part) => !/^[\p{L}][\p{L}'’.-]{0,39}$/u.test(part))) return "";
+  if (parts.some((part) => NON_NAME_WORDS.has(part.toLowerCase().replace(/[.'’]/g, "")))) return "";
+  return parts
+    .map((part) => part[0].toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
 export function parseNameIntroduction(text: string) {
-  const cleaned = text.trim().replace(/^(?:my name is|i am|i'm|im)\s+/i, "");
-  const intent = /\s+(?=(?:and\s+)?(?:i\s+(?:want|wanna|would like|need)|i'd\s+like|can\s+i|could\s+i|do\s+you|what\b|how\b|let's\b|lets\b))/i.exec(cleaned);
+  let cleaned = text.trim();
+  cleaned = cleaned.replace(/^(?:(?:hi|hello|hey|greetings)(?:\s+there)?)[,!.\s]+/i, "");
+  cleaned = cleaned.replace(/^(?:actually[,!]?\s*)?(?:my name is|i am|i'm|im|this is)\s+/i, "");
+  const intent = /\s+(?=(?:and\s+)?(?:i\s+(?:want|wanna|would like|need)|i'd\s+like|can\s+i|could\s+i|do\s+you|show\s+me|send\s+me|what\b|who\b|how\b|why\b|where\b|when\b|which\b|let's\b|lets\b))/i.exec(cleaned);
   const boundary = intent?.index ?? cleaned.length;
   const rawName = cleaned.slice(0, boundary).replace(/[,!.?]+$/g, "").trim();
   const remainder = cleaned.slice(boundary).trim().replace(/^and\s+/i, "");
-  const name = rawName.split(/\s+/).slice(0, 3)
-    .map((part) => part ? part[0].toUpperCase() + part.slice(1).toLowerCase() : part)
-    .join(" ");
-  return { name, remainder };
+  return { name: normalizeFanName(rawName), remainder };
+}
+
+export function parseNameChangeRequest(text: string) {
+  const value = text.trim();
+  const patterns = [
+    /^(?:please\s+)?(?:change|update|switch)\s+my\s+name(?:\s+to\s+(.+))?[?!.\s]*$/i,
+    /^(?:can\s+you\s+|could\s+you\s+)?(?:please\s+)?(?:change|update|switch)\s+my\s+name(?:\s+to\s+(.+))?[?!.\s]*$/i,
+    /^(?:please\s+)?(?:you\s+can\s+)?call\s+me\s+(.+)$/i,
+    /^(?:actually[,!]?\s*)?(?:my name is|i go by)\s+(.+)$/i,
+  ];
+  for (const pattern of patterns) {
+    const match = pattern.exec(value);
+    if (!match) continue;
+    if (!match[1]) return { requested: true, name: "", remainder: "" };
+    const parsed = parseNameIntroduction(match[1]);
+    return { requested: true, ...parsed };
+  }
+  return { requested: false, name: "", remainder: "" };
 }

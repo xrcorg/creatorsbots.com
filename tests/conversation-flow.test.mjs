@@ -32,6 +32,7 @@ import {
   isSextingPackageFollowUp,
   isTrailerOfferAwaitingConfirmation,
   normalizeCasualText,
+  parseNameChangeRequest,
   parseNameIntroduction,
   productTitleMatchesMessage,
 } from "../worker/conversation-rules.ts";
@@ -258,4 +259,35 @@ test("name introductions preserve the rest of the fan message", () => {
     remainder: "I want a video chat",
   });
   assert.deepEqual(parseNameIntroduction("johnny"), { name: "Johnny", remainder: "" });
+});
+
+test("name introductions reject greetings and messages that are not names", () => {
+  for (const message of ["hi", "hello", "greetings", "hey there", "how are you?", "I want to sext", "videos?"]) {
+    assert.equal(parseNameIntroduction(message).name, "", message);
+  }
+  assert.deepEqual(parseNameIntroduction("Hi, I'm johnny"), { name: "Johnny", remainder: "" });
+  assert.deepEqual(parseNameIntroduction("hello Johnny I want a custom"), {
+    name: "Johnny",
+    remainder: "I want a custom",
+  });
+});
+
+test("fans can request a saved name change conversationally", () => {
+  assert.deepEqual(parseNameChangeRequest("change my name"), {
+    requested: true,
+    name: "",
+    remainder: "",
+  });
+  assert.deepEqual(parseNameChangeRequest("call me alex"), {
+    requested: true,
+    name: "Alex",
+    remainder: "",
+  });
+  assert.deepEqual(parseNameChangeRequest("actually, my name is Jamie Lee"), {
+    requested: true,
+    name: "Jamie Lee",
+    remainder: "",
+  });
+  assert.equal(parseNameChangeRequest("what is my name?").requested, false);
+  assert.equal(parseNameChangeRequest("call me hello").name, "");
 });
