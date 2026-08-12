@@ -4310,13 +4310,23 @@ async function handleAdminVideoChat(request: Request, env: Env) {
   }
   if (body.action === "complete") {
     if (order.status !== "scheduled") return json({ error: "Confirm payment before completing this video chat" }, 409);
+    const completionReply = "That was fun, babe. I loved seeing you. We can keep chatting here.";
+    await sendTelegramMessage(env, telegramMessage, completionReply);
+    await saveMessage(env.DB, order.chat_id, "assistant", completionReply);
     await env.DB.batch([
       env.DB.prepare(`UPDATE video_chat_orders SET status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE id = ?`).bind(order.id),
       env.DB.prepare(`UPDATE daily_tasks SET status = 'completed', completed_at = CURRENT_TIMESTAMP
         WHERE task_type = 'video_chat' AND fan_name = ? AND scheduled_at = ? AND status = 'open'`)
         .bind(order.telegram_name, order.scheduled_at),
+      env.DB.prepare(`UPDATE booking_drafts SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+        WHERE chat_id = ? AND status = 'awaiting_details'`).bind(order.chat_id),
+      env.DB.prepare(`INSERT INTO conversation_controls (chat_id, control_mode, taken_over_by, updated_at)
+        VALUES (?, 'bot', NULL, CURRENT_TIMESTAMP)
+        ON CONFLICT(chat_id) DO UPDATE SET control_mode = 'bot', taken_over_by = NULL,
+        updated_at = CURRENT_TIMESTAMP`).bind(order.chat_id),
+      env.DB.prepare(`DELETE FROM inbound_message_buffer WHERE chat_id = ?`).bind(order.chat_id),
     ]);
-    return json({ ok: true });
+    return json({ ok: true, completed: true, control_mode: "bot" });
   }
   const followUp = body.action === "close_unpaid"
     ? "Hey babe, do you still want the video chat? I still need the payment to keep your time reserved. Lmk if you still want it."

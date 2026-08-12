@@ -1050,6 +1050,7 @@ export default function Home() {
   }
 
   async function resolveVideoChat(id: number, action: "approve_payment" | "payment_not_verified" | "complete" | "cancel" | "close_unpaid") {
+    if (action === "complete" && !window.confirm("Confirm this video chat is finished? It will move to history and normal bot replies will resume.")) return;
     try {
       setLiveLoading(true);
       const response = await fetch("/api/admin/video-chat", {
@@ -1650,6 +1651,9 @@ export default function Home() {
   const selectedRating = selectedConversation
     ? ratingOrders.find((order) => order.chat_id === selectedConversation.chat_id && order.status === "awaiting_response")
     : undefined;
+  const selectedVideoChat = selectedConversation
+    ? videoChats.find((order) => order.chat_id === selectedConversation.chat_id && order.status === "scheduled")
+    : undefined;
   const quickReplyProducts = contentProducts.filter((product) => product.active && !["physical_item", "video_rating"].includes(product.content_type));
   const openAgendaCount = selectedAgendaTasks.filter((task) => task.status === "open").length + physicalOrders.length + ratingOrders.length;
   const unscheduledCount = liveBookings.length + liveCustoms.length + videoChats.filter((order) => order.status !== "scheduled").length + livePurchases.length + sextingSessions.length + physicalOrders.length + ratingOrders.length;
@@ -1925,12 +1929,17 @@ export default function Home() {
                   {conversationStatus && conversationMessages.length > 0 && <p className="conversationNotice">{conversationStatus}</p>}
                   <div className="paidFulfillmentPanel">
                     <div className="quickReplyHeading"><strong>Paid order fulfillment</strong><small>These controls stay visible. Each one unlocks when this chat has the matching order.</small></div>
+                    {selectedVideoChat && <article className="videoChatCompletionCard">
+                      <div><strong>Video chat with {selectedVideoChat.telegram_name}</strong><small>{videoChatSchedule(selectedVideoChat.scheduled_at)} · {selectedVideoChat.duration_minutes} minutes</small></div>
+                      <p>When the call is over, complete it here. The appointment will move to history and normal bot replies will turn back on for this chat.</p>
+                      <button className="primaryAction" disabled={liveLoading} onClick={() => void resolveVideoChat(selectedVideoChat.id, "complete")} type="button">Complete video chat and resume bot</button>
+                    </article>}
                     <div className="fulfillmentActionBar">
                       <button className="primaryAction" disabled={liveLoading || !selectedPurchase} onClick={() => selectedPurchase && void resolvePurchaseById(selectedPurchase.id, "approve")} type="button">Confirm payment + send video/photos</button>
                       <button className="secondaryAction" disabled={!selectedCustom} onClick={() => document.querySelector<HTMLInputElement>(`.paidFulfillmentPanel input[type="url"]`)?.focus()} type="button">Send completed custom</button>
                       <button className="secondaryAction" disabled={!selectedRating} onClick={() => document.querySelector<HTMLInputElement>(`.paidFulfillmentPanel input[type="file"]`)?.click()} type="button">Send dick rating video</button>
                     </div>
-                    {!selectedPurchase && !selectedCustom && !selectedRating && <p className="fulfillmentEmpty">No paid order is linked to this chat yet. The correct button will unlock as soon as payment is submitted and the order appears for approval.</p>}
+                    {!selectedPurchase && !selectedCustom && !selectedRating && !selectedVideoChat && <p className="fulfillmentEmpty">No paid order is linked to this chat yet. The correct button will unlock as soon as payment is submitted and the order appears for approval.</p>}
                     {selectedPurchase && <article>
                       <div><strong>{selectedPurchase.product_title}</strong><small>{selectedPurchase.price} · {selectedPurchase.payment_proof_received_at ? "payment screenshot received" : "payment claimed"}</small></div>
                       <button className="primaryAction" disabled={liveLoading} onClick={() => void resolvePurchaseById(selectedPurchase.id, "approve")} type="button">
@@ -2280,12 +2289,12 @@ export default function Home() {
                   <button className="secondaryAction" disabled={liveLoading} onClick={() => void resolveVideoChat(order.id, "payment_not_verified")}>Payment not verified</button>
                 </>}
                 {order.status === "scheduled" && <>
-                  <p className="queueNote">Payment confirmed. This appointment is on the daily task list.</p>
+                  <p className="queueNote">Payment confirmed. This appointment is on the daily task list. Complete it after the call to return the fan to normal chat mode.</p>
                   <div className="calendarActions">
                     <a aria-label={`Add video chat with ${order.telegram_name} to Google Calendar`} href={googleCalendarLink(order)} rel="noreferrer" target="_blank">Add to Google Calendar</a>
                     <button aria-label={`Add video chat with ${order.telegram_name} to Apple Calendar`} onClick={() => downloadAppleCalendar(order)} type="button">Add to Apple Calendar</button>
                   </div>
-                  <button className="primaryAction" disabled={liveLoading} onClick={() => void resolveVideoChat(order.id, "complete")}>Mark video chat complete</button>
+                  <button className="primaryAction" disabled={liveLoading} onClick={() => void resolveVideoChat(order.id, "complete")}>Complete video chat and resume bot</button>
                 </>}
                 <button className="secondaryAction" disabled={liveLoading} onClick={() => void resolveVideoChat(order.id, "cancel")}>Cancel video chat</button>
               </div>
