@@ -223,6 +223,12 @@ function dollars(value: string | undefined, fallback: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(amount);
 }
 
+function moneyTextToCents(value: string | null | undefined, fallbackCents = 0) {
+  const normalized = String(value || "").replace(/,/g, "").match(/-?\d+(?:\.\d{1,2})?/u)?.[0];
+  const amount = normalized ? Number(normalized) : Number.NaN;
+  return Number.isFinite(amount) && amount >= 0 ? Math.round(amount * 100) : fallbackCents;
+}
+
 function isVideoChatRequest(text: string) {
   return /\b(video chat|video call)\b/i.test(text);
 }
@@ -833,6 +839,26 @@ async function prepareDatabase(env: Env) {
   if (!purchaseColumns.results.some((column) => column.name === "payment_proof_received_at")) {
     await db.prepare("ALTER TABLE purchase_requests ADD COLUMN payment_proof_received_at TEXT").run();
   }
+  // Repair any confirmed manual orders that were approved before their matching
+  // ledger write completed. The unique source key keeps this safe on every load.
+  await db.prepare(`INSERT OR IGNORE INTO earnings_events
+    (source_type, source_id, description, amount_cents, occurred_at)
+    SELECT 'content', CAST(purchase_requests.id AS TEXT), purchase_requests.product_title,
+      COALESCE(
+        NULLIF(CAST(ROUND(CAST(REPLACE(REPLACE(purchase_requests.price, '$', ''), ',', '') AS REAL) * 100) AS INTEGER), 0),
+        content_products.price_cents,
+        0
+      ),
+      COALESCE(purchase_requests.resolved_at, purchase_requests.created_at)
+    FROM purchase_requests
+    LEFT JOIN content_products ON content_products.title = purchase_requests.product_title
+    WHERE purchase_requests.status = 'approved'
+      AND purchase_requests.payment_note != 'Telegram Stars payment'
+      AND NOT EXISTS (
+        SELECT 1 FROM earnings_events
+        WHERE earnings_events.source_type = 'content'
+          AND earnings_events.source_id = CAST(purchase_requests.id AS TEXT)
+      )`).run();
 }
 
 async function sendTelegramMessage(env: Env, message: TelegramMessage, text: string) {
@@ -3632,6 +3658,10 @@ async function handleAdminPurchase(request: Request, env: Env) {
   if (approved && needsDeliveryLink && !purchase.delivery_url && !uploadedMedia.results.length) {
     return json({ error: "This product needs a Dropbox link or uploaded files" }, 409);
   }
+  const amountCents = approved ? moneyTextToCents(purchase.price, purchase.price_cents || 0) : 0;
+  if (approved && amountCents <= 0) {
+    return json({ error: "This order needs a valid price before it can be confirmed" }, 409);
+  }
   const responseText = body.action === "close_unpaid"
     ? `Hey babe, do you still want ${purchase.product_title}? I know you'll love it, but I still need you to send the payment so I can send it over. Lmk if you still want it.`
     : approved
@@ -3667,15 +3697,19 @@ async function handleAdminPurchase(request: Request, env: Env) {
     }, followUp);
     await saveMessage(env.DB, purchase.chat_id, "assistant", followUp);
   }
-  await env.DB.prepare(`UPDATE purchase_requests SET status = ?, resolved_at = CURRENT_TIMESTAMP
-    WHERE id = ?`).bind(approved ? "approved" : body.action === "close_unpaid" ? "closed_unpaid" : "declined", purchase.id).run();
   if (approved) {
-    const amountCents = purchase.price_cents || Math.round(Number(purchase.price.replace(/[^0-9.]/g, "")) * 100);
+    const approvalWrites = [
+      env.DB.prepare(`UPDATE purchase_requests SET status = 'approved', resolved_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND status = 'pending'`).bind(purchase.id),
+      env.DB.prepare(`INSERT OR IGNORE INTO earnings_events
+        (source_type, source_id, description, amount_cents) VALUES ('content', ?, ?, ?)`)
+        .bind(String(purchase.id), purchase.product_title, amountCents),
+    ];
     if (fulfillmentType === "physical_item") {
-      await env.DB.prepare(`INSERT OR IGNORE INTO physical_orders
+      approvalWrites.push(env.DB.prepare(`INSERT OR IGNORE INTO physical_orders
         (purchase_request_id, chat_id, business_connection_id, product_title, amount_cents)
         VALUES (?, ?, ?, ?, ?)`)
-        .bind(purchase.id, purchase.chat_id, purchase.business_connection_id, purchase.product_title, amountCents).run();
+        .bind(purchase.id, purchase.chat_id, purchase.business_connection_id, purchase.product_title, amountCents));
     }
     if (fulfillmentType === "video_rating") {
       const contact = await env.DB.prepare(`SELECT COALESCE(telegram_contacts.username,
@@ -3683,18 +3717,19 @@ async function handleAdminPurchase(request: Request, env: Env) {
         FROM fan_sessions LEFT JOIN telegram_contacts ON telegram_contacts.chat_id = fan_sessions.chat_id
         LEFT JOIN fan_profiles ON fan_profiles.chat_id = fan_sessions.chat_id
         WHERE fan_sessions.chat_id = ?`).bind(purchase.chat_id).first<{ telegram_name: string }>();
-      await env.DB.prepare(`INSERT OR IGNORE INTO rating_orders
+      approvalWrites.push(env.DB.prepare(`INSERT OR IGNORE INTO rating_orders
         (purchase_request_id, chat_id, business_connection_id, telegram_name, amount_cents,
         stars, telegram_charge_id) VALUES (?, ?, ?, ?, ?, 0, ?)`)
         .bind(purchase.id, purchase.chat_id, purchase.business_connection_id,
-          contact?.telegram_name || "Telegram fan", amountCents, `manual:${purchase.id}`).run();
+          contact?.telegram_name || "Telegram fan", amountCents, `manual:${purchase.id}`));
     }
-    await env.DB.prepare(`INSERT OR IGNORE INTO earnings_events
-      (source_type, source_id, description, amount_cents) VALUES ('content', ?, ?, ?)`)
-      .bind(String(purchase.id), purchase.product_title, amountCents)
-      .run();
+    await env.DB.batch(approvalWrites);
+  } else {
+    await env.DB.prepare(`UPDATE purchase_requests SET status = ?, resolved_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND status = 'pending'`)
+      .bind(body.action === "close_unpaid" ? "closed_unpaid" : "declined", purchase.id).run();
   }
-  return json({ ok: true });
+  return json({ ok: true, earnings_added_cents: approved ? amountCents : 0 });
 }
 
 async function handleAdminBooking(request: Request, env: Env) {
