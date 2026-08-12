@@ -1375,6 +1375,16 @@ async function isAwaitingPaidProductTitle(db: D1Database, chatId: string) {
   return Boolean(latest && /which video or item did you pay for/i.test(latest.content));
 }
 
+function paymentConfirmationDelayMs() {
+  const minimumSeconds = 50;
+  const maximumSeconds = 70;
+  return Math.floor((minimumSeconds + Math.random() * (maximumSeconds - minimumSeconds)) * 1000);
+}
+
+async function waitForPaymentConfirmation() {
+  await new Promise((resolve) => setTimeout(resolve, paymentConfirmationDelayMs()));
+}
+
 async function getTrailerFollowUpProduct(db: D1Database, chatId: string) {
   const [lastAssistant, products] = await Promise.all([
     db.prepare(`SELECT content FROM chat_messages WHERE chat_id = ? AND role = 'assistant'
@@ -1417,6 +1427,7 @@ async function submitProductPaymentReview(env: Env, message: TelegramMessage, ch
     : "Ok, thanks babe. Let me check when I get the chance and I'll send you the link!";
   await saveMessage(env.DB, chatId, "user", message.text);
   await saveMessage(env.DB, chatId, "assistant", confirmation);
+  await waitForPaymentConfirmation();
   await sendTelegramMessage(env, message, confirmation);
 }
 
@@ -1432,6 +1443,7 @@ async function handlePaymentSent(env: Env, message: TelegramMessage, chatId: str
     const confirmation = "Ok, thanks babe. Let me check when I get the chance and I'll let you know when I can start it!";
     await saveMessage(env.DB, chatId, "user", message.text);
     await saveMessage(env.DB, chatId, "assistant", confirmation);
+    await waitForPaymentConfirmation();
     await sendTelegramMessage(env, message, confirmation);
     return true;
   }
@@ -1441,11 +1453,13 @@ async function handlePaymentSent(env: Env, message: TelegramMessage, chatId: str
     const clarification = "Ok, thanks babe. Which video or item did you pay for so I can verify it?";
     await saveMessage(env.DB, chatId, "user", message.text);
     await saveMessage(env.DB, chatId, "assistant", clarification);
+    await waitForPaymentConfirmation();
     await sendTelegramMessage(env, message, clarification);
     return true;
   }
   if (product.content_type === "video_rating") {
     await saveMessage(env.DB, chatId, "user", message.text);
+    await waitForPaymentConfirmation();
     await sendVideoRatingCheckout(env, env.DB, message, product);
     return true;
   }
