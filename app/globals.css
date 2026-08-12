@@ -242,6 +242,7 @@ button { cursor: pointer; }
 .workflowBadge { grid-column: 3; border-radius: 999px; padding: 4px 6px; background: #f3eef1; color: var(--muted); font-size: 7px; font-weight: 850; text-transform: capitalize; }
 .workflowBadge.sexting, .workflowBadge.sexting-checkout { background: #fff0f7; color: var(--deep-pink); }
 .workflowBadge.custom, .workflowBadge.booking { background: #fff8de; color: #83620b; }
+.workflowBadge.blocked { background: #fff0f0; color: #a12732; }
 .unreadBadge { grid-column: 3; justify-self: end; min-width: 18px; height: 18px; display: grid; place-items: center; border-radius: 999px; background: var(--pink); color: white; font-size: 8px; }
 .conversationDetail { min-width: 0; display: flex; flex-direction: column; }
 .conversationDetail > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border-bottom: 1px solid #eddde5; }
@@ -251,6 +252,8 @@ button { cursor: pointer; }
 .conversationHeaderActions { display: flex !important; grid-auto-flow: column; align-items: center; gap: 7px; }
 .exitConversationFlow { border: 1px solid #d184a0; border-radius: 9px; padding: 7px 9px; background: #fff; color: #862746; font-size: 8px; font-weight: 850; }
 .resetConversation { border: 1px solid #e1a6b7; border-radius: 9px; padding: 7px 9px; background: #fff7f8; color: #a02c4d; font-size: 8px; font-weight: 850; }
+.blockConversation { border: 1px solid #d6787e; border-radius: 9px; padding: 7px 9px; background: #fff1f2; color: #971f2a; font-size: 8px; font-weight: 850; }
+.blockConversation.unblock { border-color: #72bf91; background: #effbf4; color: #26744a; }
 .botReplySwitch { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 8px; font-weight: 850; cursor: pointer; }
 .botReplySwitch input { position: absolute; opacity: 0; pointer-events: none; }
 .botReplySwitch i { position: relative; width: 29px; height: 17px; border-radius: 999px; background: #d8cdd2; transition: background 150ms ease; }
@@ -268,6 +271,12 @@ button { cursor: pointer; }
 .voiceReviewFlag { display: block; margin-top: 5px; color: #a02c4d; font-size: 7px; font-weight: 800; }
 .conversationPlaceholder { margin: auto; padding: 24px; color: var(--muted); font-size: 10px; line-height: 1.5; text-align: center; }
 .conversationNotice { margin: 0; padding: 9px 12px; border-top: 1px solid #eddde5; background: #f5fff8; color: #28744a; font-size: 8px; }
+.blockedFanNotice { margin: 14px; padding: 14px; border: 1px solid #e8a4aa; border-radius: 12px; background: #fff3f4; color: #80242d; }
+.blockedFanNotice strong { font-size: 12px; }
+.blockedFanNotice p { margin: 5px 0 0; font-size: 9px; line-height: 1.5; }
+.blockedFanConversation .paidFulfillmentPanel,
+.blockedFanConversation .quickReplies,
+.blockedFanConversation .conversationReplyForm { display: none; }
 .quickReplies { display: grid; gap: 12px; padding: 16px 18px; border-top: 1px solid #eddde5; background: #fff9fc; }
 .quickReplyHeading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
 .quickReplyHeading strong { color: var(--ink); font-size: 14px; line-height: 1.3; }

@@ -254,6 +254,7 @@ type LiveConversation = {
   chat_id: string;
   telegram_name: string;
   age_status: "unknown" | "verified" | "blocked";
+  is_blocked: number;
   last_message: string;
   last_role: "user" | "assistant" | "";
   last_message_at: string;
@@ -712,8 +713,13 @@ export default function Home() {
       setConversationStatus("Loading conversation...");
       const response = await fetch(`/api/admin/conversations/${encodeURIComponent(chatId)}`, { cache: "no-store" });
       if (!response.ok) throw new Error("Conversation failed to load");
-      const data = await response.json() as { messages: ConversationMessage[] };
+      const data = await response.json() as { conversation: Pick<LiveConversation, "chat_id" | "telegram_name" | "age_status" | "is_blocked" | "control_mode">; messages: ConversationMessage[] };
       setConversationMessages(data.messages || []);
+      if (data.conversation) {
+        setConversations((items) => items.map((item) => item.chat_id === chatId
+          ? { ...item, ...data.conversation }
+          : item));
+      }
       setConversationReply("");
       setConversationStatus("");
     } catch {
@@ -937,6 +943,36 @@ export default function Home() {
       await loadLivePending();
     } catch {
       setConversationStatus("The bot setting could not be changed. Please try again.");
+    } finally {
+      setLiveLoading(false);
+    }
+  }
+
+  async function setConversationBlocked(chatId: string, blocked: boolean) {
+    const fan = conversations.find((conversation) => conversation.chat_id === chatId);
+    const prompt = blocked
+      ? `Block ${fan?.telegram_name || "this fan"}? The bot and Inbox will stop replying, but the conversation and sales history will stay visible.`
+      : `Unblock ${fan?.telegram_name || "this fan"}? Bot replies will remain paused until you turn them back on.`;
+    if (!window.confirm(prompt)) return;
+    try {
+      setLiveLoading(true);
+      setConversationStatus(blocked ? "Blocking fan..." : "Unblocking fan...");
+      const response = await fetch("/api/admin/conversations/block", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, blocked }),
+      });
+      const data = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(data.error || "Block setting could not be changed");
+      setConversations((items) => items.map((item) => item.chat_id === chatId
+        ? { ...item, is_blocked: blocked ? 1 : 0, control_mode: "human" }
+        : item));
+      await loadLivePending();
+      setConversationStatus(blocked
+        ? "Fan blocked. Automatic and Inbox replies are off, while history remains visible."
+        : "Fan unblocked. Turn Bot replies on when you want automation to resume.");
+    } catch (error) {
+      setConversationStatus(error instanceof Error ? error.message : "The block setting could not be changed.");
     } finally {
       setLiveLoading(false);
     }
@@ -1919,23 +1955,24 @@ export default function Home() {
                       <small>{conversation.last_message || "No saved messages"}</small>
                       <time>{new Date(`${conversation.last_message_at.replace(" ", "T")}Z`).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time>
                     </span>
-                    <span className={`workflowBadge ${conversation.active_workflow.replace(" ", "-")}`}>{conversation.active_workflow}</span>
+                    <span className={`workflowBadge ${conversation.is_blocked ? "blocked" : conversation.active_workflow.replace(" ", "-")}`}>{conversation.is_blocked ? "blocked" : conversation.active_workflow}</span>
                     {Number(conversation.pending_count) > 0 && <b className="unreadBadge">{conversation.pending_count}</b>}
                   </button>
                 )) : <p>No chats match that search.</p>}
               </div>
-              <div className="conversationDetail">
+              <div className={`conversationDetail ${selectedConversation?.is_blocked ? "blockedFanConversation" : ""}`}>
                 {selectedConversation ? <>
                   <header>
-                    <div><strong>{selectedConversation.telegram_name}</strong><small>{selectedConversation.message_count} saved messages · {selectedConversation.control_mode === "human" ? "Creator replying" : "Bot active"}</small></div>
+                    <div><strong>{selectedConversation.telegram_name}</strong><small>{selectedConversation.message_count} saved messages · {selectedConversation.is_blocked ? "Blocked" : selectedConversation.control_mode === "human" ? "Creator replying" : "Bot active"}</small></div>
                     <div className="conversationHeaderActions">
                       <label className="botReplySwitch">
                         <span>Bot replies</span>
-                        <input aria-label="Bot replies" checked={selectedConversation.control_mode === "bot"} disabled={liveLoading} onChange={(event) => void setConversationBotMode(selectedConversation.chat_id, event.target.checked)} type="checkbox" />
+                        <input aria-label="Bot replies" checked={!selectedConversation.is_blocked && selectedConversation.control_mode === "bot"} disabled={liveLoading || Boolean(selectedConversation.is_blocked)} onChange={(event) => void setConversationBotMode(selectedConversation.chat_id, event.target.checked)} type="checkbox" />
                         <i aria-hidden="true" />
                       </label>
                       <button className="exitConversationFlow" disabled={liveLoading} onClick={() => void exitLiveConversationFlow(selectedConversation.chat_id)} type="button">Exit flow</button>
                       <button className="resetConversation" disabled={liveLoading} onClick={() => void resetLiveConversation(selectedConversation.chat_id)} type="button">Reset chat</button>
+                      <button className={`blockConversation ${selectedConversation.is_blocked ? "unblock" : ""}`} disabled={liveLoading} onClick={() => void setConversationBlocked(selectedConversation.chat_id, !Boolean(selectedConversation.is_blocked))} type="button">{selectedConversation.is_blocked ? "Unblock fan" : "Block fan"}</button>
                     </div>
                   </header>
                   <div className="conversationTranscript">
@@ -1950,6 +1987,7 @@ export default function Home() {
                     )) : <p className="conversationPlaceholder">{conversationStatus || "No saved messages in this conversation."}</p>}
                   </div>
                   {conversationStatus && conversationMessages.length > 0 && <p className="conversationNotice">{conversationStatus}</p>}
+                  {selectedConversation.is_blocked ? <div className="blockedFanNotice"><strong>This fan is blocked</strong><p>The bot and Inbox cannot send messages or content to this fan. Their conversation, orders, and earnings history remain saved.</p></div> : null}
                   <div className="paidFulfillmentPanel">
                     <div className="quickReplyHeading"><strong>Paid order fulfillment</strong><small>These controls stay visible. Each one unlocks when this chat has the matching order.</small></div>
                     {selectedVideoChat && <article className="videoChatCompletionCard">

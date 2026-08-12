@@ -433,6 +433,7 @@ async function prepareDatabase(env: Env) {
       telegram_user_id TEXT,
       business_connection_id TEXT,
       age_status TEXT NOT NULL DEFAULT 'unknown',
+      is_blocked INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`),
@@ -911,6 +912,10 @@ async function prepareDatabase(env: Env) {
   }
   if (!purchaseColumns.results.some((column) => column.name === "payment_proof_received_at")) {
     await db.prepare("ALTER TABLE purchase_requests ADD COLUMN payment_proof_received_at TEXT").run();
+  }
+  const fanSessionColumns = await db.prepare("PRAGMA table_info(fan_sessions)").all<{ name: string }>();
+  if (!fanSessionColumns.results.some((column) => column.name === "is_blocked")) {
+    await db.prepare("ALTER TABLE fan_sessions ADD COLUMN is_blocked INTEGER NOT NULL DEFAULT 0").run();
   }
   // A creator may deliver paid content from the Inbox before the browser has
   // refreshed its pending-order list. Older builds treated that as a manual
@@ -2007,6 +2012,7 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
     const conversation = await env.DB.prepare(`SELECT fan_sessions.chat_id,
       COALESCE(telegram_contacts.username, telegram_contacts.display_name, fan_profiles.name, 'Telegram fan') AS telegram_name,
       fan_sessions.age_status,
+      fan_sessions.is_blocked,
       COALESCE(conversation_controls.control_mode, 'bot') AS control_mode
       FROM fan_sessions
       LEFT JOIN telegram_contacts ON telegram_contacts.chat_id = fan_sessions.chat_id
@@ -2073,6 +2079,26 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
     return json({ ok: true });
   }
 
+  if (request.method === "POST" && url.pathname === "/api/admin/conversations/block") {
+    const body = await request.json<{ chat_id?: string; blocked?: boolean }>();
+    const chatId = String(body.chat_id || "").trim();
+    if (!chatId) return json({ error: "A conversation is required" }, 400);
+    const exists = await env.DB.prepare("SELECT chat_id FROM fan_sessions WHERE chat_id = ?")
+      .bind(chatId).first();
+    if (!exists) return json({ error: "Conversation not found" }, 404);
+    const blocked = body.blocked === true;
+    await env.DB.prepare(`UPDATE fan_sessions SET is_blocked = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE chat_id = ?`).bind(blocked ? 1 : 0, chatId).run();
+    if (blocked) {
+      await exitConversationFlow(env.DB, chatId);
+      await env.DB.prepare(`INSERT INTO conversation_controls (chat_id, control_mode, taken_over_by, updated_at)
+        VALUES (?, 'human', 'blocked', CURRENT_TIMESTAMP)
+        ON CONFLICT(chat_id) DO UPDATE SET control_mode = 'human', taken_over_by = 'blocked',
+        updated_at = CURRENT_TIMESTAMP`).bind(chatId).run();
+    }
+    return json({ ok: true, is_blocked: blocked ? 1 : 0, control_mode: blocked ? "human" : undefined });
+  }
+
   if (request.method === "POST" && url.pathname === "/api/admin/conversations/clear-all") {
     if (portalUser.role !== "owner") return json({ error: "Owner access required" }, 403);
     const body = await request.json<{ confirmation?: string }>();
@@ -2098,14 +2124,16 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
       return json({ error: "Enter a Stars price between 1 and 25,000" }, 400);
     }
     const conversation = await env.DB.prepare(`SELECT fan_sessions.chat_id, fan_sessions.business_connection_id,
+      fan_sessions.is_blocked,
       COALESCE(telegram_contacts.username, telegram_contacts.display_name, fan_profiles.name, 'Telegram fan') AS telegram_name
       FROM fan_sessions
       LEFT JOIN telegram_contacts ON telegram_contacts.chat_id = fan_sessions.chat_id
       LEFT JOIN fan_profiles ON fan_profiles.chat_id = fan_sessions.chat_id
       WHERE fan_sessions.chat_id = ?`).bind(chatId).first<{
-        chat_id: string; business_connection_id: string | null; telegram_name: string;
+        chat_id: string; business_connection_id: string | null; is_blocked: number; telegram_name: string;
       }>();
     if (!conversation) return json({ error: "Conversation not found" }, 404);
+    if (conversation.is_blocked) return json({ error: "Unblock this fan before sending content" }, 409);
 
     let media: ProductMedia | null = null;
     let defaultTitle = "Private photo";
@@ -2168,14 +2196,19 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
     const chatId = String(body.chat_id || "").trim();
     if (!chatId) return json({ error: "A conversation is required" }, 400);
     const conversation = await env.DB.prepare(`SELECT fan_sessions.chat_id,
-      fan_sessions.business_connection_id FROM fan_sessions WHERE fan_sessions.chat_id = ?`)
-      .bind(chatId).first<{ chat_id: string; business_connection_id: string | null }>();
+      fan_sessions.business_connection_id, fan_sessions.is_blocked
+      FROM fan_sessions WHERE fan_sessions.chat_id = ?`)
+      .bind(chatId).first<{ chat_id: string; business_connection_id: string | null; is_blocked: number }>();
     if (!conversation) return json({ error: "Conversation not found" }, 404);
 
     if (body.action === "dismiss") {
       await env.DB.prepare(`UPDATE pending_replies SET status = 'ignored', answered_at = CURRENT_TIMESTAMP
         WHERE chat_id = ? AND status = 'pending'`).bind(chatId).run();
       return json({ ok: true, pending_count: 0 });
+    }
+
+    if (conversation.is_blocked) {
+      return json({ error: "Unblock this fan before sending messages or enabling bot replies" }, 409);
     }
 
     if (body.action === "resume") {
@@ -2729,9 +2762,11 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     display_name = COALESCE(excluded.display_name, telegram_contacts.display_name),
     updated_at = CURRENT_TIMESTAMP`).bind(chatId, telegramUsername, telegramDisplayName).run();
 
-  const session = await env.DB.prepare("SELECT age_status FROM fan_sessions WHERE chat_id = ?")
+  const session = await env.DB.prepare("SELECT age_status, is_blocked FROM fan_sessions WHERE chat_id = ?")
     .bind(chatId)
-    .first<{ age_status: string }>();
+    .first<{ age_status: string; is_blocked: number }>();
+
+  if (session?.is_blocked) return json({ ok: true, fan_blocked: true });
 
   if (session?.age_status === "verified" && userId) {
     await env.DB.prepare(`INSERT OR IGNORE INTO adult_verifications (telegram_user_id) VALUES (?)`)
@@ -3808,6 +3843,7 @@ async function handleAdminPending(request: Request, env: Env) {
   const conversations = await env.DB.prepare(`SELECT fan_sessions.chat_id,
     COALESCE(telegram_contacts.username, telegram_contacts.display_name, fan_profiles.name, 'Telegram fan') AS telegram_name,
     fan_sessions.age_status,
+    fan_sessions.is_blocked,
     COALESCE(conversation_controls.control_mode, 'bot') AS control_mode,
     COALESCE((SELECT content FROM chat_messages WHERE chat_messages.chat_id = fan_sessions.chat_id
       ORDER BY id DESC LIMIT 1), '') AS last_message,
