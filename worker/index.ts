@@ -6133,7 +6133,7 @@ async function handleAdminSextingMedia(request: Request, env: Env, url: URL) {
 async function handleAdminSettings(request: Request, env: Env) {
   if (!await isAdminRequest(request, env)) return json({ error: "Sign in required" }, 401);
   await prepareDatabase(env);
-  const body = await request.json() as { key?: string; value?: string };
+  const body = await request.json() as { key?: string; value?: string; settings?: Record<string, unknown> };
   const allowed: Record<string, string[]> = {
     flirty_level: ["soft", "flirty", "very"],
     learning: ["approval", "off"],
@@ -6149,26 +6149,36 @@ async function handleAdminSettings(request: Request, env: Env) {
   const minuteKeys = ["sexting_min_minutes"];
   const textKeys = ["preferred_topics", "avoid_topics", "tone_guidance", "creator_feedback"];
   const timeKeys = ["sleep_start", "sleep_end"];
-  const validRate = body.key && rateKeys.includes(body.key) && body.value &&
-    Number.isFinite(Number(body.value)) && Number(body.value) > 0 && Number(body.value) <= 100000;
-  const validStars = body.key && starKeys.includes(body.key) && body.value &&
-    Number.isInteger(Number(body.value)) && Number(body.value) > 0 && Number(body.value) <= 10000;
-  const validMinutes = body.key && minuteKeys.includes(body.key) && body.value &&
-    Number.isInteger(Number(body.value)) && Number(body.value) >= 1 && Number(body.value) <= 9;
-  const validText = body.key && textKeys.includes(body.key) && typeof body.value === "string" && body.value.length <= 4000;
-  const validTime = body.key && timeKeys.includes(body.key) && typeof body.value === "string" &&
-    /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(body.value);
-  if (!body.key || typeof body.value !== "string" || (!allowed[body.key]?.includes(body.value) && !validRate && !validStars && !validMinutes && !validText && !validTime)) {
-    return json({ error: "Invalid setting" }, 400);
+  const validSetting = (key: string, value: unknown) => {
+    if (typeof value !== "string") return false;
+    const validRate = rateKeys.includes(key) && value.length > 0 &&
+      Number.isFinite(Number(value)) && Number(value) > 0 && Number(value) <= 100000;
+    const validStars = starKeys.includes(key) && value.length > 0 &&
+      Number.isInteger(Number(value)) && Number(value) > 0 && Number(value) <= 10000;
+    const validMinutes = minuteKeys.includes(key) && value.length > 0 &&
+      Number.isInteger(Number(value)) && Number(value) >= 1 && Number(value) <= 9;
+    const validText = textKeys.includes(key) && value.length <= 4000;
+    const validTime = timeKeys.includes(key) && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value);
+    return Boolean(allowed[key]?.includes(value) || validRate || validStars || validMinutes || validText || validTime);
+  };
+
+  const settings = body.settings && typeof body.settings === "object"
+    ? Object.entries(body.settings)
+    : body.key ? [[body.key, body.value] as [string, unknown]] : [];
+  if (settings.length === 0 || settings.length > 40 || settings.some(([key, value]) => !validSetting(key, value))) {
+    return json({ error: "Invalid setting", invalid_keys: settings.filter(([key, value]) => !validSetting(key, value)).map(([key]) => key) }, 400);
   }
-  await env.DB.prepare(`INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
+
+  const statements = settings.map(([key, value]) => env.DB.prepare(`INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`)
-    .bind(body.key, body.value).run();
-  if (body.key === "video_rating_rate") {
-    await env.DB.prepare(`UPDATE content_products SET price_cents = ?, updated_at = CURRENT_TIMESTAMP
+    .bind(key, value));
+  const videoRating = settings.find(([key]) => key === "video_rating_rate");
+  if (videoRating) {
+    statements.push(env.DB.prepare(`UPDATE content_products SET price_cents = ?, updated_at = CURRENT_TIMESTAMP
       WHERE content_type = 'video_rating' AND active = 1`)
-      .bind(Math.round(Number(body.value) * 100)).run();
+      .bind(Math.round(Number(videoRating[1]) * 100)));
   }
+  await env.DB.batch(statements);
   return json({ ok: true, settings: await getSettings(env.DB) });
 }
 

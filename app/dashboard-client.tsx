@@ -1832,12 +1832,14 @@ export default function Home() {
       setLiveLoading(true);
       setSettingsSaveStatus("Saving changes...");
       const entries = Object.entries(settings).filter(([key]) => !["human_takeover", "custom_content_rate"].includes(key));
-      const responses = await Promise.all(entries.map(([key, value]) => fetch("/api/admin/settings", {
+      const response = await fetch("/api/admin/settings", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ key, value }),
-      })));
-      if (responses.some((response) => !response.ok)) throw new Error("Setting update failed");
+        body: JSON.stringify({ settings: Object.fromEntries(entries) }),
+      });
+      if (!response.ok) throw new Error("Setting update failed");
+      const data = await response.json() as { settings?: CreatorSettings };
+      if (data.settings) setSettings(data.settings);
       settingsDirtyRef.current = false;
       setSettingsDirty(false);
       setSettingsSaveStatus("Changes saved");
