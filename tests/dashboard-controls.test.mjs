@@ -70,7 +70,7 @@ test("shows lifetime fan spending and supports per-chat Broke mode", async () =>
   assert.match(worker, /LOW_PRIORITY_MIN_DELAY_MS = 6 \* 60 \* 60 \* 1000/);
   assert.match(worker, /LOW_PRIORITY_MAX_DELAY_MS = 8 \* 60 \* 60 \* 1000/);
   assert.match(worker, /\/api\/admin\/conversations\/priority/);
-  assert.match(worker, /low_priority_queued: true/);
+  assert.match(worker, /low_priority_queued: queuedSource === "low_priority"/);
 });
 
 test("queues every sleeping chat for a combined morning catch-up", async () => {
@@ -80,6 +80,15 @@ test("queues every sleeping chat for a combined morning catch-up", async () => {
   assert.match(worker, /Good morning! Sorry I was sleeping\./);
   assert.match(worker, /GROUP BY chat_id ORDER BY MIN\(id\) ASC LIMIT 50/);
   assert.match(worker, /source !== "sleep" && source !== "low_priority"/);
+});
+
+test("keeps sleep hours above Low priority mode", async () => {
+  const worker = await readFile(workerPath, "utf8");
+
+  assert.match(worker, /async function queueLowPriorityReply[\s\S]*isTiffaniSleeping\(settings\)[\s\S]*queueCreatorReply\(db, message, "sleep"\)/);
+  assert.match(worker, /source IN \('sleep', 'low_priority'\)/);
+  assert.match(worker, /morning catch-up counts as[\s\S]*next_reply_at = \?/);
+  assert.match(worker, /sleep_queued: queuedSource === "sleep"/);
 });
 
 test("shows Telegram identity separately from the fan supplied name", async () => {

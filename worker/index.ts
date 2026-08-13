@@ -2164,6 +2164,13 @@ function lowPriorityReplyTime() {
 
 async function queueLowPriorityReply(db: D1Database, message: TelegramMessage) {
   const chatId = String(message.chat.id);
+  // Sleep hours always win, including the narrow race where sleep begins
+  // after the webhook's first settings check but before this message queues.
+  const settings = await getSettings(db);
+  if (settings.response_test_mode !== "on" && isTiffaniSleeping(settings)) {
+    await queueCreatorReply(db, message, "sleep");
+    return "sleep" as const;
+  }
   await queueCreatorReply(db, message, "low_priority");
   const preference = await db.prepare(`SELECT next_reply_at FROM conversation_reply_preferences
     WHERE chat_id = ?`).bind(chatId).first<{ next_reply_at: string | null }>();
@@ -2174,6 +2181,7 @@ async function queueLowPriorityReply(db: D1Database, message: TelegramMessage) {
       next_reply_at = COALESCE(conversation_reply_preferences.next_reply_at, excluded.next_reply_at),
       updated_at = CURRENT_TIMESTAMP`).bind(chatId, lowPriorityReplyTime()).run();
   }
+  return "low_priority" as const;
 }
 
 async function sendQueuedReply(env: Env, chatId: string, businessConnectionId: string | null,
@@ -2217,11 +2225,17 @@ async function processWakeReplies(env: Env) {
   let processed = 0;
   for (const chat of chats.results) {
     const pending = await env.DB.prepare(`SELECT id, question FROM pending_replies
-      WHERE chat_id = ? AND status = 'pending' AND source = 'sleep'
+      WHERE chat_id = ? AND status = 'pending' AND source IN ('sleep', 'low_priority')
       ORDER BY id ASC LIMIT 100`).bind(chat.chat_id).all<{ id: number; question: string }>();
     if (!pending.results.length) continue;
     await sendQueuedReply(env, chat.chat_id, chat.business_connection_id,
       pending.results, "Good morning! Sorry I was sleeping. ");
+    // If this fan is also in Low priority mode, the morning catch-up counts as
+    // their reply. Start a fresh 6-to-8-hour window instead of immediately
+    // replaying an older Low priority message as a second response.
+    await env.DB.prepare(`UPDATE conversation_reply_preferences SET next_reply_at = ?,
+      updated_at = CURRENT_TIMESTAMP WHERE chat_id = ? AND low_priority = 1`)
+      .bind(lowPriorityReplyTime(), chat.chat_id).run();
     processed += 1;
   }
 
@@ -3589,8 +3603,12 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       .bind(chatId).first<{ low_priority: number }>();
     if (Number(replyPreference?.low_priority || 0) === 1) {
       await saveMessage(env.DB, chatId, "user", message.text);
-      await queueLowPriorityReply(env.DB, message);
-      return json({ ok: true, low_priority_queued: true });
+      const queuedSource = await queueLowPriorityReply(env.DB, message);
+      return json({
+        ok: true,
+        low_priority_queued: queuedSource === "low_priority",
+        sleep_queued: queuedSource === "sleep",
+      });
     }
   }
 
