@@ -942,6 +942,37 @@ export default function Home() {
     }
   }
 
+  async function deleteLiveConversation(chatId: string) {
+    const conversation = conversations.find((item) => item.chat_id === chatId);
+    const fanName = conversation?.telegram_name || "this fan";
+    const confirmed = window.confirm(
+      `Delete the Inbox chat with ${fanName}?\n\nThis removes the saved transcript, voice memos, and current chat flow. It does not erase messages already visible in Telegram. Confirmed orders and earnings stay in history.\n\nThis cannot be undone.`,
+    );
+    if (!confirmed) return;
+    try {
+      setLiveLoading(true);
+      setConversationStatus("Deleting chat...");
+      const response = await fetch(`/api/admin/conversations/${encodeURIComponent(chatId)}`, {
+        method: "DELETE",
+      });
+      const data = await response.json() as { error?: string; warning?: string };
+      if (!response.ok) throw new Error(data.error || "The chat could not be deleted");
+      setConversations((items) => items.filter((item) => item.chat_id !== chatId));
+      setNewChatters((items) => items.filter((item) => item.chat_id !== chatId));
+      setLivePending((items) => items.filter((item) => item.chat_id !== chatId));
+      setSelectedConversationId(null);
+      setConversationMessages([]);
+      setConversationReply("");
+      setEditingFanName(false);
+      setConversationStatus(data.warning || "Chat deleted from the Inbox.");
+      await loadLivePending();
+    } catch (error) {
+      setConversationStatus(error instanceof Error ? error.message : "The chat could not be deleted.");
+    } finally {
+      setLiveLoading(false);
+    }
+  }
+
   async function confirmNewChatterName(chatId: string) {
     const name = (newChatterNames[chatId] || "").trim();
     if (!name) {
@@ -2334,6 +2365,7 @@ export default function Home() {
                       </label>
                       <button className="exitConversationFlow" disabled={liveLoading} onClick={() => void exitLiveConversationFlow(selectedConversation.chat_id)} type="button">Exit flow + resume bot</button>
                       <button className="resetConversation" disabled={liveLoading} onClick={() => void resetLiveConversation(selectedConversation.chat_id)} type="button">Reset chat</button>
+                      <button className="deleteConversation" disabled={liveLoading} onClick={() => void deleteLiveConversation(selectedConversation.chat_id)} type="button">Delete chat</button>
                       <button className={`blockConversation ${selectedConversation.is_blocked ? "unblock" : ""}`} disabled={liveLoading} onClick={() => void setConversationBlocked(selectedConversation.chat_id, !Boolean(selectedConversation.is_blocked))} type="button">{selectedConversation.is_blocked ? "Unblock fan" : "Block fan"}</button>
                     </div>
                   </header>
@@ -2432,7 +2464,7 @@ export default function Home() {
                     </div>
                     <small>{quickReplyWorkflow ? "This workflow reply keeps the bot active so it can collect the remaining order details." : "Send once pauses auto chat. Use Reply and turn on auto chat when you want the bot to continue after your message."}</small>
                   </form>
-                </> : <div className="conversationPlaceholder">Choose a chat to view its recent messages and controls.</div>}
+                </> : <div className="conversationPlaceholder">{conversationStatus || "Choose a chat to view its recent messages and controls."}</div>}
               </div>
             </div>
           </section>

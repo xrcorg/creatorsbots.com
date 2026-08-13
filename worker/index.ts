@@ -2255,6 +2255,42 @@ async function resetConversationState(db: D1Database, chatId: string) {
   ]);
 }
 
+async function deleteConversationFromInbox(env: Env, chatId: string) {
+  const voiceNotes = await env.DB.prepare("SELECT r2_key FROM voice_notes WHERE chat_id = ?")
+    .bind(chatId).all<{ r2_key: string }>();
+
+  for (const voice of voiceNotes.results) {
+    await env.MEDIA.delete(voice.r2_key);
+  }
+
+  await env.DB.batch([
+    env.DB.prepare(`UPDATE sexting_sessions SET status = 'completed',
+      completed_at = COALESCE(completed_at, CURRENT_TIMESTAMP)
+      WHERE chat_id = ? AND status = 'active'`).bind(chatId),
+    env.DB.prepare("DELETE FROM inbound_message_buffer WHERE chat_id = ?").bind(chatId),
+    env.DB.prepare("DELETE FROM product_interest WHERE chat_id = ?").bind(chatId),
+    env.DB.prepare("DELETE FROM booking_drafts WHERE chat_id = ?").bind(chatId),
+    env.DB.prepare("DELETE FROM custom_drafts WHERE chat_id = ?").bind(chatId),
+    env.DB.prepare("DELETE FROM sexting_drafts WHERE chat_id = ?").bind(chatId),
+    env.DB.prepare(`UPDATE physical_orders SET status = 'cancelled'
+      WHERE chat_id = ? AND status IN ('awaiting_name', 'awaiting_address')`).bind(chatId),
+    env.DB.prepare(`UPDATE rating_orders SET status = 'cancelled'
+      WHERE chat_id = ? AND status = 'awaiting_photo'`).bind(chatId),
+    env.DB.prepare(`UPDATE purchase_requests SET status = 'cancelled', resolved_at = CURRENT_TIMESTAMP
+      WHERE chat_id = ? AND status = 'pending'`).bind(chatId),
+    env.DB.prepare(`UPDATE booking_requests SET status = 'cancelled', resolved_at = CURRENT_TIMESTAMP
+      WHERE chat_id = ? AND status = 'pending'`).bind(chatId),
+    env.DB.prepare("DELETE FROM pending_replies WHERE chat_id = ?").bind(chatId),
+    env.DB.prepare("DELETE FROM chat_messages WHERE chat_id = ?").bind(chatId),
+    env.DB.prepare("DELETE FROM telegram_message_log WHERE chat_id = ?").bind(chatId),
+    env.DB.prepare("DELETE FROM voice_notes WHERE chat_id = ?").bind(chatId),
+    env.DB.prepare("DELETE FROM conversation_controls WHERE chat_id = ?").bind(chatId),
+    env.DB.prepare("DELETE FROM fan_profiles WHERE chat_id = ?").bind(chatId),
+    env.DB.prepare("DELETE FROM telegram_contacts WHERE chat_id = ?").bind(chatId),
+    env.DB.prepare("DELETE FROM fan_sessions WHERE chat_id = ?").bind(chatId),
+  ]);
+}
+
 async function clearAllTestConversations(db: D1Database) {
   const existing = await db.prepare("SELECT COUNT(*) AS count FROM fan_sessions")
     .first<{ count: number }>();
@@ -2359,6 +2395,18 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
   }
 
   const match = url.pathname.match(/^\/api\/admin\/conversations\/([^/]+)$/);
+  if (request.method === "DELETE" && match) {
+    const chatId = decodeURIComponent(match[1]);
+    const exists = await env.DB.prepare("SELECT chat_id FROM fan_sessions WHERE chat_id = ?")
+      .bind(chatId).first();
+    if (!exists) return json({ error: "Conversation not found" }, 404);
+    await deleteConversationFromInbox(env, chatId);
+    return json({
+      ok: true,
+      warning: "Deleted from the Inbox. Messages already visible in Telegram were not removed. Confirmed orders and earnings remain in history.",
+    });
+  }
+
   if (request.method === "GET" && match) {
     const chatId = decodeURIComponent(match[1]);
     const conversation = await env.DB.prepare(`SELECT fan_sessions.chat_id,

@@ -321,6 +321,8 @@ button { cursor: pointer; }
 .ageStatusBadge.blocked { background: #fff0f0; color: #971f2a; }
 .exitConversationFlow { border: 1px solid #d184a0; border-radius: 9px; padding: 7px 9px; background: #fff; color: #862746; font-size: 8px; font-weight: 850; }
 .resetConversation { border: 1px solid #e1a6b7; border-radius: 9px; padding: 7px 9px; background: #fff7f8; color: #a02c4d; font-size: 8px; font-weight: 850; }
+.deleteConversation { border: 1px solid #c84f5c; border-radius: 9px; padding: 7px 9px; background: #fff0f1; color: #8e1722; font-size: 8px; font-weight: 850; }
+.deleteConversation:hover:not(:disabled) { background: #8e1722; color: #fff; }
 .blockConversation { border: 1px solid #d6787e; border-radius: 9px; padding: 7px 9px; background: #fff1f2; color: #971f2a; font-size: 8px; font-weight: 850; }
 .blockConversation.unblock { border-color: #72bf91; background: #effbf4; color: #26744a; }
 .botReplySwitch { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 8px; font-weight: 850; cursor: pointer; }
