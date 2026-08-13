@@ -1141,6 +1141,14 @@ export default function Home() {
       paymentMethods.venmo && `Venmo: ${paymentMethods.venmo}`,
       paymentMethods.zelle && `Zelle: ${paymentMethods.zelle}`,
     ].filter(Boolean).join("\n");
+    const productPayment = product
+      ? paymentList
+        ? `Please send ${productPrice} using:\n${paymentList}\n\nPut your Telegram username in the payment notes. After you send it, can you send me a screenshot of the payment?`
+        : `Please send ${productPrice}. I still need to finish setting up my payment methods, so I'll send you the payment information as soon as it is ready.`
+      : "Tell me which video or photo set you want and I'll send you the payment details.";
+    const generalPayment = paymentList
+      ? `I accept Cash App, Venmo, and Zelle:\n${paymentList}\n\nTell me what you're buying, put your Telegram username in the payment notes, and send me a screenshot after you pay.`
+      : "I accept Cash App, Venmo, and Zelle. I still need to finish setting up the payment details, so I'll send them to you as soon as they are ready.";
     const videoChatPayment = paymentList
       ? `You can pay for the video chat with:\n${paymentList}\n\nPut your Telegram username in the notes and send me a screenshot after you pay.`
       : "I'll send you my payment information as soon as we confirm the video chat length and total.";
@@ -1154,7 +1162,7 @@ export default function Home() {
       catalog: catalog ? `Here's what I have available right now:\n\n${catalog}\n\nTell me which one you want and I'll send you the details.` : "I'm adding new content soon, babe. What kind of content do you want to see?",
       trailer: product?.trailer_url ? `Here's the trailer for ${product.title}, babe:\n${product.trailer_url}\n\nThe full video is ${productPrice}. Do you want to buy it?` : product ? `I have ${product.title}, babe. I don't have a trailer link ready here, but the full video is ${productPrice}. Do you want the details?` : "Which video did you want the trailer for, babe?",
       product_details: product ? `I have ${product.title}${product.actors ? ` starring ${product.actors}` : ""}.${product.genre ? ` Tags: ${product.genre}.` : ""} It's ${productPrice}. Do you want to buy it?` : "Which video did you want more details about, babe?",
-      product_payment: product ? `Please send ${productPrice} and put your Telegram username in the notes. After you send it, can you send me a screenshot of the payment?` : "Tell me which video you want and I'll send you the payment details.",
+      product_payment: productPayment,
       product_delivery: product?.delivery_url ? `Here you go, babe. Here's ${product.title}:\n${product.delivery_url}\n\nI hope you enjoy it! Lmk what you think` : product ? `I'm sending you ${product.title} here now. I hope you enjoy it! Lmk what you think` : "Which video or photo set did you buy, babe?",
       custom_start: "Yeah babe, I make customs. Tell me what you want and how long you want it to be.",
       custom_more: "Anything else you want me to add?",
@@ -1169,7 +1177,7 @@ export default function Home() {
       rating_offer: `Yes babe, I do private video ratings. It's ${ratingPrice}. You send me a photo and I'll respond with a short private video rating.`,
       rating_photo: "Send me the photo you want me to rate here. I'll review it after I verify your payment.",
       rating_payment: ratingPayment,
-      payment_options: "I accept Cash App, Venmo, and Zelle. Tell me what you're buying and I'll send you the payment information.",
+      payment_options: generalPayment,
       payment_screenshot: "Please put your Telegram username in the payment notes and send me a screenshot after you send it.",
       payment_received: "Ok, thanks babe. Let me check when I get the chance and I'll send you the link!",
       telegram_tos: "I don't arrange paid sex, babe. I may offer a professional meet and greet or professional shoot instead. Tell me which one you're interested in and I'll review it.",
