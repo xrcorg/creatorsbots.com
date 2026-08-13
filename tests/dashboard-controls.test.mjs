@@ -33,3 +33,10 @@ test("allows a recorded per-fan adult confirmation without a global age bypass",
   assert.match(worker, /INSERT INTO age_verification_audit/);
   assert.match(worker, /This fan stated they are under 18\. Their age status cannot be overridden\./);
 });
+
+test("pauses an unclear age gate instead of repeating it indefinitely", async () => {
+  const worker = await readFile(workerPath, "utf8");
+  assert.match(worker, /Number\(priorAgePrompt\?\.count \|\| 0\) >= 1/);
+  assert.match(worker, /queueCreatorReply\(env\.DB, message, "age_review"\)/);
+  assert.match(worker, /age_creator_review_needed: true/);
+});

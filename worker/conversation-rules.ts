@@ -248,6 +248,22 @@ export function isSextingDecline(text: string) {
   return /\b(?:i\s+)?(?:do not|don't|dont|no longer)\s+(?:(?:want|wanna)\s+(?:to\s+)?)?(?:sext|sexting)\b|\b(?:not interested in|no|not)\s+sexting\b|\b(?:stop|quit)\s+(?:asking\s+(?:me\s+)?about\s+)?sexting\b/i.test(text);
 }
 
+export function parseDeclaredAge(text: string) {
+  const value = text.trim();
+  const patterns = [
+    /\b(?:i\s+am|i['’]m|im|my\s+age\s+is|age\s+is)\s+(\d{1,3})\b/i,
+    /\b(\d{1,3})\s*(?:years?\s*old|yrs?\s*old|y\/?o)\b/i,
+    /^(\d{1,3})\+?[.! ]*$/,
+  ];
+  for (const pattern of patterns) {
+    const match = pattern.exec(value);
+    if (!match) continue;
+    const age = Number(match[1]);
+    return Number.isInteger(age) && age >= 0 && age <= 120 ? age : null;
+  }
+  return null;
+}
+
 const NON_NAME_WORDS = new Set([
   "hi", "hello", "hey", "greetings", "there", "babe", "baby",
   "yes", "yeah", "yep", "no", "nope", "ok", "okay", "alright",
@@ -274,10 +290,10 @@ export function parseNameIntroduction(text: string) {
   let cleaned = text.trim();
   cleaned = cleaned.replace(/^(?:(?:hi|hello|hey|greetings)(?:\s+there)?)[,!.\s]+/i, "");
   cleaned = cleaned.replace(/^(?:actually[,!]?\s*)?(?:my name is|i am|i'm|im|this is)\s+/i, "");
-  const intent = /\s+(?=(?:and\s+)?(?:i\s+(?:want|wanna|would like|need)|i'd\s+like|can\s+i|could\s+i|do\s+you|show\s+me|send\s+me|what\b|who\b|how\b|why\b|where\b|when\b|which\b|let's\b|lets\b))/i.exec(cleaned);
+  const intent = /\s+(?=(?:(?:and|adn)\s+)?(?:i\s+(?:want|wanna|would like|need)|i'd\s+like|i\s+am\s+\d{1,3}\b|i['’]m\s+\d{1,3}\b|im\s+\d{1,3}\b|can\s+i|could\s+i|do\s+you|show\s+me|send\s+me|what\b|who\b|how\b|why\b|where\b|when\b|which\b|let's\b|lets\b))/i.exec(cleaned);
   const boundary = intent?.index ?? cleaned.length;
   const rawName = cleaned.slice(0, boundary).replace(/[,!.?]+$/g, "").trim();
-  const remainder = cleaned.slice(boundary).trim().replace(/^and\s+/i, "");
+  const remainder = cleaned.slice(boundary).trim().replace(/^(?:and|adn)\s+/i, "");
   return { name: normalizeFanName(rawName), remainder };
 }
 

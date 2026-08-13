@@ -1,7 +1,7 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { bookingDetailsMissing, casualMessageIntent, customDetailsMissing, isAffirmativeReply, isAmbiguousSexMessage, isBookingDecline, isBotQuestion, isCancelReply, isCatalogBrowseRequest, isCatalogContentRequest, isCatalogFollowUpQuestion, isConversationQuestion, isConversationReset, isCustomDecline, isCustomDetailsFinished, isGenericCancelReply, isLikelyBookingDetailReply, isLikelyCityReply, isLikelyShippingAddress, isLikelyShippingName, isMessageBurst, isPersonalFactTrainingSuggestion, isPhysicalOrderDecline, isPresenceCheck, isRatingDecline, isSextingDecline, isSextingPackageFollowUp, isSoftSalesDeclineReply, isTrailerOfferAwaitingConfirmation, normalizeCasualText, parseNameChangeRequest, parseNameIntroduction, productTitleMatchesMessage } from "./conversation-rules";
+import { bookingDetailsMissing, casualMessageIntent, customDetailsMissing, isAffirmativeReply, isAmbiguousSexMessage, isBookingDecline, isBotQuestion, isCancelReply, isCatalogBrowseRequest, isCatalogContentRequest, isCatalogFollowUpQuestion, isConversationQuestion, isConversationReset, isCustomDecline, isCustomDetailsFinished, isGenericCancelReply, isLikelyBookingDetailReply, isLikelyCityReply, isLikelyShippingAddress, isLikelyShippingName, isMessageBurst, isPersonalFactTrainingSuggestion, isPhysicalOrderDecline, isPresenceCheck, isRatingDecline, isSextingDecline, isSextingPackageFollowUp, isSoftSalesDeclineReply, isTrailerOfferAwaitingConfirmation, normalizeCasualText, parseDeclaredAge, parseNameChangeRequest, parseNameIntroduction, productTitleMatchesMessage } from "./conversation-rules";
 import { isEnglishLanguage, parseDetectedLanguage, shouldDetectLanguage } from "./language-rules";
 
 interface Env {
@@ -1435,11 +1435,15 @@ async function sendStarsInvoice(env: Env, message: TelegramMessage, title: strin
 }
 
 function isAdultYes(text: string) {
-  return /^(yes|yes i am|yes, i am|yep|yeah|18|18\+|i am 18|i'm 18|im 18|over 18|adult)[.! ]*$/i.test(text.trim());
+  const declaredAge = parseDeclaredAge(text);
+  return (declaredAge !== null && declaredAge >= 18) ||
+    /^(yes|yes i am|yes, i am|yep|yeah|18|18\+|i am 18|i'm 18|im 18|over 18|adult)[.! ]*$/i.test(text.trim());
 }
 
 function isAdultNo(text: string) {
-  return /^(no|nope|under 18|minor|i am 17|i'm 17|im 17)[.! ]*$/i.test(text.trim()) || /\b(1[0-7]|[0-9])\s*(years? old|yo)\b/i.test(text);
+  const declaredAge = parseDeclaredAge(text);
+  return (declaredAge !== null && declaredAge < 18) ||
+    /^(no|nope|under 18|minor|i am 17|i'm 17|im 17)[.! ]*$/i.test(text.trim());
 }
 
 function isCapabilitiesQuestion(text: string) {
@@ -3120,6 +3124,8 @@ async function handleTelegramWebhook(request: Request, env: Env) {
 
   if (session?.age_status !== "verified") {
     if (isAdultYes(message.text)) {
+      const originalText = message.text;
+      const introducedName = parseNameIntroduction(originalText).name;
       await env.DB.prepare("UPDATE fan_sessions SET age_status = 'verified', updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?")
         .bind(chatId)
         .run();
@@ -3131,6 +3137,19 @@ async function handleTelegramWebhook(request: Request, env: Env) {
         ON CONFLICT(chat_id) DO UPDATE SET name_status = CASE
           WHEN fan_profiles.name IS NULL THEN 'awaiting_name' ELSE fan_profiles.name_status END,
           updated_at = CURRENT_TIMESTAMP`).bind(chatId).run();
+      if (introducedName) {
+        await saveMessage(env.DB, chatId, "user", originalText);
+        await env.DB.batch([
+          env.DB.prepare(`UPDATE fan_profiles SET proposed_name = ?, name_status = 'pending_name_approval',
+            updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?`).bind(introducedName, chatId),
+          env.DB.prepare(`INSERT INTO conversation_controls (chat_id, control_mode, taken_over_by, updated_at)
+            VALUES (?, 'human', 'name_approval', CURRENT_TIMESTAMP)
+            ON CONFLICT(chat_id) DO UPDATE SET control_mode = 'human', taken_over_by = 'name_approval',
+            updated_at = CURRENT_TIMESTAMP`).bind(chatId),
+        ]);
+        return json({ ok: true, age_verified: true, name_approval_needed: true,
+          proposed_name: introducedName });
+      }
       const knownProfile = await env.DB.prepare(`SELECT name FROM fan_profiles WHERE chat_id = ?`)
         .bind(chatId).first<{ name: string | null }>();
       if (knownProfile?.name) {
@@ -3146,7 +3165,17 @@ async function handleTelegramWebhook(request: Request, env: Env) {
         .run();
       await sendTelegramMessage(env, message, CLOSED);
     } else {
-      await sendTelegramMessage(env, message, agePrompt());
+      const priorAgePrompt = await env.DB.prepare(`SELECT COUNT(*) AS count FROM chat_messages
+        WHERE chat_id = ? AND role = 'assistant' AND content IN (?, ?, ?)`)
+        .bind(chatId, ...AGE_PROMPTS).first<{ count: number }>();
+      await saveMessage(env.DB, chatId, "user", message.text);
+      if (Number(priorAgePrompt?.count || 0) >= 1) {
+        await queueCreatorReply(env.DB, message, "age_review");
+        return json({ ok: true, age_creator_review_needed: true });
+      }
+      const prompt = agePrompt();
+      await saveMessage(env.DB, chatId, "assistant", prompt);
+      await sendTelegramMessage(env, message, prompt);
     }
     return json({ ok: true });
   }

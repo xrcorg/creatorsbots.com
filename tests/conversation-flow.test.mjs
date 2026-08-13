@@ -33,6 +33,7 @@ import {
   isSoftSalesDeclineReply,
   isTrailerOfferAwaitingConfirmation,
   normalizeCasualText,
+  parseDeclaredAge,
   parseNameChangeRequest,
   parseNameIntroduction,
   productTitleMatchesMessage,
@@ -308,6 +309,21 @@ test("name introductions preserve the rest of the fan message", () => {
     remainder: "I want a video chat",
   });
   assert.deepEqual(parseNameIntroduction("johnny"), { name: "Johnny", remainder: "" });
+  assert.deepEqual(parseNameIntroduction("my name is tony and i am 30"), {
+    name: "Tony",
+    remainder: "i am 30",
+  });
+  assert.deepEqual(parseNameIntroduction("my name is tony adn i am 30"), {
+    name: "Tony",
+    remainder: "i am 30",
+  });
+});
+
+test("adult ages are understood inside natural sentences", () => {
+  assert.equal(parseDeclaredAge("my name is Tony and I am 30"), 30);
+  assert.equal(parseDeclaredAge("I'm 21 years old"), 21);
+  assert.equal(parseDeclaredAge("19 y/o"), 19);
+  assert.equal(parseDeclaredAge("I like videos"), null);
 });
 
 test("name introductions reject greetings and messages that are not names", () => {
