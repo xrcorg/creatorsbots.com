@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
-const PORTAL_RELEASE = "2026.08.13.1";
+const PORTAL_RELEASE = "2026.08.13.2";
 
 type Message = {
   id: number;
@@ -1297,15 +1297,15 @@ export default function Home() {
         body: JSON.stringify({ chat_id: chatId, enabled }),
       });
       const data = await response.json() as { error?: string; low_priority?: number; next_reply_at?: string | null };
-      if (!response.ok) throw new Error(data.error || "Broke mode could not be changed");
+      if (!response.ok) throw new Error(data.error || "Low Priority could not be changed");
       setConversations((items) => items.map((item) => item.chat_id === chatId
         ? { ...item, low_priority: Number(data.low_priority || 0), next_reply_at: data.next_reply_at || null }
         : item));
       setConversationStatus(enabled
-        ? "Broke mode is on. The bot will combine this fan's messages and reply once every 6 to 8 hours."
-        : "Broke mode is off. Any waiting message will be released shortly and normal timing resumes.");
+        ? "Low Priority is on. The bot will combine this fan's messages and reply once every 6 to 8 hours."
+        : "Low Priority is off. Any waiting message will be released shortly and normal timing resumes.");
     } catch (error) {
-      setConversationStatus(error instanceof Error ? error.message : "Broke mode could not be changed.");
+      setConversationStatus(error instanceof Error ? error.message : "Low Priority could not be changed.");
     } finally {
       setLiveLoading(false);
     }
@@ -2457,7 +2457,7 @@ export default function Home() {
               <div className="conversationInboxActions">
                 <span>{conversations.reduce((total, conversation) => total + Number(conversation.unread_count || 0), 0)} unread</span>
                 <span>{conversations.reduce((total, conversation) => total + Number(conversation.pending_count || 0), 0)} need attention</span>
-                <button className="exportLowPriorityList" disabled={liveLoading || !conversations.some((conversation) => Boolean(conversation.low_priority))} onClick={() => void exportLowPriorityList()} title="Downloads Telegram details for fans currently in Broke mode. Phone numbers appear only when the fan explicitly shared one with Telegram." type="button">Export Low Priority list ({conversations.filter((conversation) => Boolean(conversation.low_priority)).length})</button>
+                <button className="exportLowPriorityList" disabled={liveLoading || !conversations.some((conversation) => Boolean(conversation.low_priority))} onClick={() => void exportLowPriorityList()} title="Downloads Telegram details for fans currently marked Low Priority. Phone numbers appear only when the fan explicitly shared one with Telegram." type="button">Export Low Priority list ({conversations.filter((conversation) => Boolean(conversation.low_priority)).length})</button>
                 {portalUser?.role === "owner" && <button className="clearAllConversations" disabled={liveLoading || (conversations.length === 0 && newChatters.length === 0)} onClick={() => void clearAllTestChats()} type="button">Clear all test chats</button>}
               </div>
             </div>
@@ -2478,7 +2478,7 @@ export default function Home() {
                       <small className="conversationSpend">Spent {money(Number(conversation.cash_spent_cents || 0))} · ⭐ {Number(conversation.stars_spent || 0).toLocaleString()}</small>
                       <time>{new Date(`${conversation.last_message_at.replace(" ", "T")}Z`).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time>
                     </span>
-                    <span className={`workflowBadge ${conversation.is_blocked ? "blocked" : conversation.low_priority ? "low-priority" : conversation.active_workflow.replace(" ", "-")}`}>{conversation.is_blocked ? "blocked" : conversation.low_priority ? "Broke mode" : conversation.active_workflow}</span>
+                    <span className={`workflowBadge ${conversation.is_blocked ? "blocked" : conversation.low_priority ? "low-priority" : conversation.active_workflow.replace(" ", "-")}`}>{conversation.is_blocked ? "blocked" : conversation.low_priority ? "Low Priority" : conversation.active_workflow}</span>
                     {Number(conversation.unread_count) > 0 && <b aria-label={`${conversation.unread_count} unread messages`} className="unreadBadge">{conversation.unread_count}</b>}
                   </button>
                 )) : <p>No chats match that search.</p>}
@@ -2517,8 +2517,8 @@ export default function Home() {
                         <i aria-hidden="true" />
                       </label>
                       <label className="botReplySwitch lowPrioritySwitch" title="Combine this fan's messages and reply only once every 6 to 8 hours">
-                        <span>Broke mode</span>
-                        <input aria-label="Broke mode" checked={Boolean(selectedConversation.low_priority)} disabled={liveLoading || Boolean(selectedConversation.is_blocked)} onChange={(event) => void setConversationLowPriority(selectedConversation.chat_id, event.target.checked)} type="checkbox" />
+                        <span>Low Priority</span>
+                        <input aria-label="Low Priority" checked={Boolean(selectedConversation.low_priority)} disabled={liveLoading || Boolean(selectedConversation.is_blocked)} onChange={(event) => void setConversationLowPriority(selectedConversation.chat_id, event.target.checked)} type="checkbox" />
                         <i aria-hidden="true" />
                       </label>
                       <button className="exitConversationFlow" disabled={liveLoading} onClick={() => void exitLiveConversationFlow(selectedConversation.chat_id)} type="button">Exit flow + resume bot</button>

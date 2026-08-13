@@ -55,7 +55,7 @@ test("allows Inbox deletion for fan and creator messages", async () => {
   assert.match(worker, /DELETE FROM chat_messages WHERE id = \? AND chat_id = \?/);
 });
 
-test("shows lifetime fan spending and supports per-chat Broke mode", async () => {
+test("shows lifetime fan spending and supports per-chat Low Priority", async () => {
   const [dashboard, worker] = await Promise.all([
     readFile(dashboardPath, "utf8"),
     readFile(workerPath, "utf8"),
@@ -64,7 +64,7 @@ test("shows lifetime fan spending and supports per-chat Broke mode", async () =>
   assert.match(dashboard, /Lifetime spend:/);
   assert.match(dashboard, /cash_spent_cents/);
   assert.match(dashboard, /stars_spent/);
-  assert.match(dashboard, /aria-label="Broke mode"/);
+  assert.match(dashboard, /aria-label="Low Priority"/);
   assert.match(dashboard, /reply once every 6 to 8 hours/);
   assert.match(worker, /CREATE TABLE IF NOT EXISTS conversation_reply_preferences/);
   assert.match(worker, /LOW_PRIORITY_MIN_DELAY_MS = 6 \* 60 \* 60 \* 1000/);

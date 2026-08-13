@@ -3781,7 +3781,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     message.text = nameChange.remainder;
   }
 
-  // Broke mode is deliberately applied only after age and name onboarding are
+  // Low Priority is deliberately applied only after age and name onboarding are
   // complete. Overnight sleep handling still takes priority, so the fan gets
   // the normal morning catch-up before this slower cadence resumes.
   if (!isDashboardTestMessage(message)) {
@@ -6618,7 +6618,7 @@ const worker = {
     if (url.pathname === "/api/health") {
       return json({
         ok: true,
-        release: "2026.08.13.1",
+        release: "2026.08.13.2",
         telegram: Boolean(env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_WEBHOOK_SECRET),
         openai: Boolean(env.OPENAI_API_KEY),
         database: Boolean(env.DB),
