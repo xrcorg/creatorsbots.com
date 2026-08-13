@@ -935,16 +935,18 @@ export default function Home() {
     }
   }
 
-  async function submitConversationReply(saveForFuture: boolean) {
+  async function submitConversationReply(saveForFuture: boolean, resumeBotAfterReply = false) {
     if (!selectedConversation || !conversationReply.trim()) return;
     try {
       setLiveLoading(true);
-      setConversationStatus(saveForFuture ? "Sending and saving reply..." : "Sending reply...");
+      setConversationStatus(resumeBotAfterReply
+        ? "Sending reply and turning auto chat on..."
+        : saveForFuture ? "Sending and saving reply..." : "Sending reply...");
       const response = await fetch("/api/admin/conversations/reply", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ chat_id: selectedConversation.chat_id, text: conversationReply.trim(), action: "send",
-          learn: saveForFuture, workflow_action: quickReplyWorkflow }),
+          learn: saveForFuture, resume_bot: resumeBotAfterReply, workflow_action: quickReplyWorkflow }),
       });
       const data = await response.json() as { error?: string };
       if (!response.ok) throw new Error(data.error || "Reply failed");
@@ -952,16 +954,19 @@ export default function Home() {
       const sentReply = conversationReply.trim();
       setConversationReply("");
       const startedWorkflow = quickReplyWorkflow;
+      const botRemainsActive = resumeBotAfterReply || Boolean(startedWorkflow);
       setQuickReplyWorkflow(null);
       setLivePending((items) => items.filter((item) => item.chat_id !== resolvedChatId));
       setConversations((items) => items.map((item) => item.chat_id === resolvedChatId
-        ? { ...item, pending_count: 0, control_mode: startedWorkflow ? "bot" : "human", last_message: sentReply,
+        ? { ...item, pending_count: 0, control_mode: botRemainsActive ? "bot" : "human", last_message: sentReply,
           last_role: "assistant", last_message_at: new Date().toISOString().replace("T", " ").replace("Z", "") }
         : item));
       await loadLivePending();
       await openConversation(resolvedChatId);
       setConversationStatus(startedWorkflow
         ? `Reply sent. The bot will collect the ${startedWorkflow === "start_custom" ? "custom details" : startedWorkflow === "start_video_chat" ? "video chat schedule" : "booking details"}.`
+        : resumeBotAfterReply
+          ? "Reply sent. Auto chat is back on for this conversation."
         : saveForFuture
           ? "Reply sent and saved for future answers. The bot is paused for this chat."
           : "Reply sent. The bot is paused for this chat.");
@@ -2372,10 +2377,11 @@ export default function Home() {
                     <textarea maxLength={4000} value={conversationReply} onChange={(event) => setConversationReply(event.target.value)} placeholder={`Reply to ${selectedConversation.telegram_name}`} />
                     <div className="conversationReplyActions">
                       <button className="primaryAction" disabled={liveLoading || !conversationReply.trim()}>Send once</button>
+                      <button className="resumeBotAction" disabled={liveLoading || !conversationReply.trim()} onClick={() => void submitConversationReply(false, true)} type="button">Reply and turn on auto chat</button>
                       <button className="secondaryAction" disabled={liveLoading || !conversationReply.trim()} onClick={() => void submitConversationReply(true)} type="button">Send and save for future</button>
                       {Number(selectedConversation.pending_count) > 0 && <button className="ignoreAction clearRequestAction" disabled={liveLoading} onClick={() => void dismissConversationRequest()} type="button">Clear request without replying</button>}
                     </div>
-                    <small>{quickReplyWorkflow ? "This workflow reply keeps the bot active so it can collect the remaining order details." : "Sending a reply pauses automatic responses for this chat until you turn Bot replies back on."}</small>
+                    <small>{quickReplyWorkflow ? "This workflow reply keeps the bot active so it can collect the remaining order details." : "Send once pauses auto chat. Use Reply and turn on auto chat when you want the bot to continue after your message."}</small>
                   </form>
                 </> : <div className="conversationPlaceholder">Choose a chat to view its recent messages and controls.</div>}
               </div>

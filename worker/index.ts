@@ -2612,7 +2612,7 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
   if (request.method === "POST" && url.pathname === "/api/admin/conversations/reply") {
     const body = await request.json<{ chat_id?: string; text?: string;
       action?: "send" | "pause" | "resume" | "dismiss" | "send_trailer" | "send_product";
-      product_id?: number; learn?: boolean;
+      product_id?: number; learn?: boolean; resume_bot?: boolean;
       workflow_action?: "start_custom" | "start_video_chat" | "start_booking" }>();
     const chatId = String(body.chat_id || "").trim();
     if (!chatId) return json({ error: "A conversation is required" }, 400);
@@ -2750,7 +2750,8 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
         .bind(chatId).first<{ content: string }>()
       : null;
     const workflowAction = body.workflow_action;
-    const continuingWithBot = workflowAction === "start_custom" || workflowAction === "start_video_chat" || workflowAction === "start_booking";
+    const continuingWithBot = Boolean(body.resume_bot) || workflowAction === "start_custom" ||
+      workflowAction === "start_video_chat" || workflowAction === "start_booking";
     const updates = [
       env.DB.prepare(`INSERT INTO conversation_controls (chat_id, control_mode, taken_over_by, updated_at)
         VALUES (?, ?, ?, CURRENT_TIMESTAMP)
