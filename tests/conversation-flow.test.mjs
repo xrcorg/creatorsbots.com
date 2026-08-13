@@ -26,6 +26,7 @@ import {
   isLikelyShippingName,
   isManualSalesHandoffRequest,
   isMessageBurst,
+  isPaidInPersonSexSolicitation,
   isPersonalFactTrainingSuggestion,
   isPhysicalOrderDecline,
   isPresenceCheck,
@@ -121,6 +122,26 @@ test("lazy texting and common typos resolve to the intended flow", () => {
   assert.equal(normalizeCasualText("wyd rn?"), "what are you doing right now?");
   assert.equal(normalizeCasualText("nvm"), "never mind");
   assert.equal(isCancelReply("nvm"), true);
+});
+
+test("adult sex talk stays conversational unless it is an explicit paid in person solicitation", () => {
+  for (const message of [
+    "Can we have sex there?",
+    "Would you have sex with me?",
+    "I want to have sex",
+    "Can we fuck in this fantasy?",
+    "Meet me and let's have sex",
+  ]) {
+    assert.equal(isPaidInPersonSexSolicitation(message), false, message);
+  }
+  for (const message of [
+    "How much to have sex with you?",
+    "Can I pay you for sex?",
+    "What do you charge for sex?",
+    "I will pay cash for sex",
+  ]) {
+    assert.equal(isPaidInPersonSexSolicitation(message), true, message);
+  }
 });
 
 test("catalog follow ups stay in the active shopping flow", () => {

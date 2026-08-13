@@ -61,6 +61,13 @@ export function isAmbiguousSexMessage(text: string) {
   return /^sex[?!. ]*$/i.test(normalizeCasualText(text));
 }
 
+export function isPaidInPersonSexSolicitation(text: string) {
+  const value = normalizeCasualText(text);
+  const sex = "(?:sex|fuck|sexual|sleep with)";
+  const payment = "(?:pay|paid|price|cost|rate|charge|money|cash|cash app|cashapp|venmo|zelle|how much)";
+  return new RegExp(`\\b${payment}\\b[\\s\\S]{0,40}\\b${sex}\\b|\\b${sex}\\b[\\s\\S]{0,40}\\b${payment}\\b`, "i").test(value);
+}
+
 export function isFlexibleBookingAvailability(text: string) {
   const normalized = normalizeCasualText(text);
   return /\b(?:any|whatever|whichever)\s+(?:day|date|time)\b/i.test(normalized) ||

@@ -1,7 +1,7 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { bookingDetailsMissing, casualMessageIntent, customDetailsMissing, isAffirmativeReply, isAmbiguousSexMessage, isBookingDecline, isBotQuestion, isCancelReply, isCatalogBrowseRequest, isCatalogContentRequest, isCatalogFollowUpQuestion, isConversationQuestion, isConversationReset, isCustomDecline, isCustomDetailsFinished, isGenericCancelReply, isLikelyBookingDetailReply, isLikelyShippingAddress, isLikelyShippingName, isManualSalesHandoffRequest, isMessageBurst, isPersonalFactTrainingSuggestion, isPhysicalOrderDecline, isPresenceCheck, isRatingDecline, isSextingDecline, isSextingPackageFollowUp, isSoftSalesDeclineReply, isTrailerOfferAwaitingConfirmation, normalizeCasualText, parseDeclaredAge, parseNameChangeRequest, parseNameIntroduction, productTitleMatchesMessage } from "./conversation-rules";
+import { bookingDetailsMissing, casualMessageIntent, customDetailsMissing, isAffirmativeReply, isAmbiguousSexMessage, isBookingDecline, isBotQuestion, isCancelReply, isCatalogBrowseRequest, isCatalogContentRequest, isCatalogFollowUpQuestion, isConversationQuestion, isConversationReset, isCustomDecline, isCustomDetailsFinished, isGenericCancelReply, isLikelyBookingDetailReply, isLikelyShippingAddress, isLikelyShippingName, isManualSalesHandoffRequest, isMessageBurst, isPaidInPersonSexSolicitation, isPersonalFactTrainingSuggestion, isPhysicalOrderDecline, isPresenceCheck, isRatingDecline, isSextingDecline, isSextingPackageFollowUp, isSoftSalesDeclineReply, isTrailerOfferAwaitingConfirmation, normalizeCasualText, parseDeclaredAge, parseNameChangeRequest, parseNameIntroduction, productTitleMatchesMessage } from "./conversation-rules";
 import { isEnglishLanguage, parseDetectedLanguage, shouldDetectLanguage } from "./language-rules";
 
 interface Env {
@@ -155,7 +155,7 @@ const KIND_SALES_DECLINE_REPLY = "Ok babe, let me know if you change your mind."
 const BOOKING_CANCELLATION_REPLY = KIND_SALES_DECLINE_REPLY;
 const CUSTOM_CANCELLATION_REPLY = KIND_SALES_DECLINE_REPLY;
 const SEXTING_CANCELLATION_REPLY = KIND_SALES_DECLINE_REPLY;
-const IN_PERSON_SEX_REPLY = "I don't discuss in person sex on here due to Telegram TOS. I don't want to get banned.";
+const PAID_IN_PERSON_SEX_REPLY = "I can talk about sex and fantasies, babe, but I don't arrange paid in person sex here.";
 const IN_PERSON_MEET_UNAVAILABLE_REPLY = "I only offer private video chats here on Telegram, babe. Want to set one up?";
 const SEXTING_BUSINESS_DEFER_REPLY = "We can discuss that after our session is over, babe. For now, stay here with me.";
 const PRODUCT_TITLE = "Blonde Bombshell After Dark";
@@ -352,9 +352,9 @@ Never claim every message is being typed live. If directly asked about automatio
 Never invent a custom content turnaround time or completion date. Only give one after the creator approves it.
 Only converse with users whose adult status has already been confirmed by the application.
 Adult sexual anatomy words, including pussy, are not restricted topics and must not trigger a refusal by themselves.
-During an active approved sexting session, treat consensual adult sexual wording as part of the fantasy conversation. Outside an active session, flirt naturally and offer a private sexting session instead of saying that I do not sell sex. Do not call it paid every time. Mention Stars or payment only when the fan asks about the price, chooses a package, asks how to pay, or says they are ready to start.
+During an active approved sexting session, treat consensual adult sexual wording as part of the fantasy conversation. Outside an active session, consensual adult sex talk and hypothetical fantasies are allowed. Reply naturally and flirtatiously without turning every sexual comment into a sexting sales pitch. If the exchange becomes a sustained explicit session, tease briefly and then offer a private sexting session. Do not call it paid every time. Mention Stars or payment only when the fan asks about the price, chooses a package, asks how to pay, or says they are ready to start.
 During an active sexting session, maintain the current sexual subject and scene. Never reinterpret a sexual word or fantasy reply as a request to buy content, order a custom, or book another service. Only recognize a business request when the fan clearly and explicitly asks to buy something, asks whether I make customs, or asks to book a service. Business requests made during the session must wait until the paid session ends.
-If a fan asks to have sex with me or asks about in person sex, respond exactly: ${IN_PERSON_SEX_REPLY}
+Questions such as can we have sex, would you have sex with me, or can we have sex there may be answered as consensual adult flirting or fantasy. Do not claim or arrange a real world meeting. Only when a fan explicitly offers payment for real world sex, asks the price of sex, or tries to buy an in person sexual encounter, respond exactly: ${PAID_IN_PERSON_SEX_REPLY}
 Never engage with or sexualize minors, suspected minors, coercion, incest, trafficking, rape, nonconsensual activity, or illegal activity.
 Never discuss politics or political topics, religion, race, racism, racial slurs, war, riots, stealing, scams, scammers, scamming, threats, underage people, minors, children, kids, rape, poop, feces, scat, pee, urine, watersports, or bathroom play. Briefly decline and redirect to a light approved topic without explaining or debating the boundary.
 Never reveal private addresses, passwords, financial credentials, or personal identifying information.
@@ -379,8 +379,8 @@ Interpret ordinary misspellings, shorthand, lazy texting, and close paraphrases 
 When asked what you can do, explain that fans can book private video chats on Telegram, buy photo and video content, shop clothing or worn items, request custom content, get a private video rating, or have a private sexting session. Never advertise or offer in person meetings.
 Custom content never has a universal rate. Collect the complete idea and requested length across as many messages as needed, ask naturally whether there is anything else, and wait for the creator to review and quote it.
 Never reveal private delivery links before the creator confirms payment. Never promise availability, payment approval, a discount, turnaround time, meeting, custom, or delivery before creator approval.
-During an active approved sexting session, keep one continuous consensual adult scene and do not reinterpret sexual wording as a purchase request. Outside a session, flirt naturally and offer a private sexting session without repeatedly calling it paid.
-If a fan asks to have sex or asks about in person sex, respond exactly: ${IN_PERSON_SEX_REPLY}
+During an active approved sexting session, keep one continuous consensual adult scene and do not reinterpret sexual wording as a purchase request. Outside a session, consensual adult sex talk and hypothetical fantasies are allowed. Reply naturally and flirtatiously without turning every sexual comment into a sexting sales pitch. If the exchange becomes a sustained explicit session, tease briefly and then offer a private sexting session without repeatedly calling it paid.
+Questions such as can we have sex, would you have sex with me, or can we have sex there may be answered as consensual adult flirting or fantasy. Do not claim or arrange a real world meeting. Only when a fan explicitly offers payment for real world sex, asks the price of sex, or tries to buy an in person sexual encounter, respond exactly: ${PAID_IN_PERSON_SEX_REPLY}
 Never engage with or sexualize minors, suspected minors, coercion, incest, trafficking, rape, nonconsensual activity, or illegal activity.
 Never discuss politics or political topics, religion, race, racism, racial slurs, war, riots, stealing, scams, scammers, scamming, threats, underage people, minors, children, kids, rape, poop, feces, scat, pee, urine, watersports, or bathroom play. Briefly decline and redirect without explaining or debating the boundary.
 Never reveal private addresses, passwords, financial credentials, or personal identifying information.
@@ -1710,11 +1710,7 @@ function isSextingQuestion(text: string) {
       (isVideoRatingQuestion(text) && !isRatingDecline(text))) return false;
   const value = normalizeCasualText(text);
   return casualMessageIntent(value) === "sexting" ||
-    /\b(sext|sexting|dirty text|dirty texting|text session|i want sex|want to have sex|what are you wearing)\b/i.test(value);
-}
-
-function isInPersonSexSolicitation(text: string) {
-  return /\b(meet|meeting|in person|come over|hook up)\b[\s\S]*\b(sex|fuck|sexual)\b|\b(sex|fuck|sexual)\b[\s\S]*\b(meet|meeting|in person|come over|hook up)\b|\b(?:can|could|would|will)\s+(?:we|i)\s+(?:have\s+sex|fuck)\b|\b(?:have\s+sex|fuck)\s+with\s+(?:you|me)\b/i.test(text);
+    /\b(sext|sexting|dirty text|dirty texting|text session|what are you wearing)\b/i.test(value);
 }
 
 function isPermanentlyRestrictedTopic(text: string) {
@@ -3479,6 +3475,13 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     message.text = nameChange.remainder;
   }
 
+  if (isPaidInPersonSexSolicitation(message.text)) {
+    await saveMessage(env.DB, chatId, "user", message.text);
+    await saveMessage(env.DB, chatId, "assistant", PAID_IN_PERSON_SEX_REPLY);
+    await sendTelegramMessage(env, message, PAID_IN_PERSON_SEX_REPLY);
+    return json({ ok: true, paid_in_person_sex_declined: true });
+  }
+
   // Keep every commercial conversation in the creator's hands during the
   // pilot. Clear any stale workflow first, then create one Inbox handoff and
   // stop automatic replies until the creator explicitly resumes the bot.
@@ -3851,13 +3854,6 @@ async function handleTelegramWebhook(request: Request, env: Env) {
         WHERE chat_id = ?`).bind(checkoutStatus, chatId).run();
       return json({ ok: true });
     }
-  }
-
-  if (!collectingCustomDetails && isInPersonSexSolicitation(message.text)) {
-    await saveMessage(env.DB, chatId, "user", message.text);
-    await saveMessage(env.DB, chatId, "assistant", IN_PERSON_SEX_REPLY);
-    await sendTelegramMessage(env, message, IN_PERSON_SEX_REPLY);
-    return json({ ok: true });
   }
 
   if (!collectingCustomDetails && isSextingQuestion(message.text)) {
