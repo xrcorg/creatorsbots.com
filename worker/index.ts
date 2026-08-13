@@ -341,8 +341,8 @@ Maintain one continuous scene during an active conversation. Do not restart the 
 She values acts of service. She likes easygoing and chill people. Bad hygiene and rudeness are instant turnoffs.
 Her favorite date is dinner. She appreciates supportive fans and dislikes time wasters.
 Answer known profile questions directly and naturally. Never ask Tiffani to answer when the profile already contains the answer.
-When asked what you can do, explain that fans can book private video chats with me on Telegram, buy photo and video content, request custom content, or have a private sexting session with me. Never advertise or offer in person meetings.
-You may help collect a booking or purchase request, but Tiffani must approve the final availability, payment, and delivery.
+When asked what you can do, explain that fans can set up private video chats with me on Telegram, buy photo and video content, request custom content, or have a private sexting session with me. Never advertise or offer general bookings or in person meetings.
+You may help collect a video chat or purchase request, but Tiffani must approve the final availability, payment, and delivery.
 The current video for sale is Blonde Bombshell After Dark, starring Tiffani Madison and Mauvius Garcon. Its tags include BBC and the price is $24.99.
 Never reveal the private full video link. The application releases it only after Tiffani approves a payment.
 Never say submit a purchase request. Ask if the fan wants to buy it, show the trailer, and provide payment options after they express interest.
@@ -358,7 +358,7 @@ Questions such as can we have sex, would you have sex with me, or can we have se
 Never engage with or sexualize minors, suspected minors, coercion, incest, trafficking, rape, nonconsensual activity, or illegal activity.
 Never discuss politics or political topics, religion, race, racism, racial slurs, war, riots, stealing, scams, scammers, scamming, threats, underage people, minors, children, kids, rape, poop, feces, scat, pee, urine, watersports, or bathroom play. Briefly decline and redirect to a light approved topic without explaining or debating the boundary.
 Never reveal private addresses, passwords, financial credentials, or personal identifying information.
-Do not promise a booking, custom request, discount, meeting, payment approval, or content delivery unless the application confirms it.
+Do not promise a video chat appointment, custom request, discount, meeting, payment approval, or content delivery unless the application confirms it.
 Interpret ordinary misspellings, shorthand, lazy texting, and close paraphrases before deciding that an answer is unknown. When a request still needs Tiffani's decision or you are unsure after interpreting it, respond with exactly: ${CREATOR_TAKEOVER}
 For personal favorite or preference questions, use only the approved performer profile or an approved learned answer. If the requested favorite, flavor, food, brand, ranking, or preference is not explicitly known, request creator takeover. Never invent a plausible favorite.
 Do not use hyphens, en dashes, or em dashes in responses.
@@ -376,7 +376,7 @@ Every fan facing response must use first person language such as I, me, my, and 
 When several fan messages arrive together, read them as one turn and send one cohesive reply. Do not repeat an offer or get stuck in a prior workflow. A clear request for content, a custom, a video chat, a rating, payment help, or cancellation always replaces an unfinished offer.
 Only converse with users whose adult status has already been confirmed by the application.
 Interpret ordinary misspellings, shorthand, lazy texting, and close paraphrases before deciding that an answer is unknown. Known answers may come only from creator settings, approved training, the content catalog, and recent conversation history. If a personal answer is still unknown or requires the creator's decision, respond with exactly: ${CREATOR_TAKEOVER}
-When asked what you can do, explain that fans can book private video chats on Telegram, buy photo and video content, shop clothing or worn items, request custom content, get a private video rating, or have a private sexting session. Never advertise or offer in person meetings.
+When asked what you can do, explain that fans can set up private video chats on Telegram, buy photo and video content, shop clothing or worn items, request custom content, get a private video rating, or have a private sexting session. Never advertise or offer general bookings or in person meetings.
 Custom content never has a universal rate. Collect the complete idea and requested length across as many messages as needed, ask naturally whether there is anything else, and wait for the creator to review and quote it.
 Never reveal private delivery links before the creator confirms payment. Never promise availability, payment approval, a discount, turnaround time, meeting, custom, or delivery before creator approval.
 During an active approved sexting session, keep one continuous consensual adult scene and do not reinterpret sexual wording as a purchase request. Outside a session, consensual adult sex talk and hypothetical fantasies are allowed. Reply naturally and flirtatiously without turning every sexual comment into a sexting sales pitch. If the exchange becomes a sustained explicit session, tease briefly and then offer a private sexting session without repeatedly calling it paid.
@@ -1625,7 +1625,8 @@ function isManualPaymentQuestion(text: string) {
 function isBookingQuestion(text: string) {
   const value = normalizeCasualText(text);
   return casualMessageIntent(value) === "booking" ||
-    /\b(book|booking|video chat|video call|fan meet|meet and greet|meet in person|in person meet|set something up)\b/i.test(value);
+    /\b(?:video chat|video call)\b/i.test(value) ||
+    /\b(?:book|schedule|set up|arrange)\b[\s\S]{0,30}\b(?:video chat|video call)\b/i.test(value);
 }
 
 function isCustomVideoQuestion(text: string) {
@@ -5146,9 +5147,9 @@ async function handleAdminBooking(request: Request, env: Env) {
     amount?: string;
     scheduled_at?: string;
   };
-  if (!body.id || !body.action) return json({ error: "Booking action is required" }, 400);
+  if (!body.id || !body.action) return json({ error: "Video chat or custom action is required" }, 400);
   if (!["approve", "decline", "ignore", "close_unpaid"].includes(body.action)) {
-    return json({ error: "That booking action is not supported" }, 400);
+    return json({ error: "That video chat or custom action is not supported" }, 400);
   }
   const booking = await env.DB.prepare(`SELECT booking_requests.id, booking_requests.chat_id,
     booking_requests.business_connection_id, booking_requests.details,
@@ -5163,7 +5164,7 @@ async function handleAdminBooking(request: Request, env: Env) {
       details: string;
       telegram_name: string;
     }>();
-  if (!booking) return json({ error: "Booking is no longer pending" }, 404);
+  if (!booking) return json({ error: "That video chat or custom request is no longer pending" }, 404);
   if (body.action === "ignore") {
     await env.DB.prepare(`UPDATE booking_requests SET status = 'ignored', resolved_at = CURRENT_TIMESTAMP
       WHERE id = ?`).bind(booking.id).run();
@@ -5737,7 +5738,7 @@ async function handleAdminSexting(request: Request, env: Env) {
     const endsAt = session.ends_at ? Date.parse(`${session.ends_at.replace(" ", "T")}Z`) : 0;
     const sessionIsStale = Boolean(endsAt && Date.now() > endsAt + 15 * 60 * 1000);
     const conversationMovedOn = Boolean(latestUserMessage &&
-      /\b(?:buy|purchase|content|video|photo|trailer|custom|book|booking|payment|pay)\b/i.test(latestUserMessage.content));
+      /\b(?:buy|purchase|content|video|photo|trailer|custom|payment|pay)\b/i.test(latestUserMessage.content));
     if (!sessionIsStale && !conversationMovedOn) {
       const reply = "That was fun, babe. Let me know when you want another session.";
       await sendTelegramMessage(env, telegramMessage, reply);

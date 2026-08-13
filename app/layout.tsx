@@ -10,17 +10,17 @@ export async function generateMetadata(): Promise<Metadata> {
 
   return {
     title: "CreatorsBots · Creator Portal",
-    description: "A private creator operations portal for Telegram conversations, content, bookings, and sales.",
+    description: "A private creator operations portal for Telegram conversations, content, video chats, and sales.",
     icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
     openGraph: {
       title: "CreatorsBots · Creator Portal",
-      description: "Manage fan chats, content, bookings, sales, and creator takeover in one place.",
+      description: "Manage fan chats, content, video chats, sales, and creator takeover in one place.",
       images: [{ url: image, width: 1200, height: 630, alt: "CreatorsBots creator portal" }],
     },
     twitter: {
       card: "summary_large_image",
       title: "CreatorsBots · Creator Portal",
-      description: "Private creator operations for Telegram conversations, content, bookings, and sales.",
+      description: "Private creator operations for Telegram conversations, content, video chats, and sales.",
       images: [image],
     },
   };

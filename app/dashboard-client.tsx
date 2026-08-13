@@ -299,7 +299,7 @@ type ConversationMessage = {
   voice_status?: "creator_review";
 };
 
-type QuickReplyCategory = "general" | "content" | "custom" | "bookings" | "video_chat" | "ratings" | "payment" | "boundaries";
+type QuickReplyCategory = "general" | "content" | "custom" | "video_chat" | "ratings" | "payment" | "boundaries";
 
 type PlatformOverview = {
   creator_count: number;
@@ -458,7 +458,7 @@ export default function Home() {
   const [conversationReply, setConversationReply] = useState("");
   const [editingFanName, setEditingFanName] = useState(false);
   const [fanNameDraft, setFanNameDraft] = useState("");
-  const [quickReplyWorkflow, setQuickReplyWorkflow] = useState<"start_custom" | "start_video_chat" | "start_booking" | null>(null);
+  const [quickReplyWorkflow, setQuickReplyWorkflow] = useState<"start_custom" | "start_video_chat" | null>(null);
   const [quickReplyCategory, setQuickReplyCategory] = useState<QuickReplyCategory>("content");
   const [quickReplyProductId, setQuickReplyProductId] = useState(0);
   const [paidPhotoSource, setPaidPhotoSource] = useState<"sexting" | "catalog">("sexting");
@@ -1029,7 +1029,7 @@ export default function Home() {
       await loadLivePending();
       await openConversation(resolvedChatId);
       setConversationStatus(startedWorkflow
-        ? `Reply sent. The bot will collect the ${startedWorkflow === "start_custom" ? "custom details" : startedWorkflow === "start_video_chat" ? "video chat schedule" : "booking details"}.`
+        ? `Reply sent. The bot will collect the ${startedWorkflow === "start_custom" ? "custom details" : "video chat schedule"}.`
         : resumeBotAfterReply
           ? "Reply sent. Auto chat is back on for this conversation."
         : saveForFuture
@@ -1103,8 +1103,6 @@ export default function Home() {
       custom_more: "Anything else you want me to add?",
       custom_review: "Got it! I'll review everything and let you know what it will cost.",
       custom_quote: "I can't quote you until I know what you want and for how long. Can you send me your idea?",
-      booking_options: "Do you wanna set something up? I offer private video chats here on Telegram. What date and time works for you, and how many minutes do you want?",
-      booking_schedule: "Send me your preferred date, time, and how many minutes you want for a private video chat here on Telegram.",
       video_chat: `Video chats happen right here on Telegram and are $${settings.video_chat_rate} per minute with a 5 minute minimum. What date and time works for you, and how many minutes do you want?`,
       video_chat_now: `I might be able to video chat right now, babe. It's $${settings.video_chat_rate} per minute with a 5 minute minimum, and we'll call right here on Telegram. How many minutes do you want? I'll confirm I'm available before you send payment.`,
       video_chat_not_now: "I can't video chat right this second, babe, but send me a date, time, and how many minutes you want and I'll check my schedule.",
@@ -1123,7 +1121,6 @@ export default function Home() {
     setConversationReply(replies[template] || "");
     if (["custom_start", "custom_more", "custom_quote"].includes(template)) setQuickReplyWorkflow("start_custom");
     else if (["video_chat", "video_chat_now", "video_chat_not_now", "video_chat_schedule", "video_chat_payment"].includes(template)) setQuickReplyWorkflow("start_video_chat");
-    else if (["booking_options", "booking_schedule"].includes(template)) setQuickReplyWorkflow("start_booking");
     else setQuickReplyWorkflow(null);
   }
 
@@ -1300,7 +1297,7 @@ export default function Home() {
   }
 
   async function exitLiveConversationFlow(chatId: string) {
-    if (!window.confirm("Exit the current flow and resume normal bot replies? This stops unfinished booking, custom, sexting, rating, shipping, and catalog steps. Message history, fan details, sales, and completed orders stay saved.")) return;
+    if (!window.confirm("Exit the current flow and resume normal bot replies? This stops unfinished video chat, custom, sexting, rating, shipping, and catalog steps. Message history, fan details, sales, and completed orders stay saved.")) return;
     try {
       setLiveLoading(true);
       setConversationStatus("Exiting current flow...");
@@ -1388,14 +1385,14 @@ export default function Home() {
           duration: bookingDuration, amount: bookingAmount,
           scheduled_at: bookingScheduledAt ? new Date(bookingScheduledAt).toISOString() : undefined }),
       });
-      if (!response.ok) throw new Error("Booking update failed");
+      if (!response.ok) throw new Error("Video chat or custom update failed");
       setCreatorReply("");
       setBookingDuration("");
       setBookingAmount("");
       setBookingScheduledAt("");
       await loadLivePending();
     } catch {
-      setLiveError("The booking update was not sent. Please try again.");
+      setLiveError("The video chat or custom update was not sent. Please try again.");
     } finally {
       setLiveLoading(false);
     }
@@ -2420,7 +2417,7 @@ export default function Home() {
                   <div className="quickReplies">
                     <div className="quickReplyHeading"><strong>Quick replies</strong><small>Choose one to fill the message, then edit or send it.</small></div>
                     <div className="quickReplyCategories">
-                      {(["general", "content", "custom", "bookings", "video_chat", "ratings", "payment", "boundaries"] as QuickReplyCategory[]).map((category) => <button className={quickReplyCategory === category ? "selected" : ""} key={category} onClick={() => setQuickReplyCategory(category)} type="button">{category === "video_chat" ? "Video chat" : category === "ratings" ? "Dick ratings" : category}</button>)}
+                      {(["general", "content", "custom", "video_chat", "ratings", "payment", "boundaries"] as QuickReplyCategory[]).map((category) => <button className={quickReplyCategory === category ? "selected" : ""} key={category} onClick={() => setQuickReplyCategory(category)} type="button">{category === "video_chat" ? "Video chat" : category === "ratings" ? "Dick ratings" : category}</button>)}
                     </div>
                     {quickReplyCategory === "content" && <div className="quickReplyProductRow">
                       <label className="quickReplyProduct"><span>Selected content</span><select value={quickReplyProductId || quickReplyProducts[0]?.id || 0} onChange={(event) => setQuickReplyProductId(Number(event.target.value))}>{quickReplyProducts.length ? quickReplyProducts.map((product) => <option key={product.id} value={product.id}>{product.title}</option>) : <option value={0}>No active content</option>}</select></label>
@@ -2446,13 +2443,12 @@ export default function Home() {
                       {quickReplyCategory === "general" && <><button onClick={() => fillQuickReply("saw_message")} type="button">Saw your message</button><button onClick={() => fillQuickReply("busy")} type="button">Busy right now</button><button onClick={() => fillQuickReply("anything_else")} type="button">Anything else</button></>}
                       {quickReplyCategory === "content" && <><button onClick={() => fillQuickReply("catalog")} type="button">Show catalog</button><button onClick={() => fillQuickReply("trailer")} type="button">Preview trailer reply</button><button onClick={() => fillQuickReply("product_details")} type="button">Send details</button><button onClick={() => fillQuickReply("product_payment")} type="button">Payment instructions</button><button onClick={() => fillQuickReply("product_delivery")} type="button">Preview delivery reply</button></>}
                       {quickReplyCategory === "custom" && <><button onClick={() => fillQuickReply("custom_start")} type="button">Ask for idea</button><button onClick={() => fillQuickReply("custom_more")} type="button">Anything else</button><button onClick={() => fillQuickReply("custom_review")} type="button">Review request</button><button onClick={() => fillQuickReply("custom_quote")} type="button">Need details first</button><button className="quickSendContent" disabled={!selectedCustom} onClick={() => document.querySelector<HTMLInputElement>(`.paidFulfillmentPanel input[type="url"]`)?.focus()} title={selectedCustom ? "Add the delivery link above" : "Available after a custom payment is confirmed"} type="button">Send finished custom</button></>}
-                      {quickReplyCategory === "bookings" && <><button onClick={() => fillQuickReply("booking_options")} type="button">Booking options</button><button onClick={() => fillQuickReply("booking_schedule")} type="button">Date and time</button></>}
                       {quickReplyCategory === "video_chat" && <><button onClick={() => fillQuickReply("video_chat_now")} type="button">Available right now</button><button onClick={() => fillQuickReply("video_chat_not_now")} type="button">Not available now</button><button onClick={() => fillQuickReply("video_chat")} type="button">Rate and minimum</button><button onClick={() => fillQuickReply("video_chat_schedule")} type="button">Ask for schedule</button><button onClick={() => fillQuickReply("video_chat_payment")} type="button">Payment methods</button><button onClick={() => fillQuickReply("video_chat_confirm")} type="button">Confirm Telegram call</button></>}
                       {quickReplyCategory === "ratings" && <><button onClick={() => fillQuickReply("rating_offer")} type="button">Offer video rating</button><button onClick={() => fillQuickReply("rating_photo")} type="button">Request photo</button><button onClick={() => fillQuickReply("rating_payment")} type="button">Rating payment</button><button className="quickSendContent" disabled={!selectedRating} onClick={() => document.querySelector<HTMLInputElement>(`.paidFulfillmentPanel input[type="file"]`)?.click()} title={selectedRating ? "Choose the response video above" : "Available after payment and the rating photo are confirmed"} type="button">Upload and send rating video</button></>}
                       {quickReplyCategory === "payment" && <><button onClick={() => fillQuickReply("payment_options")} type="button">Payment options</button><button onClick={() => fillQuickReply("payment_screenshot")} type="button">Request screenshot</button><button onClick={() => fillQuickReply("payment_received")} type="button">Payment received</button><button className="quickSendContent" disabled={!selectedPurchase} onClick={() => selectedPurchase && void resolvePurchaseById(selectedPurchase.id, "approve")} title={selectedPurchase ? "Confirm and fulfill this paid order" : "Available when this chat has a payment awaiting confirmation"} type="button">Confirm payment and send content</button></>}
                       {quickReplyCategory === "boundaries" && <><button onClick={() => fillQuickReply("telegram_tos")} type="button">Paid in person boundary</button><button onClick={() => fillQuickReply("unavailable")} type="button">Cannot help</button></>}
                     </div>
-                    {quickReplyWorkflow && <p className="workflowNotice">Sending this keeps Bot replies on and starts the {quickReplyWorkflow === "start_custom" ? "custom detail" : quickReplyWorkflow === "start_video_chat" ? "video chat scheduling" : "booking detail"} flow.</p>}
+                    {quickReplyWorkflow && <p className="workflowNotice">Sending this keeps Bot replies on and starts the {quickReplyWorkflow === "start_custom" ? "custom detail" : "video chat scheduling"} flow.</p>}
                   </div>
                   <form className="conversationReplyForm" onSubmit={sendConversationReply}>
                     <textarea maxLength={4000} value={conversationReply} onChange={(event) => setConversationReply(event.target.value)} placeholder={`Reply to ${selectedConversation.telegram_name}`} />
@@ -2494,7 +2490,7 @@ export default function Home() {
             {unscheduledCount > 0 && (
               <div className="needsScheduling">
                 <strong>{unscheduledCount} items need attention</strong>
-                <small>{liveBookings.length} booking requests · {liveCustoms.length} customs · {videoChats.filter((order) => order.status !== "scheduled").length} video chats awaiting payment · {livePurchases.length} deliveries · {physicalOrders.length} shipments · {ratingOrders.length} ratings · {sextingSessions.length} sexting sessions</small>
+                <small>{liveBookings.length} video chat or custom requests · {liveCustoms.length} customs · {videoChats.filter((order) => order.status !== "scheduled").length} video chats awaiting payment · {livePurchases.length} deliveries · {physicalOrders.length} shipments · {ratingOrders.length} ratings · {sextingSessions.length} sexting sessions</small>
               </div>
             )}
             {physicalOrders.length > 0 && <div className="fulfillmentTasks">
@@ -2795,13 +2791,13 @@ export default function Home() {
             </div>
           ) : liveBookings.length ? (
             <div className="takeoverCard bookingApproval dashboardSection dashboardToday">
-              <div className="alertTitle"><span>□</span> {liveBookings[0].suggested_type === "custom_content" ? "Custom request" : "Booking request"}</div>
+              <div className="alertTitle"><span>□</span> {liveBookings[0].suggested_type === "custom_content" ? "Custom request" : "Video chat request"}</div>
               <div className="requestOwner">{liveBookings[0].telegram_name}</div>
               <p className="fanQuestion">“{liveBookings[0].details}”</p>
               <small>Requested {new Date(`${liveBookings[0].created_at}Z`).toLocaleDateString()}</small>
               <div className="botPaused">Check the date, time, duration, and calendar before replying.</div>
               <textarea
-                aria-label="Booking reply"
+                aria-label="Video chat or custom reply"
                 onChange={(event) => setCreatorReply(event.target.value)}
                 placeholder="Confirm, suggest another time, or ask a question..."
                 value={creatorReply}
@@ -2847,7 +2843,7 @@ export default function Home() {
             <strong>Quick test prompts</strong>
             <button onClick={() => { setInput("Can I get a custom video?"); setCreatorMode(false); }}>Custom request</button>
             <button onClick={() => { setInput("What anime do you like?"); setCreatorMode(false); }}>Personality question</button>
-            <button onClick={() => { setInput("I want to book a call"); setCreatorMode(false); }}>Booking request</button>
+            <button onClick={() => { setInput("I want a video chat"); setCreatorMode(false); }}>Video chat request</button>
           </div>
 
           <div className="personaSummary settingsPanel dashboardSection dashboardSettings">

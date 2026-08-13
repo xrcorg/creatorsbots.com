@@ -53,7 +53,7 @@ export function casualMessageIntent(text: string): CasualMessageIntent {
   if (/^(?:customs?|custom (?:video|content|photos?))$/.test(value)) return "custom";
   if (/^(?:sext|sexting|naughty)$/.test(value)) return "sexting";
   if (/^(?:what are you doing|what you doing|what are you up to|whats? up)$/.test(value)) return "activity";
-  if (/^(?:video chat|video call|meet|meet up|booking)$/.test(value)) return "booking";
+  if (/^(?:video chat|video call)$/.test(value)) return "booking";
   return null;
 }
 
@@ -160,7 +160,7 @@ export function isManualSalesHandoffRequest(text: string) {
   const value = normalizeCasualText(text);
   const intent = casualMessageIntent(value);
   if (intent === "catalog" || intent === "custom" || intent === "booking") return true;
-  return /\b(?:buy|buying|purchase|purchasing|for sale|sell|selling|catalog|shop|menu|trailers?|previews?|videos?|photos?|pics?|content|sets?|bundles?|customs?|custom content|custom video|panty|panties|worn items?|clothing|dick ratings?|video ratings?|rate my (?:dick|cock)|video chats?|video calls?|book(?:ing)?|payment options?|how (?:do|can) i pay|price|cost)\b/i.test(value);
+  return /\b(?:buy|buying|purchase|purchasing|for sale|sell|selling|catalog|shop|menu|trailers?|previews?|videos?|photos?|pics?|content|sets?|bundles?|customs?|custom content|custom video|panty|panties|worn items?|clothing|dick ratings?|video ratings?|rate my (?:dick|cock)|video chats?|video calls?|payment options?|how (?:do|can) i pay|price|cost)\b/i.test(value);
 }
 
 export function isCatalogFollowUpQuestion(text: string) {

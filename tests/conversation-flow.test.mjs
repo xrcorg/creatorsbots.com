@@ -118,6 +118,8 @@ test("lazy texting and common typos resolve to the intended flow", () => {
   assert.equal(casualMessageIntent("sext"), "sexting");
   assert.equal(casualMessageIntent("wyd?"), "activity");
   assert.equal(casualMessageIntent("videochat?"), "booking");
+  assert.equal(casualMessageIntent("booking?"), null);
+  assert.equal(casualMessageIntent("meet?"), null);
   assert.equal(normalizeCasualText("hru?"), "how are you?");
   assert.equal(normalizeCasualText("wyd rn?"), "what are you doing right now?");
   assert.equal(normalizeCasualText("nvm"), "never mind");
@@ -182,6 +184,8 @@ test("commercial requests pause for creator handling during the pilot", () => {
   for (const message of ["How are you?", "wyd?", "Which movie are you seeing?", "I like cats"]) {
     assert.equal(isManualSalesHandoffRequest(message), false, message);
   }
+  assert.equal(isManualSalesHandoffRequest("Can I book something?"), false);
+  assert.equal(isManualSalesHandoffRequest("Can I book a video chat?"), true);
 });
 
 test("partial catalog titles select the intended product", () => {
@@ -315,7 +319,7 @@ test("automation questions are recognized consistently", () => {
   assert.equal(isBotQuestion("Who programmed you?"), true);
 });
 
-test("bookings require a service, date, time, and video chat length", () => {
+test("video chat requests require a date, time, and length", () => {
   assert.deepEqual(bookingDetailsMissing("video chat tomorrow at 3 pm for 10 minutes"), []);
   assert.deepEqual(bookingDetailsMissing("video chat right now for 10 minutes"), []);
   assert.deepEqual(bookingDetailsMissing("videochat rn for 5 mins"), []);
