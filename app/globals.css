@@ -83,7 +83,9 @@ button { cursor: pointer; }
 .ownerHeading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
 .ownerHeading h1 { margin: 0; font-family: Georgia, serif; font-size: 28px; }
 .ownerHeading p:last-child { margin: 7px 0 0; color: var(--muted); font-size: 12px; }
-.supportMode { padding: 8px 11px; border-radius: 999px; background: #fff0f7; color: var(--deep-pink); font-size: 11px; font-weight: 800; }
+.creatorViewSelector { display: inline-flex; align-items: center; gap: 7px; min-height: 34px; padding: 5px 7px 5px 11px; border-radius: 999px; background: #fff0f7; color: var(--deep-pink); font-size: 11px; font-weight: 800; white-space: nowrap; }
+.creatorViewSelector select { min-width: 132px; padding: 5px 27px 5px 9px; border: 1px solid #efb3cf; border-radius: 999px; background: #fff; color: #7c3156; font: inherit; cursor: pointer; }
+.creatorViewSelector select:focus { outline: 2px solid rgba(233,65,145,.24); outline-offset: 1px; }
 .ownerMetrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 18px; }
 .ownerMetrics div { display: grid; gap: 4px; padding: 14px; border-radius: 14px; background: #faf6f8; }
 .ownerMetrics span, .ownerMetrics small { color: var(--muted); font-size: 10px; }

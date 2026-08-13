@@ -327,6 +327,7 @@ type PlatformOverview = {
   creators: Array<{
     key: string;
     name: string;
+    portal_url: string;
     email: string;
     status: string;
     template_name: string;
@@ -2173,7 +2174,23 @@ export default function Home() {
               <h1>Creator overview</h1>
               <p>Review platform activity and securely view each creator’s control room.</p>
             </div>
-            <span className="supportMode">Viewing as {portalUser?.creator_name.split(/\s+/)[0] || "creator"}</span>
+            <label className="creatorViewSelector">
+              <span>Viewing as:</span>
+              <select
+                aria-label="Viewing as creator"
+                value={portalUser.creator_key}
+                onChange={(event) => {
+                  const creator = platformOverview.creators.find((item) => item.key === event.target.value);
+                  if (creator?.portal_url && creator.key !== portalUser.creator_key) {
+                    window.location.assign(creator.portal_url);
+                  }
+                }}
+              >
+                {platformOverview.creators.map((creator) => (
+                  <option key={creator.key} value={creator.key}>{creator.name}</option>
+                ))}
+              </select>
+            </label>
           </div>
           <div className="ownerMetrics">
             <div><span>Creators</span><strong>{platformOverview.creator_count}</strong><small>{platformOverview.active_creator_count} live</small></div>

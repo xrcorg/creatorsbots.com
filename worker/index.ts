@@ -8,6 +8,7 @@ interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
   MEDIA: R2Bucket;
+  APP_DOMAIN?: string;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
@@ -5025,6 +5026,9 @@ async function handleAdminPending(request: Request, env: Env) {
   }
   const emptyDailyEarnings = dailyEarnings.map((day) => ({ ...day, amount_cents: 0, transaction_count: 0,
     items: [], stars: 0, star_transaction_count: 0, star_items: [] }));
+  const appDomain = String(env.APP_DOMAIN || "").trim().replace(/^https?:\/\//, "").replace(/\/$/, "");
+  const domainParts = appDomain.split(".").filter(Boolean);
+  const portalRootDomain = domainParts.length > 2 ? domainParts.slice(-2).join(".") : appDomain;
   return json({
     portal_user: portalUser,
     payment_methods: {
@@ -5086,6 +5090,11 @@ async function handleAdminPending(request: Request, env: Env) {
       creators: creatorAccounts.results.map((creator) => ({
         key: creator.creator_key,
         name: creator.display_name,
+        portal_url: appDomain
+          ? `https://${creator.creator_key === currentCreator.key
+            ? appDomain
+            : `${creator.creator_key === "tiffani" ? "app" : creator.creator_key}.${portalRootDomain}`}`
+          : "",
         email: creator.creator_key === currentCreator.key ? creatorEmail : creator.login_email,
         status: creator.status,
         template_name: creator.template_key ? `${creator.template_key} template` : "",
