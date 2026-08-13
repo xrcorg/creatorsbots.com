@@ -323,6 +323,27 @@ function busyBurstReply(messageId: number) {
   return variations[Math.abs(messageId) % variations.length];
 }
 
+function isSlowReplyComplaint(text: string) {
+  const value = normalizeCasualText(text);
+  return [
+    /\bwhy (?:are|do|did) you (?:take|taking) so long(?: to (?:reply|respond|answer|text(?: me)? back))?\b/i,
+    /\bwhat took you so long(?: to (?:reply|respond|answer|text(?: me)? back))?\b/i,
+    /\bwhy (?:are )?you so slow(?: to (?:reply|respond|answer|text(?: me)? back))?\b/i,
+    /\byou (?:take|took|are taking) forever to (?:reply|respond|answer|text(?: me)? back)\b/i,
+    /\b(?:your )?(?:repl(?:y|ies)|responses?|answers?) (?:are|is) (?:so |really |too )?slow\b/i,
+    /\bwhy (?:haven't|havent|didn't|didnt) you (?:reply|respond|answer|text(?: me)? back)\b/i,
+  ].some((pattern) => pattern.test(value));
+}
+
+function slowReplyExplanation(messageId: number) {
+  const variations = [
+    "I'm trying my best to reply to everyone, babe. This is my full time job, so I prioritize people who are spending or donating, but I'm still doing my best to make time for everyone else too. Please be patient with me, I can only do so much.",
+    "I'm doing my best to text everyone back, babe. Since this is my full time job, I have to prioritize the people who are spending or sending donations, but I still make time for everyone else when I can. Please be patient with me.",
+    "I'm trying to keep up with everyone, babe. I prioritize fans who are spending or donating because this is my full time job, but I'm doing my best to reply to everyone else too. Please be patient with me, I can only do so much.",
+  ];
+  return variations[Math.abs(messageId) % variations.length];
+}
+
 const TEXTING_GLOSSARY = `Understand casual texting, abbreviations, slang, and reasonable typos from context. Do not correct the fan or spell out an abbreviation unless they ask. Common meanings include: ROFL rolling on the floor laughing; STFU shut up; ICYMI in case you missed it; TLDR too long did not read; TMI too much information; AFAIK as far as I know; LMK let me know; NVM never mind; FTW for the win; BYOB bring your own beer; BOGO buy one get one; JK just kidding; JW just wondering; TGIF thank goodness it is Friday; TBH to be honest; TBF to be frank; RN right now; BRB be right back; ISO in search of; BRT be right there; BTW by the way; FTFY fixed that for you; GG good game; BFD big deal; IRL in real life; DAE does anyone else; LOL laugh out loud; SMH shaking my head; NGL not going to lie; BTS behind the scenes; IKR I know right; TTYL talk to you later; HMU hit me up; FWIW and FWIF for what it is worth; IMO in my opinion; WYD what are you doing; HRU how are you; IMHO in my humble opinion; IDK I do not know; IDC I do not care; IDGAF I do not care at all; NBD no big deal; TBA to be announced; TBD to be decided; AFK away from keyboard; ABT about; IYKYK if you know you know; B4 before; BC because; JIC just in case; FOMO fear of missing out; GTG and G2G got to go; H8 hate; LMAO laughing hard; IYKWIM if you know what I mean; MYOB mind your own business; POV point of view; TLC tender loving care; HBD happy birthday; W/E whatever; WTF what the fuck; GOAT greatest of all time; FR for real; SUS suspicious; BET okay or agreed; SLAY doing something well; MID average; EOD end of day; EOW end of week; COB close of business; ETA estimated time of arrival; FAQ frequently asked question; AKA also known as; ASAP as soon as possible; DIY do it yourself; NP no problem; N/A not available; OOO out of office; TIA thanks in advance; FYI for your information; NSFW not safe for work; WFH work from home; OMW on my way; WDYT what do you think; DM direct message; FB Facebook; IG Instagram; YT YouTube; SC Snapchat; WA WhatsApp; TT TikTok; PIN Pinterest; TTV Twitch; IM instant message; PM private message; OP original post; QOTD question of the day; OOTD outfit of the day; RT repost; TBT throwback Thursday; TIL today I learned; AMA ask me anything; ELI5 explain simply; FBF flashback Friday; GRWM get ready with me; ILY I love you; BF boyfriend; GF girlfriend; BAE babe or before anyone else depending on context; LYSM love you so much; PDA public display of affection; LTR long term relationship; DTR define the relationship; LDR long distance relationship; XOXO hugs and kisses; OTP one true pairing; LOML love of my life; SO significant other. Interpret ambiguous abbreviations such as X, CC, PM, IM, TT, LI, BR, SO, and P/E from the surrounding sentence instead of replacing them automatically.`;
 
 const TIFFANI_PROMPT = `Write automated chat replies for adult creator Tiffani Madison.
@@ -3788,7 +3809,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     const replyPreference = await env.DB.prepare(`SELECT low_priority
       FROM conversation_reply_preferences WHERE chat_id = ?`)
       .bind(chatId).first<{ low_priority: number }>();
-    if (Number(replyPreference?.low_priority || 0) === 1) {
+    if (Number(replyPreference?.low_priority || 0) === 1 && !isSlowReplyComplaint(message.text)) {
       await saveMessage(env.DB, chatId, "user", message.text);
       const queuedSource = await queueLowPriorityReply(env.DB, message);
       return json({
@@ -3954,6 +3975,12 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     await saveMessage(env.DB, chatId, "assistant", busyReply);
     await sendTelegramMessage(env, message, busyReply);
     return json({ ok: true, message_burst_limited: true });
+  }
+
+  if (isSlowReplyComplaint(message.text)) {
+    const reply = slowReplyExplanation(message.message_id);
+    await sendSavedReply(env, message, chatId, reply);
+    return json({ ok: true, slow_reply_explained: true });
   }
 
   // A fan can change the subject after seeing the sexting packages. Clear that
@@ -6618,7 +6645,7 @@ const worker = {
     if (url.pathname === "/api/health") {
       return json({
         ok: true,
-        release: "2026.08.13.2",
+        release: "2026.08.13.3",
         telegram: Boolean(env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_WEBHOOK_SECRET),
         openai: Boolean(env.OPENAI_API_KEY),
         database: Boolean(env.DB),

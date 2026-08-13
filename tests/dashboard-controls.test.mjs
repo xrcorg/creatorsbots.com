@@ -105,6 +105,16 @@ test("keeps sleep hours above Low priority mode", async () => {
   assert.match(worker, /sleep_queued: queuedSource === "sleep"/);
 });
 
+test("explains slow replies without trapping a Low Priority fan in the long queue", async () => {
+  const worker = await readFile(workerPath, "utf8");
+
+  assert.match(worker, /function isSlowReplyComplaint/);
+  assert.match(worker, /function slowReplyExplanation/);
+  assert.match(worker, /prioritize people who are spending or donating/);
+  assert.match(worker, /low_priority \|\| 0\) === 1 && !isSlowReplyComplaint\(message\.text\)/);
+  assert.match(worker, /slow_reply_explained: true/);
+});
+
 test("shows Telegram identity separately from the fan supplied name", async () => {
   const [dashboard, worker] = await Promise.all([
     readFile(dashboardPath, "utf8"),
