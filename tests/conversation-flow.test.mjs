@@ -24,6 +24,7 @@ import {
   isLikelyCustomDetailReply,
   isLikelyShippingAddress,
   isLikelyShippingName,
+  isManualSalesHandoffRequest,
   isMessageBurst,
   isPersonalFactTrainingSuggestion,
   isPhysicalOrderDecline,
@@ -144,6 +145,24 @@ test("requests for other products open the whole catalog instead of becoming a t
   assert.equal(isCatalogBrowseRequest("Do you have BBC videos?"), false);
 });
 
+test("commercial requests pause for creator handling during the pilot", () => {
+  for (const message of [
+    "videos?",
+    "Do you sell photos?",
+    "Can I buy some content",
+    "I want a custom video",
+    "Do you sell panties?",
+    "Can you do a dick rating?",
+    "How much is a video chat?",
+    "How do I pay?",
+  ]) {
+    assert.equal(isManualSalesHandoffRequest(message), true, message);
+  }
+  for (const message of ["How are you?", "wyd?", "Which movie are you seeing?", "I like cats"]) {
+    assert.equal(isManualSalesHandoffRequest(message), false, message);
+  }
+});
+
 test("partial catalog titles select the intended product", () => {
   assert.equal(productTitleMatchesMessage("Blonde Bombshell After Dark", "Can I buy the blonde bombshell"), true);
   assert.equal(productTitleMatchesMessage("Bday Airtight Orgy", "I want bday airtight"), true);
@@ -152,7 +171,7 @@ test("partial catalog titles select the intended product", () => {
 });
 
 test("a fan can explicitly reset a stuck conversation", () => {
-  for (const message of ["/reset", "reset chat", "start over", "normal chat", "exit sexting"]) {
+  for (const message of ["/reset", "/cancel", "reset chat", "start over", "normal chat", "cancel mode", "exit flow", "leave sales mode", "exit sexting"]) {
     assert.equal(isConversationReset(message), true, message);
   }
   assert.equal(isConversationReset("reset my password"), false);

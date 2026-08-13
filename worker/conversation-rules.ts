@@ -149,6 +149,13 @@ export function isCatalogBrowseRequest(text: string) {
     /\b(?:do you|can you|you)\s+sell\s+(?:any\s+|some\s+)?(?:videos?|photos?|content|sets?|bundles?)\b/i.test(value);
 }
 
+export function isManualSalesHandoffRequest(text: string) {
+  const value = normalizeCasualText(text);
+  const intent = casualMessageIntent(value);
+  if (intent === "catalog" || intent === "custom" || intent === "booking") return true;
+  return /\b(?:buy|buying|purchase|purchasing|for sale|sell|selling|catalog|shop|menu|trailers?|previews?|videos?|photos?|pics?|content|sets?|bundles?|customs?|custom content|custom video|panty|panties|worn items?|clothing|dick ratings?|video ratings?|rate my (?:dick|cock)|video chats?|video calls?|book(?:ing)?|payment options?|how (?:do|can) i pay|price|cost)\b/i.test(value);
+}
+
 export function isCatalogFollowUpQuestion(text: string) {
   const value = text.trim();
   return /^(?:what|anything|something)\s+else\s+(?:(?:do|have)\s+)?you\s+(?:have|got)(?:\s+(?:for sale|available))?[?!. ]*$/i.test(value) ||
@@ -156,7 +163,7 @@ export function isCatalogFollowUpQuestion(text: string) {
 }
 
 export function isConversationReset(text: string) {
-  return /^(?:\/reset|reset(?: the)? chat|reset conversation|start over|start fresh|normal chat|exit sexting|leave sexting)[?!. ]*$/i.test(text.trim());
+  return /^(?:\/reset|\/cancel|reset(?: the)? chat|reset conversation|start over|start fresh|normal chat|cancel mode|exit flow|leave sales mode|exit sales mode|exit sexting|leave sexting)[?!. ]*$/i.test(text.trim());
 }
 
 export function isGenericCancelReply(text: string) {

@@ -1,7 +1,7 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { bookingDetailsMissing, casualMessageIntent, customDetailsMissing, isAffirmativeReply, isAmbiguousSexMessage, isBookingDecline, isBotQuestion, isCancelReply, isCatalogBrowseRequest, isCatalogContentRequest, isCatalogFollowUpQuestion, isConversationQuestion, isConversationReset, isCustomDecline, isCustomDetailsFinished, isGenericCancelReply, isLikelyBookingDetailReply, isLikelyShippingAddress, isLikelyShippingName, isMessageBurst, isPersonalFactTrainingSuggestion, isPhysicalOrderDecline, isPresenceCheck, isRatingDecline, isSextingDecline, isSextingPackageFollowUp, isSoftSalesDeclineReply, isTrailerOfferAwaitingConfirmation, normalizeCasualText, parseDeclaredAge, parseNameChangeRequest, parseNameIntroduction, productTitleMatchesMessage } from "./conversation-rules";
+import { bookingDetailsMissing, casualMessageIntent, customDetailsMissing, isAffirmativeReply, isAmbiguousSexMessage, isBookingDecline, isBotQuestion, isCancelReply, isCatalogBrowseRequest, isCatalogContentRequest, isCatalogFollowUpQuestion, isConversationQuestion, isConversationReset, isCustomDecline, isCustomDetailsFinished, isGenericCancelReply, isLikelyBookingDetailReply, isLikelyShippingAddress, isLikelyShippingName, isManualSalesHandoffRequest, isMessageBurst, isPersonalFactTrainingSuggestion, isPhysicalOrderDecline, isPresenceCheck, isRatingDecline, isSextingDecline, isSextingPackageFollowUp, isSoftSalesDeclineReply, isTrailerOfferAwaitingConfirmation, normalizeCasualText, parseDeclaredAge, parseNameChangeRequest, parseNameIntroduction, productTitleMatchesMessage } from "./conversation-rules";
 import { isEnglishLanguage, parseDetectedLanguage, shouldDetectLanguage } from "./language-rules";
 
 interface Env {
@@ -2222,6 +2222,10 @@ async function exitConversationFlow(db: D1Database, chatId: string) {
       WHERE chat_id = ? AND status = 'pending'`).bind(chatId),
     db.prepare(`DELETE FROM inbound_message_buffer WHERE chat_id = ?`).bind(chatId),
     db.prepare(`DELETE FROM product_interest WHERE chat_id = ?`).bind(chatId),
+    db.prepare(`INSERT INTO conversation_controls (chat_id, control_mode, taken_over_by, updated_at)
+      VALUES (?, 'bot', NULL, CURRENT_TIMESTAMP)
+      ON CONFLICT(chat_id) DO UPDATE SET control_mode = 'bot', taken_over_by = NULL,
+      updated_at = CURRENT_TIMESTAMP`).bind(chatId),
   ]);
 }
 
@@ -3250,6 +3254,14 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     return json({ ok: true });
   }
 
+  // A reset must remain available even while a creator handoff has paused the
+  // bot. This lets /cancel and the natural exit phrases escape a stale flow.
+  if (session?.age_status === "verified" && isConversationReset(message.text)) {
+    await resetConversationState(env.DB, chatId);
+    await sendSavedReply(env, message, chatId, "Okay babe, we're starting fresh. What do you want to talk about?");
+    return json({ ok: true, conversation_reset: true });
+  }
+
   const conversationControl = await env.DB.prepare(`SELECT control_mode FROM conversation_controls
     WHERE chat_id = ?`).bind(chatId).first<{ control_mode: string }>();
   if (conversationControl?.control_mode === "human") {
@@ -3400,10 +3412,14 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     message.text = nameChange.remainder;
   }
 
-  if (isConversationReset(message.text)) {
-    await resetConversationState(env.DB, chatId);
-    await sendSavedReply(env, message, chatId, "Okay babe, we're starting fresh. What do you want to talk about?");
-    return json({ ok: true, conversation_reset: true });
+  // Keep every commercial conversation in the creator's hands during the
+  // pilot. Clear any stale workflow first, then create one Inbox handoff and
+  // stop automatic replies until the creator explicitly resumes the bot.
+  if (isManualSalesHandoffRequest(message.text)) {
+    await exitConversationFlow(env.DB, chatId);
+    await saveMessage(env.DB, chatId, "user", message.text);
+    await queueCreatorReply(env.DB, message, "sales_handoff");
+    return json({ ok: true, sales_creator_reply_needed: true });
   }
 
   if (isSextingDecline(message.text)) {

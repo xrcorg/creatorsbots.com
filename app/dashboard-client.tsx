@@ -1234,7 +1234,7 @@ export default function Home() {
   }
 
   async function exitLiveConversationFlow(chatId: string) {
-    if (!window.confirm("Exit the current flow? This stops unfinished booking, custom, sexting, rating, shipping, and catalog steps. Message history, fan details, sales, and completed orders stay saved.")) return;
+    if (!window.confirm("Exit the current flow and resume normal bot replies? This stops unfinished booking, custom, sexting, rating, shipping, and catalog steps. Message history, fan details, sales, and completed orders stay saved.")) return;
     try {
       setLiveLoading(true);
       setConversationStatus("Exiting current flow...");
@@ -1244,7 +1244,10 @@ export default function Home() {
         body: JSON.stringify({ chat_id: chatId }),
       });
       if (!response.ok) throw new Error("Conversation flow exit failed");
-      setConversationStatus("Current flow exited. The next fan message will return to normal chat.");
+      setConversations((items) => items.map((item) => item.chat_id === chatId
+        ? { ...item, control_mode: "bot", active_workflow: "normal" }
+        : item));
+      setConversationStatus("Current flow exited. Normal bot replies are back on.");
       await loadLivePending();
     } catch {
       setConversationStatus("The current flow could not be exited. Please try again.");
@@ -2281,7 +2284,7 @@ export default function Home() {
                         <input aria-label="Bot replies" checked={!selectedConversation.is_blocked && selectedConversation.control_mode === "bot"} disabled={liveLoading || Boolean(selectedConversation.is_blocked)} onChange={(event) => void setConversationBotMode(selectedConversation.chat_id, event.target.checked)} type="checkbox" />
                         <i aria-hidden="true" />
                       </label>
-                      <button className="exitConversationFlow" disabled={liveLoading} onClick={() => void exitLiveConversationFlow(selectedConversation.chat_id)} type="button">Exit flow</button>
+                      <button className="exitConversationFlow" disabled={liveLoading} onClick={() => void exitLiveConversationFlow(selectedConversation.chat_id)} type="button">Exit flow + resume bot</button>
                       <button className="resetConversation" disabled={liveLoading} onClick={() => void resetLiveConversation(selectedConversation.chat_id)} type="button">Reset chat</button>
                       <button className={`blockConversation ${selectedConversation.is_blocked ? "unblock" : ""}`} disabled={liveLoading} onClick={() => void setConversationBlocked(selectedConversation.chat_id, !Boolean(selectedConversation.is_blocked))} type="button">{selectedConversation.is_blocked ? "Unblock fan" : "Block fan"}</button>
                     </div>
