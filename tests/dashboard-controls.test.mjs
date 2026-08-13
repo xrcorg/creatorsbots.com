@@ -54,3 +54,30 @@ test("allows Inbox deletion for fan and creator messages", async () => {
   assert.match(worker, /request\.method === "DELETE" && messageMatch/);
   assert.match(worker, /DELETE FROM chat_messages WHERE id = \? AND chat_id = \?/);
 });
+
+test("shows lifetime fan spending and supports per-chat Broke mode", async () => {
+  const [dashboard, worker] = await Promise.all([
+    readFile(dashboardPath, "utf8"),
+    readFile(workerPath, "utf8"),
+  ]);
+
+  assert.match(dashboard, /Lifetime spend:/);
+  assert.match(dashboard, /cash_spent_cents/);
+  assert.match(dashboard, /stars_spent/);
+  assert.match(dashboard, /aria-label="Broke mode"/);
+  assert.match(dashboard, /reply once every 6 to 8 hours/);
+  assert.match(worker, /CREATE TABLE IF NOT EXISTS conversation_reply_preferences/);
+  assert.match(worker, /LOW_PRIORITY_MIN_DELAY_MS = 6 \* 60 \* 60 \* 1000/);
+  assert.match(worker, /LOW_PRIORITY_MAX_DELAY_MS = 8 \* 60 \* 60 \* 1000/);
+  assert.match(worker, /\/api\/admin\/conversations\/priority/);
+  assert.match(worker, /low_priority_queued: true/);
+});
+
+test("queues every sleeping chat for a combined morning catch-up", async () => {
+  const worker = await readFile(workerPath, "utf8");
+
+  assert.match(worker, /source = 'sleep'/);
+  assert.match(worker, /Good morning! Sorry I was sleeping\./);
+  assert.match(worker, /GROUP BY chat_id ORDER BY MIN\(id\) ASC LIMIT 50/);
+  assert.match(worker, /source !== "sleep" && source !== "low_priority"/);
+});

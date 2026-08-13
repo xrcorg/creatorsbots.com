@@ -279,6 +279,10 @@ type LiveConversation = {
   pending_count: number;
   active_workflow: "chat" | "sexting" | "custom" | "booking" | "sexting checkout";
   control_mode: "bot" | "human";
+  low_priority: number;
+  next_reply_at: string | null;
+  cash_spent_cents: number;
+  stars_spent: number;
 };
 
 type NewChatter = {
@@ -869,7 +873,7 @@ export default function Home() {
       setConversationStatus("Loading conversation...");
       const response = await fetch(`/api/admin/conversations/${encodeURIComponent(chatId)}`, { cache: "no-store" });
       if (!response.ok) throw new Error("Conversation failed to load");
-      const data = await response.json() as { conversation: Pick<LiveConversation, "chat_id" | "telegram_name" | "age_status" | "is_blocked" | "control_mode">; messages: ConversationMessage[] };
+      const data = await response.json() as { conversation: Pick<LiveConversation, "chat_id" | "telegram_name" | "age_status" | "is_blocked" | "control_mode" | "low_priority" | "next_reply_at" | "cash_spent_cents" | "stars_spent">; messages: ConversationMessage[] };
       setConversationMessages(data.messages || []);
       if (data.conversation) {
         setFanNameDraft(data.conversation.telegram_name || "");
@@ -1216,6 +1220,29 @@ export default function Home() {
       await loadLivePending();
     } catch {
       setConversationStatus("The bot setting could not be changed. Please try again.");
+    } finally {
+      setLiveLoading(false);
+    }
+  }
+
+  async function setConversationLowPriority(chatId: string, enabled: boolean) {
+    try {
+      setLiveLoading(true);
+      const response = await fetch("/api/admin/conversations/priority", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, enabled }),
+      });
+      const data = await response.json() as { error?: string; low_priority?: number; next_reply_at?: string | null };
+      if (!response.ok) throw new Error(data.error || "Broke mode could not be changed");
+      setConversations((items) => items.map((item) => item.chat_id === chatId
+        ? { ...item, low_priority: Number(data.low_priority || 0), next_reply_at: data.next_reply_at || null }
+        : item));
+      setConversationStatus(enabled
+        ? "Broke mode is on. The bot will combine this fan's messages and reply once every 6 to 8 hours."
+        : "Broke mode is off. Any waiting message will be released shortly and normal timing resumes.");
+    } catch (error) {
+      setConversationStatus(error instanceof Error ? error.message : "Broke mode could not be changed.");
     } finally {
       setLiveLoading(false);
     }
@@ -2325,9 +2352,10 @@ export default function Home() {
                     <span className="conversationSummary">
                       <strong>{conversation.telegram_name}</strong>
                       <small>{conversation.last_message || "No saved messages"}</small>
+                      <small className="conversationSpend">Spent {money(Number(conversation.cash_spent_cents || 0))} · ⭐ {Number(conversation.stars_spent || 0).toLocaleString()}</small>
                       <time>{new Date(`${conversation.last_message_at.replace(" ", "T")}Z`).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time>
                     </span>
-                    <span className={`workflowBadge ${conversation.is_blocked ? "blocked" : conversation.active_workflow.replace(" ", "-")}`}>{conversation.is_blocked ? "blocked" : conversation.active_workflow}</span>
+                    <span className={`workflowBadge ${conversation.is_blocked ? "blocked" : conversation.low_priority ? "low-priority" : conversation.active_workflow.replace(" ", "-")}`}>{conversation.is_blocked ? "blocked" : conversation.low_priority ? "Broke mode" : conversation.active_workflow}</span>
                     {Number(conversation.pending_count) > 0 && <b className="unreadBadge">{conversation.pending_count}</b>}
                   </button>
                 )) : <p>No chats match that search.</p>}
@@ -2348,6 +2376,7 @@ export default function Home() {
                             <button disabled={liveLoading} onClick={() => { setFanNameDraft(selectedConversation.telegram_name); setEditingFanName(true); }} type="button">Edit name</button>
                           </div>}
                       <small>{selectedConversation.message_count} saved messages · {selectedConversation.is_blocked ? "Blocked" : selectedConversation.control_mode === "human" ? "Creator replying" : "Bot active"}</small>
+                      <small className="conversationSpend">Lifetime spend: {money(Number(selectedConversation.cash_spent_cents || 0))} cash · ⭐ {Number(selectedConversation.stars_spent || 0).toLocaleString()} Stars</small>
                     </div>
                     <div className="conversationHeaderActions">
                       {selectedConversation.age_status === "verified"
@@ -2358,6 +2387,11 @@ export default function Home() {
                       <label className="botReplySwitch">
                         <span>Bot replies</span>
                         <input aria-label="Bot replies" checked={!selectedConversation.is_blocked && selectedConversation.control_mode === "bot"} disabled={liveLoading || Boolean(selectedConversation.is_blocked)} onChange={(event) => void setConversationBotMode(selectedConversation.chat_id, event.target.checked)} type="checkbox" />
+                        <i aria-hidden="true" />
+                      </label>
+                      <label className="botReplySwitch lowPrioritySwitch" title="Combine this fan's messages and reply only once every 6 to 8 hours">
+                        <span>Broke mode</span>
+                        <input aria-label="Broke mode" checked={Boolean(selectedConversation.low_priority)} disabled={liveLoading || Boolean(selectedConversation.is_blocked)} onChange={(event) => void setConversationLowPriority(selectedConversation.chat_id, event.target.checked)} type="checkbox" />
                         <i aria-hidden="true" />
                       </label>
                       <button className="exitConversationFlow" disabled={liveLoading} onClick={() => void exitLiveConversationFlow(selectedConversation.chat_id)} type="button">Exit flow + resume bot</button>

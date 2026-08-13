@@ -511,6 +511,14 @@ async function prepareDatabase(env: Env) {
       taken_over_by TEXT,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS conversation_reply_preferences (
+      chat_id TEXT PRIMARY KEY,
+      low_priority INTEGER NOT NULL DEFAULT 0,
+      next_reply_at TEXT,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS conversation_reply_preferences_due_idx
+      ON conversation_reply_preferences(low_priority, next_reply_at)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS fan_profiles (
       chat_id TEXT PRIMARY KEY,
       name TEXT,
@@ -2132,9 +2140,9 @@ async function queueCreatorReply(db: D1Database, message: TelegramMessage, sourc
       (chat_id, business_connection_id, question, source) VALUES (?, ?, ?, ?)`)
       .bind(chatId, message.business_connection_id || null, message.text || "", source),
   ];
-  // Sleep messages are replayed automatically in the morning. Every other
+  // Sleep and low-priority messages are replayed automatically. Every other
   // creator handoff must stop the bot until a human explicitly resumes it.
-  if (source !== "sleep") {
+  if (source !== "sleep" && source !== "low_priority") {
     statements.push(db.prepare(`INSERT INTO conversation_controls
       (chat_id, control_mode, taken_over_by, updated_at)
       VALUES (?, 'human', ?, CURRENT_TIMESTAMP)
@@ -2143,6 +2151,55 @@ async function queueCreatorReply(db: D1Database, message: TelegramMessage, sourc
       .bind(chatId, source));
   }
   await db.batch(statements);
+}
+
+const LOW_PRIORITY_MIN_DELAY_MS = 6 * 60 * 60 * 1000;
+const LOW_PRIORITY_MAX_DELAY_MS = 8 * 60 * 60 * 1000;
+
+function lowPriorityReplyTime() {
+  const delay = LOW_PRIORITY_MIN_DELAY_MS +
+    Math.floor(Math.random() * (LOW_PRIORITY_MAX_DELAY_MS - LOW_PRIORITY_MIN_DELAY_MS + 1));
+  return new Date(Date.now() + delay).toISOString().slice(0, 19).replace("T", " ");
+}
+
+async function queueLowPriorityReply(db: D1Database, message: TelegramMessage) {
+  const chatId = String(message.chat.id);
+  await queueCreatorReply(db, message, "low_priority");
+  const preference = await db.prepare(`SELECT next_reply_at FROM conversation_reply_preferences
+    WHERE chat_id = ?`).bind(chatId).first<{ next_reply_at: string | null }>();
+  if (!preference?.next_reply_at) {
+    await db.prepare(`INSERT INTO conversation_reply_preferences
+      (chat_id, low_priority, next_reply_at, updated_at) VALUES (?, 1, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(chat_id) DO UPDATE SET low_priority = 1,
+      next_reply_at = COALESCE(conversation_reply_preferences.next_reply_at, excluded.next_reply_at),
+      updated_at = CURRENT_TIMESTAMP`).bind(chatId, lowPriorityReplyTime()).run();
+  }
+}
+
+async function sendQueuedReply(env: Env, chatId: string, businessConnectionId: string | null,
+  pending: Array<{ id: number; question: string }>, prefix = "") {
+  const questions = pending.map((item) => item.question.trim()).filter(Boolean).join("\n");
+  let answer = "I saw your messages. What did you want to talk about?";
+  try {
+    const generated = await createAIReply(env, chatId, questions);
+    if (!isCreatorTakeoverReply(generated)) answer = generated;
+  } catch (error) {
+    console.error("Queued reply generation failed", error);
+  }
+  const reply = `${prefix}${answer}`;
+  const telegramMessage: TelegramMessage = {
+    message_id: 0,
+    chat: { id: Number(chatId) },
+    business_connection_id: businessConnectionId || undefined,
+    text: questions,
+  };
+  await sendTelegramMessage(env, telegramMessage, reply);
+  await saveMessage(env.DB, chatId, "assistant", reply);
+  for (const item of pending) {
+    await env.DB.prepare(`UPDATE pending_replies SET status = 'answered', answer = ?,
+      answered_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'`)
+      .bind(reply, item.id).run();
+  }
 }
 
 async function processWakeReplies(env: Env) {
@@ -2163,32 +2220,37 @@ async function processWakeReplies(env: Env) {
       WHERE chat_id = ? AND status = 'pending' AND source = 'sleep'
       ORDER BY id ASC LIMIT 100`).bind(chat.chat_id).all<{ id: number; question: string }>();
     if (!pending.results.length) continue;
-    const questions = pending.results.map((item) => item.question.trim()).filter(Boolean).join("\n");
-    let answer = "I saw your messages. What did you want to talk about?";
-    try {
-      const generated = await createAIReply(env, chat.chat_id, questions);
-      if (!isCreatorTakeoverReply(generated)) answer = generated;
-    } catch (error) {
-      console.error("Wake reply generation failed", error);
-    }
-    const reply = `Good morning! Sorry I was sleeping. ${answer}`;
-    const telegramMessage: TelegramMessage = {
-      message_id: 0,
-      chat: { id: Number(chat.chat_id) },
-      business_connection_id: chat.business_connection_id || undefined,
-      text: questions,
-    };
-    await sendTelegramMessage(env, telegramMessage, reply);
-    await saveMessage(env.DB, chat.chat_id, "assistant", reply);
-    const ids = pending.results.map((item) => item.id);
-    for (const id of ids) {
-      await env.DB.prepare(`UPDATE pending_replies SET status = 'answered', answer = ?,
-        answered_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'`)
-        .bind(reply, id).run();
-    }
+    await sendQueuedReply(env, chat.chat_id, chat.business_connection_id,
+      pending.results, "Good morning! Sorry I was sleeping. ");
     processed += 1;
   }
-  return { processed, sleeping: false };
+
+  const lowPriorityChats = await env.DB.prepare(`SELECT pending_replies.chat_id,
+    MAX(pending_replies.business_connection_id) AS business_connection_id,
+    COALESCE(conversation_reply_preferences.low_priority, 0) AS low_priority
+    FROM pending_replies
+    LEFT JOIN conversation_reply_preferences
+      ON conversation_reply_preferences.chat_id = pending_replies.chat_id
+    WHERE pending_replies.status = 'pending' AND pending_replies.source = 'low_priority'
+      AND (COALESCE(conversation_reply_preferences.low_priority, 0) = 0
+        OR conversation_reply_preferences.next_reply_at IS NULL
+        OR datetime(conversation_reply_preferences.next_reply_at) <= CURRENT_TIMESTAMP)
+    GROUP BY pending_replies.chat_id ORDER BY MIN(pending_replies.id) ASC LIMIT 50`).all<{
+      chat_id: string; business_connection_id: string | null; low_priority: number;
+    }>();
+  let lowPriorityProcessed = 0;
+  for (const chat of lowPriorityChats.results) {
+    const pending = await env.DB.prepare(`SELECT id, question FROM pending_replies
+      WHERE chat_id = ? AND status = 'pending' AND source = 'low_priority'
+      ORDER BY id ASC LIMIT 100`).bind(chat.chat_id).all<{ id: number; question: string }>();
+    if (!pending.results.length) continue;
+    await sendQueuedReply(env, chat.chat_id, chat.business_connection_id, pending.results);
+    await env.DB.prepare(`UPDATE conversation_reply_preferences SET next_reply_at = ?,
+      updated_at = CURRENT_TIMESTAMP WHERE chat_id = ? AND low_priority = 1`)
+      .bind(lowPriorityReplyTime(), chat.chat_id).run();
+    lowPriorityProcessed += 1;
+  }
+  return { processed, low_priority_processed: lowPriorityProcessed, sleeping: false };
 }
 
 async function clearSextingState(db: D1Database, chatId: string) {
@@ -2249,6 +2311,8 @@ async function resetConversationState(db: D1Database, chatId: string) {
       VALUES (?, 'bot', NULL, CURRENT_TIMESTAMP)
       ON CONFLICT(chat_id) DO UPDATE SET control_mode = 'bot', taken_over_by = NULL,
       updated_at = CURRENT_TIMESTAMP`).bind(chatId),
+    db.prepare(`UPDATE conversation_reply_preferences SET low_priority = 0,
+      next_reply_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?`).bind(chatId),
   ]);
 }
 
@@ -2282,6 +2346,7 @@ async function deleteConversationFromInbox(env: Env, chatId: string) {
     env.DB.prepare("DELETE FROM telegram_message_log WHERE chat_id = ?").bind(chatId),
     env.DB.prepare("DELETE FROM voice_notes WHERE chat_id = ?").bind(chatId),
     env.DB.prepare("DELETE FROM conversation_controls WHERE chat_id = ?").bind(chatId),
+    env.DB.prepare("DELETE FROM conversation_reply_preferences WHERE chat_id = ?").bind(chatId),
     env.DB.prepare("DELETE FROM fan_profiles WHERE chat_id = ?").bind(chatId),
     env.DB.prepare("DELETE FROM telegram_contacts WHERE chat_id = ?").bind(chatId),
     env.DB.prepare("DELETE FROM fan_sessions WHERE chat_id = ?").bind(chatId),
@@ -2311,6 +2376,7 @@ async function clearAllTestConversations(db: D1Database) {
     db.prepare("DELETE FROM telegram_message_log"),
     db.prepare("DELETE FROM voice_notes"),
     db.prepare("DELETE FROM conversation_controls"),
+    db.prepare("DELETE FROM conversation_reply_preferences"),
     db.prepare("DELETE FROM fan_profiles"),
     db.prepare("DELETE FROM telegram_contacts"),
     db.prepare("DELETE FROM adult_verifications"),
@@ -2335,6 +2401,22 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
       "content-type": voice.mime_type,
       "cache-control": "private, max-age=3600",
     } });
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/admin/conversations/priority") {
+    const body = await request.json<{ chat_id?: string; enabled?: boolean }>().catch(() => ({}));
+    const chatId = String(body.chat_id || "").trim();
+    if (!chatId) return json({ error: "A conversation is required" }, 400);
+    const exists = await env.DB.prepare("SELECT chat_id FROM fan_sessions WHERE chat_id = ?")
+      .bind(chatId).first();
+    if (!exists) return json({ error: "Conversation not found" }, 404);
+    const enabled = body.enabled === true;
+    await env.DB.prepare(`INSERT INTO conversation_reply_preferences
+      (chat_id, low_priority, next_reply_at, updated_at) VALUES (?, ?, NULL, CURRENT_TIMESTAMP)
+      ON CONFLICT(chat_id) DO UPDATE SET low_priority = excluded.low_priority,
+      next_reply_at = NULL, updated_at = CURRENT_TIMESTAMP`)
+      .bind(chatId, enabled ? 1 : 0).run();
+    return json({ ok: true, low_priority: enabled ? 1 : 0, next_reply_at: null });
   }
 
   const messageMatch = url.pathname.match(/^\/api\/admin\/conversations\/([^/]+)\/messages\/(-?\d+)$/);
@@ -2410,11 +2492,30 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
       COALESCE(fan_profiles.name, telegram_contacts.username, telegram_contacts.display_name, 'Telegram fan') AS telegram_name,
       fan_sessions.age_status,
       fan_sessions.is_blocked,
-      COALESCE(conversation_controls.control_mode, 'bot') AS control_mode
+      COALESCE(conversation_controls.control_mode, 'bot') AS control_mode,
+      COALESCE(conversation_reply_preferences.low_priority, 0) AS low_priority,
+      conversation_reply_preferences.next_reply_at,
+      COALESCE((SELECT SUM(earnings_events.amount_cents) FROM earnings_events
+        WHERE (earnings_events.source_type IN ('content', 'physical_item', 'video_rating')
+          AND EXISTS (SELECT 1 FROM purchase_requests WHERE CAST(purchase_requests.id AS TEXT) = earnings_events.source_id
+            AND purchase_requests.chat_id = fan_sessions.chat_id))
+        OR (earnings_events.source_type = 'custom_content'
+          AND EXISTS (SELECT 1 FROM custom_fulfillments WHERE CAST(custom_fulfillments.booking_request_id AS TEXT) = earnings_events.source_id
+            AND custom_fulfillments.chat_id = fan_sessions.chat_id))
+        OR (earnings_events.source_type = 'video_chat'
+          AND EXISTS (SELECT 1 FROM video_chat_orders WHERE CAST(video_chat_orders.id AS TEXT) = earnings_events.source_id
+            AND video_chat_orders.chat_id = fan_sessions.chat_id))), 0) AS cash_spent_cents,
+      COALESCE((SELECT SUM(stars) FROM sexting_sessions WHERE chat_id = fan_sessions.chat_id
+        AND stars > 0 AND status != 'disputed_removed'), 0)
+      + COALESCE((SELECT SUM(stars) FROM rating_orders WHERE chat_id = fan_sessions.chat_id AND stars > 0), 0)
+      + COALESCE((SELECT SUM(stars) FROM paid_media_sales WHERE chat_id = fan_sessions.chat_id AND stars > 0), 0)
+      + COALESCE((SELECT SUM(stars) FROM paid_photo_unlocks WHERE chat_id = fan_sessions.chat_id
+        AND stars > 0 AND status = 'purchased'), 0) AS stars_spent
       FROM fan_sessions
       LEFT JOIN telegram_contacts ON telegram_contacts.chat_id = fan_sessions.chat_id
       LEFT JOIN fan_profiles ON fan_profiles.chat_id = fan_sessions.chat_id
       LEFT JOIN conversation_controls ON conversation_controls.chat_id = fan_sessions.chat_id
+      LEFT JOIN conversation_reply_preferences ON conversation_reply_preferences.chat_id = fan_sessions.chat_id
       WHERE fan_sessions.chat_id = ?`).bind(chatId).first();
     if (!conversation) return json({ error: "Conversation not found" }, 404);
     const messages = await env.DB.prepare(`SELECT id, role, content, created_at
@@ -3474,6 +3575,20 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     await sendTelegramMessage(env, message, reply);
     if (!nameChange.remainder) return json({ ok: true, name_changed: true });
     message.text = nameChange.remainder;
+  }
+
+  // Broke mode is deliberately applied only after age and name onboarding are
+  // complete. Overnight sleep handling still takes priority, so the fan gets
+  // the normal morning catch-up before this slower cadence resumes.
+  if (!isDashboardTestMessage(message)) {
+    const replyPreference = await env.DB.prepare(`SELECT low_priority
+      FROM conversation_reply_preferences WHERE chat_id = ?`)
+      .bind(chatId).first<{ low_priority: number }>();
+    if (Number(replyPreference?.low_priority || 0) === 1) {
+      await saveMessage(env.DB, chatId, "user", message.text);
+      await queueLowPriorityReply(env.DB, message);
+      return json({ ok: true, low_priority_queued: true });
+    }
   }
 
   if (isPaidInPersonSexSolicitation(message.text)) {
@@ -4609,6 +4724,24 @@ async function handleAdminPending(request: Request, env: Env) {
     fan_sessions.age_status,
     fan_sessions.is_blocked,
     COALESCE(conversation_controls.control_mode, 'bot') AS control_mode,
+    COALESCE(conversation_reply_preferences.low_priority, 0) AS low_priority,
+    conversation_reply_preferences.next_reply_at,
+    COALESCE((SELECT SUM(earnings_events.amount_cents) FROM earnings_events
+      WHERE (earnings_events.source_type IN ('content', 'physical_item', 'video_rating')
+        AND EXISTS (SELECT 1 FROM purchase_requests WHERE CAST(purchase_requests.id AS TEXT) = earnings_events.source_id
+          AND purchase_requests.chat_id = fan_sessions.chat_id))
+      OR (earnings_events.source_type = 'custom_content'
+        AND EXISTS (SELECT 1 FROM custom_fulfillments WHERE CAST(custom_fulfillments.booking_request_id AS TEXT) = earnings_events.source_id
+          AND custom_fulfillments.chat_id = fan_sessions.chat_id))
+      OR (earnings_events.source_type = 'video_chat'
+        AND EXISTS (SELECT 1 FROM video_chat_orders WHERE CAST(video_chat_orders.id AS TEXT) = earnings_events.source_id
+          AND video_chat_orders.chat_id = fan_sessions.chat_id))), 0) AS cash_spent_cents,
+    COALESCE((SELECT SUM(stars) FROM sexting_sessions WHERE chat_id = fan_sessions.chat_id
+      AND stars > 0 AND status != 'disputed_removed'), 0)
+    + COALESCE((SELECT SUM(stars) FROM rating_orders WHERE chat_id = fan_sessions.chat_id AND stars > 0), 0)
+    + COALESCE((SELECT SUM(stars) FROM paid_media_sales WHERE chat_id = fan_sessions.chat_id AND stars > 0), 0)
+    + COALESCE((SELECT SUM(stars) FROM paid_photo_unlocks WHERE chat_id = fan_sessions.chat_id
+      AND stars > 0 AND status = 'purchased'), 0) AS stars_spent,
     COALESCE((SELECT content FROM chat_messages WHERE chat_messages.chat_id = fan_sessions.chat_id
       ORDER BY id DESC LIMIT 1), '') AS last_message,
     COALESCE((SELECT role FROM chat_messages WHERE chat_messages.chat_id = fan_sessions.chat_id
@@ -4629,6 +4762,7 @@ async function handleAdminPending(request: Request, env: Env) {
     LEFT JOIN telegram_contacts ON telegram_contacts.chat_id = fan_sessions.chat_id
     LEFT JOIN fan_profiles ON fan_profiles.chat_id = fan_sessions.chat_id
     LEFT JOIN conversation_controls ON conversation_controls.chat_id = fan_sessions.chat_id
+    LEFT JOIN conversation_reply_preferences ON conversation_reply_preferences.chat_id = fan_sessions.chat_id
     WHERE COALESCE(fan_profiles.name_status, '') != 'pending_name_approval'
       AND fan_sessions.chat_id <> ?
     ORDER BY datetime(last_message_at) DESC LIMIT 200`).bind(DASHBOARD_TEST_CHAT_ID).all();

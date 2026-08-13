@@ -294,10 +294,12 @@ button { cursor: pointer; }
 .conversationSummary { min-width: 0; display: grid; gap: 3px; }
 .conversationSummary strong { overflow: hidden; text-overflow: ellipsis; font-size: 10px; white-space: nowrap; }
 .conversationSummary small { overflow: hidden; color: var(--muted); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.conversationSummary .conversationSpend, .conversationIdentity .conversationSpend { color: #936a13; font-weight: 850; }
 .conversationSummary time { color: #a9959f; font-size: 7px; }
 .workflowBadge { grid-column: 3; border-radius: 999px; padding: 4px 6px; background: #f3eef1; color: var(--muted); font-size: 7px; font-weight: 850; text-transform: capitalize; }
 .workflowBadge.sexting, .workflowBadge.sexting-checkout { background: #fff0f7; color: var(--deep-pink); }
 .workflowBadge.custom, .workflowBadge.booking { background: #fff8de; color: #83620b; }
+.workflowBadge.low-priority { background: #fff4ce; color: #76550a; }
 .workflowBadge.blocked { background: #fff0f0; color: #a12732; }
 .unreadBadge { grid-column: 3; justify-self: end; min-width: 18px; height: 18px; display: grid; place-items: center; border-radius: 999px; background: var(--pink); color: white; font-size: 8px; }
 .conversationDetail { min-width: 0; display: flex; flex-direction: column; }
@@ -314,7 +316,7 @@ button { cursor: pointer; }
 .fanNameEditor button { border: 1px solid #d184a0; border-radius: 8px; padding: 6px 7px; background: white; color: #862746; font-size: 7px; font-weight: 850; cursor: pointer; }
 .fanNameEditor button[type="submit"] { border-color: var(--pink); background: var(--pink); color: white; }
 .fanNameEditor button:disabled, .fanNameDisplay button:disabled { cursor: wait; opacity: .5; }
-.conversationHeaderActions { display: flex !important; grid-auto-flow: column; align-items: center; gap: 7px; }
+.conversationHeaderActions { display: flex !important; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 7px; }
 .confirmAgeOverride { border: 1px solid #d184a0; border-radius: 9px; padding: 7px 9px; background: #fff; color: #862746; font-size: 8px; font-weight: 850; }
 .ageStatusBadge { border-radius: 999px; padding: 6px 9px; font-size: 8px; font-weight: 850; white-space: nowrap; }
 .ageStatusBadge.verified { background: #effbf4; color: #26744a; }
@@ -330,6 +332,7 @@ button { cursor: pointer; }
 .botReplySwitch i { position: relative; width: 29px; height: 17px; border-radius: 999px; background: #d8cdd2; transition: background 150ms ease; }
 .botReplySwitch i::after { content: ""; position: absolute; width: 13px; height: 13px; top: 2px; left: 2px; border-radius: 50%; background: white; box-shadow: 0 1px 3px #0003; transition: transform 150ms ease; }
 .botReplySwitch input:checked + i { background: #40b978; }
+.lowPrioritySwitch input:checked + i { background: #c68a1b; }
 .botReplySwitch input:checked + i::after { transform: translateX(12px); }
 .botReplySwitch input:disabled + i { opacity: .55; }
 .conversationTranscript { flex: 1; max-height: 560px; overflow: auto; display: flex; flex-direction: column; gap: 9px; padding: 14px; background: #fcfafb; }
