@@ -81,3 +81,17 @@ test("queues every sleeping chat for a combined morning catch-up", async () => {
   assert.match(worker, /GROUP BY chat_id ORDER BY MIN\(id\) ASC LIMIT 50/);
   assert.match(worker, /source !== "sleep" && source !== "low_priority"/);
 });
+
+test("shows Telegram identity separately from the fan supplied name", async () => {
+  const [dashboard, worker] = await Promise.all([
+    readFile(dashboardPath, "utf8"),
+    readFile(workerPath, "utf8"),
+  ]);
+
+  assert.match(dashboard, /Name they gave us/);
+  assert.match(dashboard, /Telegram profile/);
+  assert.match(dashboard, /Telegram ID/);
+  assert.match(worker, /AS telegram_display_name/);
+  assert.match(worker, /AS telegram_username/);
+  assert.match(worker, /AS telegram_user_id/);
+});

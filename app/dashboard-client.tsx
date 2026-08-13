@@ -270,6 +270,9 @@ type PortalUser = {
 type LiveConversation = {
   chat_id: string;
   telegram_name: string;
+  telegram_display_name: string;
+  telegram_username: string;
+  telegram_user_id: string;
   age_status: "unknown" | "verified" | "blocked";
   is_blocked: number;
   last_message: string;
@@ -289,6 +292,9 @@ type NewChatter = {
   chat_id: string;
   proposed_name: string;
   telegram_name: string;
+  telegram_display_name: string;
+  telegram_username: string;
+  telegram_user_id: string;
   last_message: string;
   submitted_at: string;
 };
@@ -304,6 +310,11 @@ type ConversationMessage = {
 };
 
 type QuickReplyCategory = "general" | "content" | "custom" | "video_chat" | "ratings" | "payment" | "boundaries";
+
+function telegramProfileLabel(person: Pick<LiveConversation, "telegram_display_name" | "telegram_username">) {
+  const parts = [person.telegram_display_name, person.telegram_username].filter(Boolean);
+  return parts.length ? parts.join(" · ") : "Telegram profile name unavailable";
+}
 
 type PlatformOverview = {
   creator_count: number;
@@ -873,7 +884,7 @@ export default function Home() {
       setConversationStatus("Loading conversation...");
       const response = await fetch(`/api/admin/conversations/${encodeURIComponent(chatId)}`, { cache: "no-store" });
       if (!response.ok) throw new Error("Conversation failed to load");
-      const data = await response.json() as { conversation: Pick<LiveConversation, "chat_id" | "telegram_name" | "age_status" | "is_blocked" | "control_mode" | "low_priority" | "next_reply_at" | "cash_spent_cents" | "stars_spent">; messages: ConversationMessage[] };
+      const data = await response.json() as { conversation: Pick<LiveConversation, "chat_id" | "telegram_name" | "telegram_display_name" | "telegram_username" | "telegram_user_id" | "age_status" | "is_blocked" | "control_mode" | "low_priority" | "next_reply_at" | "cash_spent_cents" | "stars_spent">; messages: ConversationMessage[] };
       setConversationMessages(data.messages || []);
       if (data.conversation) {
         setFanNameDraft(data.conversation.telegram_name || "");
@@ -2015,6 +2026,9 @@ export default function Home() {
   const visibleConversations = conversations.filter((conversation) => {
     const search = conversationSearch.trim().toLowerCase();
     return !search || conversation.telegram_name.toLowerCase().includes(search) ||
+      conversation.telegram_display_name.toLowerCase().includes(search) ||
+      conversation.telegram_username.toLowerCase().includes(search) ||
+      conversation.telegram_user_id.toLowerCase().includes(search) ||
       conversation.last_message.toLowerCase().includes(search);
   });
   const selectedConversation = conversations.find((conversation) => conversation.chat_id === selectedConversationId) || null;
@@ -2325,10 +2339,15 @@ export default function Home() {
               <div className="newChatterList">
                 {newChatters.map((chatter) => <article key={chatter.chat_id}>
                   <div className="newChatterIdentity">
-                    <span className="conversationAvatar">{chatter.telegram_name.replace(/^@/, "").slice(0, 1).toUpperCase()}</span>
-                    <div><strong>{chatter.telegram_name}</strong><small>They wrote: “{chatter.last_message}”</small><time>{new Date(`${chatter.submitted_at.replace(" ", "T")}Z`).toLocaleString()}</time></div>
+                    <span className="conversationAvatar">{(chatter.telegram_display_name || chatter.telegram_username || chatter.telegram_name).replace(/^@/, "").slice(0, 1).toUpperCase()}</span>
+                    <div>
+                      <strong>{telegramProfileLabel(chatter)}</strong>
+                      <small>Telegram ID: {chatter.telegram_user_id}</small>
+                      <small>They wrote: “{chatter.last_message}”</small>
+                      <time>{new Date(`${chatter.submitted_at.replace(" ", "T")}Z`).toLocaleString()}</time>
+                    </div>
                   </div>
-                  <label><span>Fan name</span><input aria-label={`Name for ${chatter.telegram_name}`} maxLength={60} onChange={(event) => setNewChatterNames((current) => ({ ...current, [chatter.chat_id]: event.target.value }))} value={newChatterNames[chatter.chat_id] ?? chatter.proposed_name} /></label>
+                  <label><span>Name they gave us</span><input aria-label={`Name for ${chatter.telegram_name}`} maxLength={60} onChange={(event) => setNewChatterNames((current) => ({ ...current, [chatter.chat_id]: event.target.value }))} value={newChatterNames[chatter.chat_id] ?? chatter.proposed_name} /></label>
                   <button className="primaryAction" disabled={liveLoading || !(newChatterNames[chatter.chat_id] ?? chatter.proposed_name).trim()} onClick={() => void confirmNewChatterName(chatter.chat_id)} type="button">Confirm name and start bot</button>
                 </article>)}
               </div>
@@ -2351,6 +2370,8 @@ export default function Home() {
                     <span className="conversationAvatar">{conversation.telegram_name.replace(/^@/, "").slice(0, 1).toUpperCase()}</span>
                     <span className="conversationSummary">
                       <strong>{conversation.telegram_name}</strong>
+                      <small className="telegramProfileSummary">Telegram: {telegramProfileLabel(conversation)}</small>
+                      <small className="telegramProfileSummary">ID: {conversation.telegram_user_id}</small>
                       <small>{conversation.last_message || "No saved messages"}</small>
                       <small className="conversationSpend">Spent {money(Number(conversation.cash_spent_cents || 0))} · ⭐ {Number(conversation.stars_spent || 0).toLocaleString()}</small>
                       <time>{new Date(`${conversation.last_message_at.replace(" ", "T")}Z`).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time>
@@ -2366,15 +2387,18 @@ export default function Home() {
                     <div className="conversationIdentity">
                       {editingFanName
                         ? <form className="fanNameEditor" onSubmit={(event) => { event.preventDefault(); void updateFanName(); }}>
-                            <label htmlFor="fan-name-input">Fan name</label>
+                            <label htmlFor="fan-name-input">Name they gave us</label>
                             <input autoFocus id="fan-name-input" maxLength={60} onChange={(event) => setFanNameDraft(event.target.value)} value={fanNameDraft} />
                             <button disabled={liveLoading || !fanNameDraft.trim()} type="submit">Save</button>
                             <button disabled={liveLoading} onClick={() => { setEditingFanName(false); setFanNameDraft(selectedConversation.telegram_name); }} type="button">Cancel</button>
                           </form>
                         : <div className="fanNameDisplay">
+                            <span>Name they gave us</span>
                             <strong>{selectedConversation.telegram_name}</strong>
                             <button disabled={liveLoading} onClick={() => { setFanNameDraft(selectedConversation.telegram_name); setEditingFanName(true); }} type="button">Edit name</button>
                           </div>}
+                      <small className="telegramIdentityLine"><b>Telegram profile</b> {telegramProfileLabel(selectedConversation)}</small>
+                      <small className="telegramIdentityLine"><b>Telegram ID</b> {selectedConversation.telegram_user_id}</small>
                       <small>{selectedConversation.message_count} saved messages · {selectedConversation.is_blocked ? "Blocked" : selectedConversation.control_mode === "human" ? "Creator replying" : "Bot active"}</small>
                       <small className="conversationSpend">Lifetime spend: {money(Number(selectedConversation.cash_spent_cents || 0))} cash · ⭐ {Number(selectedConversation.stars_spent || 0).toLocaleString()} Stars</small>
                     </div>

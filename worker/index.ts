@@ -2490,6 +2490,9 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
     const chatId = decodeURIComponent(match[1]);
     const conversation = await env.DB.prepare(`SELECT fan_sessions.chat_id,
       COALESCE(fan_profiles.name, telegram_contacts.username, telegram_contacts.display_name, 'Telegram fan') AS telegram_name,
+      COALESCE(telegram_contacts.display_name, '') AS telegram_display_name,
+      COALESCE(telegram_contacts.username, '') AS telegram_username,
+      COALESCE(fan_sessions.telegram_user_id, fan_sessions.chat_id) AS telegram_user_id,
       fan_sessions.age_status,
       fan_sessions.is_blocked,
       COALESCE(conversation_controls.control_mode, 'bot') AS control_mode,
@@ -4710,6 +4713,9 @@ async function handleAdminPending(request: Request, env: Env) {
   const newChatters = await env.DB.prepare(`SELECT fan_sessions.chat_id,
     fan_profiles.proposed_name,
     COALESCE(telegram_contacts.username, telegram_contacts.display_name, 'New Telegram fan') AS telegram_name,
+    COALESCE(telegram_contacts.display_name, '') AS telegram_display_name,
+    COALESCE(telegram_contacts.username, '') AS telegram_username,
+    COALESCE(fan_sessions.telegram_user_id, fan_sessions.chat_id) AS telegram_user_id,
     COALESCE((SELECT content FROM chat_messages WHERE chat_messages.chat_id = fan_sessions.chat_id
       AND role = 'user' ORDER BY id DESC LIMIT 1), '') AS last_message,
     COALESCE((SELECT created_at FROM chat_messages WHERE chat_messages.chat_id = fan_sessions.chat_id
@@ -4721,6 +4727,9 @@ async function handleAdminPending(request: Request, env: Env) {
     ORDER BY datetime(submitted_at) ASC LIMIT 100`).bind(DASHBOARD_TEST_CHAT_ID).all();
   const conversations = await env.DB.prepare(`SELECT fan_sessions.chat_id,
     COALESCE(fan_profiles.name, telegram_contacts.username, telegram_contacts.display_name, 'Telegram fan') AS telegram_name,
+    COALESCE(telegram_contacts.display_name, '') AS telegram_display_name,
+    COALESCE(telegram_contacts.username, '') AS telegram_username,
+    COALESCE(fan_sessions.telegram_user_id, fan_sessions.chat_id) AS telegram_user_id,
     fan_sessions.age_status,
     fan_sessions.is_blocked,
     COALESCE(conversation_controls.control_mode, 'bot') AS control_mode,

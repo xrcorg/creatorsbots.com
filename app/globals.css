@@ -294,6 +294,7 @@ button { cursor: pointer; }
 .conversationSummary { min-width: 0; display: grid; gap: 3px; }
 .conversationSummary strong { overflow: hidden; text-overflow: ellipsis; font-size: 10px; white-space: nowrap; }
 .conversationSummary small { overflow: hidden; color: var(--muted); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.conversationSummary .telegramProfileSummary { color: #79586a; font-size: 7px; }
 .conversationSummary .conversationSpend, .conversationIdentity .conversationSpend { color: #936a13; font-weight: 850; }
 .conversationSummary time { color: #a9959f; font-size: 7px; }
 .workflowBadge { grid-column: 3; border-radius: 999px; padding: 4px 6px; background: #f3eef1; color: var(--muted); font-size: 7px; font-weight: 850; text-transform: capitalize; }
@@ -309,6 +310,9 @@ button { cursor: pointer; }
 .conversationDetail > header small { color: var(--muted); font-size: 8px; }
 .conversationIdentity { min-width: 180px; }
 .fanNameDisplay { display: flex !important; grid-auto-flow: column; align-items: center; justify-content: start; gap: 7px; }
+.fanNameDisplay > span { color: var(--muted); font-size: 7px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; }
+.conversationIdentity .telegramIdentityLine { display: flex; flex-wrap: wrap; gap: 4px; color: #79586a; }
+.conversationIdentity .telegramIdentityLine b { color: #513543; }
 .fanNameDisplay button { border: 0; padding: 2px 0; background: transparent; color: #a02c4d; font-size: 7px; font-weight: 850; text-decoration: underline; cursor: pointer; }
 .fanNameEditor { display: flex; align-items: center; gap: 5px; }
 .fanNameEditor label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
