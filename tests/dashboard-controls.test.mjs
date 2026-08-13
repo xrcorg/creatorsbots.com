@@ -73,6 +73,20 @@ test("shows lifetime fan spending and supports per-chat Broke mode", async () =>
   assert.match(worker, /low_priority_queued: queuedSource === "low_priority"/);
 });
 
+test("exports the Low Priority Telegram list with available contact details", async () => {
+  const [dashboard, worker] = await Promise.all([
+    readFile(dashboardPath, "utf8"),
+    readFile(workerPath, "utf8"),
+  ]);
+
+  assert.match(worker, /low-priority-export/);
+  assert.match(worker, /telegram-low-priority-list/);
+  assert.match(worker, /telegram_contacts\.phone_number/);
+  assert.match(worker, /message\.contact\.user_id === message\.from\?\.id/);
+  assert.match(dashboard, /Export Low Priority list/);
+  assert.match(dashboard, /telegram_phone_number/);
+});
+
 test("queues every sleeping chat for a combined morning catch-up", async () => {
   const worker = await readFile(workerPath, "utf8");
 

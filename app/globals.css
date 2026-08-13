@@ -283,6 +283,8 @@ button { cursor: pointer; }
 .conversationInbox .sectionHeading .conversationInboxActions { display: flex; align-items: center; gap: 8px; }
 .clearAllConversations { border: 1px solid #e1a6b7; border-radius: 9px; padding: 7px 10px; background: #fff7f8; color: #a02c4d; font-size: 8px; font-weight: 850; }
 .clearAllConversations:disabled { cursor: not-allowed; opacity: .45; }
+.exportLowPriorityList { border: 1px solid #d7b765; border-radius: 9px; padding: 7px 10px; background: #fff9df; color: #755508; font-size: 8px; font-weight: 850; }
+.exportLowPriorityList:disabled { cursor: not-allowed; opacity: .45; }
 .conversationSearch { display: block; margin: 12px 0; }
 .conversationSearch span { display: block; margin-bottom: 5px; color: var(--muted); font-size: 9px; font-weight: 750; }
 .conversationSearch input { width: 100%; border: 1px solid var(--line); border-radius: 11px; padding: 10px 12px; background: white; color: var(--ink); font-size: 10px; }

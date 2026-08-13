@@ -272,6 +272,7 @@ type LiveConversation = {
   telegram_name: string;
   telegram_display_name: string;
   telegram_username: string;
+  telegram_phone_number: string;
   telegram_user_id: string;
   age_status: "unknown" | "verified" | "blocked";
   is_blocked: number;
@@ -895,7 +896,7 @@ export default function Home() {
       setConversationStatus("Loading conversation...");
       const response = await fetch(`/api/admin/conversations/${encodeURIComponent(chatId)}`, { cache: "no-store" });
       if (!response.ok) throw new Error("Conversation failed to load");
-      const data = await response.json() as { conversation: Pick<LiveConversation, "chat_id" | "telegram_name" | "telegram_display_name" | "telegram_username" | "telegram_user_id" | "age_status" | "is_blocked" | "control_mode" | "low_priority" | "next_reply_at" | "cash_spent_cents" | "stars_spent" | "unread_count" | "last_read_message_id" | "inbox_last_read_at">; messages: ConversationMessage[] };
+      const data = await response.json() as { conversation: Pick<LiveConversation, "chat_id" | "telegram_name" | "telegram_display_name" | "telegram_username" | "telegram_phone_number" | "telegram_user_id" | "age_status" | "is_blocked" | "control_mode" | "low_priority" | "next_reply_at" | "cash_spent_cents" | "stars_spent" | "unread_count" | "last_read_message_id" | "inbox_last_read_at">; messages: ConversationMessage[] };
       setConversationMessages(data.messages || []);
       if (data.conversation) {
         setFanNameDraft(data.conversation.telegram_name || "");
@@ -1290,6 +1291,33 @@ export default function Home() {
         : "Broke mode is off. Any waiting message will be released shortly and normal timing resumes.");
     } catch (error) {
       setConversationStatus(error instanceof Error ? error.message : "Broke mode could not be changed.");
+    } finally {
+      setLiveLoading(false);
+    }
+  }
+
+  async function exportLowPriorityList() {
+    try {
+      setLiveLoading(true);
+      setLiveError("");
+      const response = await fetch("/api/admin/conversations/low-priority-export", {
+        cache: "no-store",
+        headers: { accept: "text/csv" },
+      });
+      if (!response.ok) throw new Error("The Low Priority list could not be exported");
+      const blob = await response.blob();
+      const disposition = response.headers.get("content-disposition") || "";
+      const filename = disposition.match(/filename="([^"]+)"/)?.[1] || "telegram-low-priority-list.csv";
+      const downloadUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(downloadUrl);
+    } catch (error) {
+      setLiveError(error instanceof Error ? error.message : "The Low Priority list could not be exported.");
     } finally {
       setLiveLoading(false);
     }
@@ -2393,6 +2421,7 @@ export default function Home() {
               <div className="conversationInboxActions">
                 <span>{conversations.reduce((total, conversation) => total + Number(conversation.unread_count || 0), 0)} unread</span>
                 <span>{conversations.reduce((total, conversation) => total + Number(conversation.pending_count || 0), 0)} need attention</span>
+                <button className="exportLowPriorityList" disabled={liveLoading || !conversations.some((conversation) => Boolean(conversation.low_priority))} onClick={() => void exportLowPriorityList()} title="Downloads Telegram details for fans currently in Broke mode. Phone numbers appear only when the fan explicitly shared one with Telegram." type="button">Export Low Priority list ({conversations.filter((conversation) => Boolean(conversation.low_priority)).length})</button>
                 {portalUser?.role === "owner" && <button className="clearAllConversations" disabled={liveLoading || (conversations.length === 0 && newChatters.length === 0)} onClick={() => void clearAllTestChats()} type="button">Clear all test chats</button>}
               </div>
             </div>
@@ -2436,6 +2465,7 @@ export default function Home() {
                           </div>}
                       <small className="telegramIdentityLine"><b>Telegram profile</b> {telegramProfileLabel(selectedConversation)}</small>
                       <small className="telegramIdentityLine"><b>Telegram ID</b> {selectedConversation.telegram_user_id}</small>
+                      <small className="telegramIdentityLine"><b>Phone</b> {selectedConversation.telegram_phone_number || "Not provided"}</small>
                       <small>{selectedConversation.message_count} saved messages · {selectedConversation.is_blocked ? "Blocked" : selectedConversation.control_mode === "human" ? "Creator replying" : "Bot active"}</small>
                       <small className="conversationSpend">Lifetime spend: {money(Number(selectedConversation.cash_spent_cents || 0))} cash · ⭐ {Number(selectedConversation.stars_spent || 0).toLocaleString()} Stars</small>
                     </div>

@@ -49,6 +49,7 @@ type TelegramMessage = {
   photo?: Array<{ file_id: string }>;
   video?: { file_id: string };
   voice?: { file_id: string; mime_type?: string; duration?: number; file_size?: number };
+  contact?: { phone_number: string; first_name?: string; last_name?: string; user_id?: number };
   successful_payment?: {
     currency: string;
     total_amount: number;
@@ -392,6 +393,10 @@ function json(body: unknown, status = 200) {
   return Response.json(body, { status });
 }
 
+function csvCell(value: unknown) {
+  return `"${String(value ?? "").replace(/"/g, '""')}"`;
+}
+
 const accessJwks = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
 
 function emailList(value: string | undefined) {
@@ -521,6 +526,7 @@ async function prepareDatabase(env: Env) {
       chat_id TEXT PRIMARY KEY,
       low_priority INTEGER NOT NULL DEFAULT 0,
       next_reply_at TEXT,
+      low_priority_since TEXT,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS conversation_reply_preferences_due_idx
@@ -536,6 +542,7 @@ async function prepareDatabase(env: Env) {
       chat_id TEXT PRIMARY KEY,
       username TEXT,
       display_name TEXT,
+      phone_number TEXT,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS pending_replies (
@@ -999,6 +1006,14 @@ async function prepareDatabase(env: Env) {
   }
   if (!chatMessageColumns.results.some((column) => column.name === "business_connection_id")) {
     await db.prepare("ALTER TABLE chat_messages ADD COLUMN business_connection_id TEXT").run();
+  }
+  const replyPreferenceColumns = await db.prepare("PRAGMA table_info(conversation_reply_preferences)").all<{ name: string }>();
+  if (!replyPreferenceColumns.results.some((column) => column.name === "low_priority_since")) {
+    await db.prepare("ALTER TABLE conversation_reply_preferences ADD COLUMN low_priority_since TEXT").run();
+  }
+  const telegramContactColumns = await db.prepare("PRAGMA table_info(telegram_contacts)").all<{ name: string }>();
+  if (!telegramContactColumns.results.some((column) => column.name === "phone_number")) {
+    await db.prepare("ALTER TABLE telegram_contacts ADD COLUMN phone_number TEXT").run();
   }
   // A creator may deliver paid content from the Inbox before the browser has
   // refreshed its pending-order list. Older builds treated that as a manual
@@ -2454,11 +2469,61 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
     if (!exists) return json({ error: "Conversation not found" }, 404);
     const enabled = body.enabled === true;
     await env.DB.prepare(`INSERT INTO conversation_reply_preferences
-      (chat_id, low_priority, next_reply_at, updated_at) VALUES (?, ?, NULL, CURRENT_TIMESTAMP)
+      (chat_id, low_priority, next_reply_at, low_priority_since, updated_at)
+      VALUES (?, ?, NULL, CASE WHEN ? = 1 THEN CURRENT_TIMESTAMP ELSE NULL END, CURRENT_TIMESTAMP)
       ON CONFLICT(chat_id) DO UPDATE SET low_priority = excluded.low_priority,
-      next_reply_at = NULL, updated_at = CURRENT_TIMESTAMP`)
-      .bind(chatId, enabled ? 1 : 0).run();
+      next_reply_at = NULL,
+      low_priority_since = CASE
+        WHEN excluded.low_priority = 1 AND conversation_reply_preferences.low_priority = 0 THEN CURRENT_TIMESTAMP
+        WHEN excluded.low_priority = 1 THEN COALESCE(conversation_reply_preferences.low_priority_since, CURRENT_TIMESTAMP)
+        ELSE NULL
+      END,
+      updated_at = CURRENT_TIMESTAMP`)
+      .bind(chatId, enabled ? 1 : 0, enabled ? 1 : 0).run();
     return json({ ok: true, low_priority: enabled ? 1 : 0, next_reply_at: null });
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/admin/conversations/low-priority-export") {
+    const entries = await env.DB.prepare(`SELECT
+      COALESCE(fan_profiles.name, '') AS fan_name,
+      COALESCE(telegram_contacts.display_name, '') AS telegram_display_name,
+      COALESCE(telegram_contacts.username, '') AS telegram_username,
+      COALESCE(fan_sessions.telegram_user_id, fan_sessions.chat_id) AS telegram_user_id,
+      COALESCE(telegram_contacts.phone_number, '') AS phone_number,
+      COALESCE(conversation_reply_preferences.low_priority_since,
+        conversation_reply_preferences.updated_at) AS low_priority_since
+      FROM conversation_reply_preferences
+      JOIN fan_sessions ON fan_sessions.chat_id = conversation_reply_preferences.chat_id
+      LEFT JOIN fan_profiles ON fan_profiles.chat_id = fan_sessions.chat_id
+      LEFT JOIN telegram_contacts ON telegram_contacts.chat_id = fan_sessions.chat_id
+      WHERE conversation_reply_preferences.low_priority = 1
+        AND fan_sessions.chat_id <> ?
+      ORDER BY datetime(low_priority_since) DESC`)
+      .bind(DASHBOARD_TEST_CHAT_ID).all<{
+        fan_name: string;
+        telegram_display_name: string;
+        telegram_username: string;
+        telegram_user_id: string;
+        phone_number: string;
+        low_priority_since: string;
+      }>();
+    const headers = ["Fan name", "Telegram display name", "Telegram username", "Telegram user ID",
+      "Phone number", "Low Priority since"];
+    const rows = entries.results.map((entry) => [
+      entry.fan_name || "Not provided",
+      entry.telegram_display_name || "Not provided",
+      entry.telegram_username || "Not provided",
+      entry.telegram_user_id,
+      entry.phone_number || "Not provided",
+      entry.low_priority_since,
+    ]);
+    const csv = `\uFEFF${[headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n")}`;
+    const date = new Date().toISOString().slice(0, 10);
+    return new Response(csv, { headers: {
+      "content-type": "text/csv; charset=utf-8",
+      "content-disposition": `attachment; filename="telegram-low-priority-list-${date}.csv"`,
+      "cache-control": "no-store",
+    } });
   }
 
   if (request.method === "POST" && url.pathname === "/api/admin/conversations/mark-read") {
@@ -2568,6 +2633,7 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
       COALESCE(fan_profiles.name, telegram_contacts.username, telegram_contacts.display_name, 'Telegram fan') AS telegram_name,
       COALESCE(telegram_contacts.display_name, '') AS telegram_display_name,
       COALESCE(telegram_contacts.username, '') AS telegram_username,
+      COALESCE(telegram_contacts.phone_number, '') AS telegram_phone_number,
       COALESCE(fan_sessions.telegram_user_id, fan_sessions.chat_id) AS telegram_user_id,
       fan_sessions.age_status,
       fan_sessions.is_blocked,
@@ -3418,6 +3484,11 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       message.text = "Voice memo received";
     }
   }
+  const sharedOwnPhone = message.contact?.phone_number &&
+    message.contact.user_id === message.from?.id
+    ? message.contact.phone_number.trim()
+    : null;
+  if (!message.text && sharedOwnPhone) message.text = "Contact shared";
   if (!message.text && message.caption?.trim()) message.text = message.caption.trim();
   if (!message.text) return json({ ok: true });
   const userId = message.from?.id ? String(message.from.id) : null;
@@ -3456,11 +3527,12 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     .run();
   const telegramUsername = message.from?.username ? `@${message.from.username}` : null;
   const telegramDisplayName = [message.from?.first_name, message.from?.last_name].filter(Boolean).join(" ") || null;
-  await env.DB.prepare(`INSERT INTO telegram_contacts (chat_id, username, display_name)
-    VALUES (?, ?, ?) ON CONFLICT(chat_id) DO UPDATE SET
+  await env.DB.prepare(`INSERT INTO telegram_contacts (chat_id, username, display_name, phone_number)
+    VALUES (?, ?, ?, ?) ON CONFLICT(chat_id) DO UPDATE SET
     username = COALESCE(excluded.username, telegram_contacts.username),
     display_name = COALESCE(excluded.display_name, telegram_contacts.display_name),
-    updated_at = CURRENT_TIMESTAMP`).bind(chatId, telegramUsername, telegramDisplayName).run();
+    phone_number = COALESCE(excluded.phone_number, telegram_contacts.phone_number),
+    updated_at = CURRENT_TIMESTAMP`).bind(chatId, telegramUsername, telegramDisplayName, sharedOwnPhone).run();
 
   await detectAndRememberFanLanguage(env, chatId, message.text);
   message.text = await translateFanMessageForRouting(env, chatId, message.text);
@@ -4816,6 +4888,7 @@ async function handleAdminPending(request: Request, env: Env) {
     COALESCE(fan_profiles.name, telegram_contacts.username, telegram_contacts.display_name, 'Telegram fan') AS telegram_name,
     COALESCE(telegram_contacts.display_name, '') AS telegram_display_name,
     COALESCE(telegram_contacts.username, '') AS telegram_username,
+    COALESCE(telegram_contacts.phone_number, '') AS telegram_phone_number,
     COALESCE(fan_sessions.telegram_user_id, fan_sessions.chat_id) AS telegram_user_id,
     fan_sessions.age_status,
     fan_sessions.is_blocked,
