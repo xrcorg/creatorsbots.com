@@ -305,6 +305,15 @@ button { cursor: pointer; }
 .conversationDetail > header div { display: grid; gap: 3px; }
 .conversationDetail > header strong { font-size: 11px; }
 .conversationDetail > header small { color: var(--muted); font-size: 8px; }
+.conversationIdentity { min-width: 180px; }
+.fanNameDisplay { display: flex !important; grid-auto-flow: column; align-items: center; justify-content: start; gap: 7px; }
+.fanNameDisplay button { border: 0; padding: 2px 0; background: transparent; color: #a02c4d; font-size: 7px; font-weight: 850; text-decoration: underline; cursor: pointer; }
+.fanNameEditor { display: flex; align-items: center; gap: 5px; }
+.fanNameEditor label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.fanNameEditor input { width: 135px; border: 1px solid #d99ab3; border-radius: 8px; padding: 6px 8px; background: white; color: var(--ink); font-size: 9px; font-weight: 750; }
+.fanNameEditor button { border: 1px solid #d184a0; border-radius: 8px; padding: 6px 7px; background: white; color: #862746; font-size: 7px; font-weight: 850; cursor: pointer; }
+.fanNameEditor button[type="submit"] { border-color: var(--pink); background: var(--pink); color: white; }
+.fanNameEditor button:disabled, .fanNameDisplay button:disabled { cursor: wait; opacity: .5; }
 .conversationHeaderActions { display: flex !important; grid-auto-flow: column; align-items: center; gap: 7px; }
 .confirmAgeOverride { border: 1px solid #d184a0; border-radius: 9px; padding: 7px 9px; background: #fff; color: #862746; font-size: 8px; font-weight: 850; }
 .ageStatusBadge { border-radius: 999px; padding: 6px 9px; font-size: 8px; font-weight: 850; white-space: nowrap; }

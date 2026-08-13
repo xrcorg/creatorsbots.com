@@ -2493,6 +2493,25 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
     return json({ ok: true, name: parsed.name, control_mode: "bot" });
   }
 
+  if (request.method === "POST" && url.pathname === "/api/admin/conversations/update-name") {
+    const body = await request.json<{ chat_id?: string; name?: string }>();
+    const chatId = String(body.chat_id || "").trim();
+    const submittedName = String(body.name || "").trim();
+    const parsed = parseNameIntroduction(submittedName);
+    if (!chatId) return json({ error: "A conversation is required" }, 400);
+    if (!parsed.name || parsed.remainder) {
+      return json({ error: "Enter only the fan's correct name, without a greeting or message" }, 400);
+    }
+    const exists = await env.DB.prepare("SELECT chat_id FROM fan_sessions WHERE chat_id = ?")
+      .bind(chatId).first();
+    if (!exists) return json({ error: "Conversation not found" }, 404);
+    await env.DB.prepare(`INSERT INTO fan_profiles (chat_id, name, proposed_name, name_status, updated_at)
+      VALUES (?, ?, NULL, 'complete', CURRENT_TIMESTAMP)
+      ON CONFLICT(chat_id) DO UPDATE SET name = excluded.name, proposed_name = NULL,
+      name_status = 'complete', updated_at = CURRENT_TIMESTAMP`).bind(chatId, parsed.name).run();
+    return json({ ok: true, name: parsed.name });
+  }
+
   if (request.method === "POST" && url.pathname === "/api/admin/conversations/exit-flow") {
     const body = await request.json<{ chat_id?: string }>();
     const chatId = String(body.chat_id || "").trim();

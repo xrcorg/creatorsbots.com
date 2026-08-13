@@ -456,6 +456,8 @@ export default function Home() {
   const [conversationSearch, setConversationSearch] = useState("");
   const [conversationStatus, setConversationStatus] = useState("");
   const [conversationReply, setConversationReply] = useState("");
+  const [editingFanName, setEditingFanName] = useState(false);
+  const [fanNameDraft, setFanNameDraft] = useState("");
   const [quickReplyWorkflow, setQuickReplyWorkflow] = useState<"start_custom" | "start_video_chat" | "start_booking" | null>(null);
   const [quickReplyCategory, setQuickReplyCategory] = useState<QuickReplyCategory>("content");
   const [quickReplyProductId, setQuickReplyProductId] = useState(0);
@@ -863,12 +865,14 @@ export default function Home() {
   async function openConversation(chatId: string) {
     try {
       setSelectedConversationId(chatId);
+      setEditingFanName(false);
       setConversationStatus("Loading conversation...");
       const response = await fetch(`/api/admin/conversations/${encodeURIComponent(chatId)}`, { cache: "no-store" });
       if (!response.ok) throw new Error("Conversation failed to load");
       const data = await response.json() as { conversation: Pick<LiveConversation, "chat_id" | "telegram_name" | "age_status" | "is_blocked" | "control_mode">; messages: ConversationMessage[] };
       setConversationMessages(data.messages || []);
       if (data.conversation) {
+        setFanNameDraft(data.conversation.telegram_name || "");
         setConversations((items) => items.map((item) => item.chat_id === chatId
           ? { ...item, ...data.conversation }
           : item));
@@ -878,6 +882,37 @@ export default function Home() {
     } catch {
       setConversationMessages([]);
       setConversationStatus("This conversation could not be loaded.");
+    }
+  }
+
+  async function updateFanName() {
+    if (!selectedConversation) return;
+    const name = fanNameDraft.trim();
+    if (!name) {
+      setConversationStatus("Enter the fan's correct name.");
+      return;
+    }
+    try {
+      setLiveLoading(true);
+      setConversationStatus("Saving fan name...");
+      const response = await fetch("/api/admin/conversations/update-name", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ chat_id: selectedConversation.chat_id, name }),
+      });
+      const data = await response.json() as { error?: string; name?: string };
+      if (!response.ok) throw new Error(data.error || "The fan name could not be updated");
+      const savedName = data.name || name;
+      setConversations((items) => items.map((item) => item.chat_id === selectedConversation.chat_id
+        ? { ...item, telegram_name: savedName }
+        : item));
+      setFanNameDraft(savedName);
+      setEditingFanName(false);
+      setConversationStatus(`Fan name updated to ${savedName}. Future bot replies will use it.`);
+    } catch (error) {
+      setConversationStatus(error instanceof Error ? error.message : "The fan name could not be updated.");
+    } finally {
+      setLiveLoading(false);
     }
   }
 
@@ -2272,7 +2307,20 @@ export default function Home() {
               <div className={`conversationDetail ${selectedConversation?.is_blocked ? "blockedFanConversation" : ""}`}>
                 {selectedConversation ? <>
                   <header>
-                    <div><strong>{selectedConversation.telegram_name}</strong><small>{selectedConversation.message_count} saved messages · {selectedConversation.is_blocked ? "Blocked" : selectedConversation.control_mode === "human" ? "Creator replying" : "Bot active"}</small></div>
+                    <div className="conversationIdentity">
+                      {editingFanName
+                        ? <form className="fanNameEditor" onSubmit={(event) => { event.preventDefault(); void updateFanName(); }}>
+                            <label htmlFor="fan-name-input">Fan name</label>
+                            <input autoFocus id="fan-name-input" maxLength={60} onChange={(event) => setFanNameDraft(event.target.value)} value={fanNameDraft} />
+                            <button disabled={liveLoading || !fanNameDraft.trim()} type="submit">Save</button>
+                            <button disabled={liveLoading} onClick={() => { setEditingFanName(false); setFanNameDraft(selectedConversation.telegram_name); }} type="button">Cancel</button>
+                          </form>
+                        : <div className="fanNameDisplay">
+                            <strong>{selectedConversation.telegram_name}</strong>
+                            <button disabled={liveLoading} onClick={() => { setFanNameDraft(selectedConversation.telegram_name); setEditingFanName(true); }} type="button">Edit name</button>
+                          </div>}
+                      <small>{selectedConversation.message_count} saved messages · {selectedConversation.is_blocked ? "Blocked" : selectedConversation.control_mode === "human" ? "Creator replying" : "Bot active"}</small>
+                    </div>
                     <div className="conversationHeaderActions">
                       {selectedConversation.age_status === "verified"
                         ? <span className="ageStatusBadge verified">18+ confirmed</span>
