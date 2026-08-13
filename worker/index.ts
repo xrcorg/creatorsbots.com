@@ -145,7 +145,7 @@ function isCreatorTakeoverReply(reply: string | null | undefined) {
   const normalized = reply.trim().replace(/^['"`]+|['"`]+$/g, "").trim();
   return normalized === CREATOR_TAKEOVER || normalized.includes(CREATOR_TAKEOVER);
 }
-const CAPABILITIES = "I can help you book a private video chat with me here on Telegram. You can also buy photo and video content, shop clothing or worn items, request custom content, get a private video rating, or have a private sexting session with me. What sounds fun?";
+const CAPABILITIES = "I can help you set up a private video chat with me here on Telegram. You can also buy photo and video content, shop clothing or worn items, request custom content, get a private video rating, or have a private sexting session with me. What sounds fun?";
 const INSTAGRAM_URL = "https://www.instagram.com/tiffanimadisonvip/?hl=en";
 const PORNHUB_URL = "https://www.pornhub.com/pornstar/tiffani-madison";
 const X_URL = "https://x.com/TiffaniMadison_";
@@ -155,7 +155,7 @@ const KIND_SALES_DECLINE_REPLY = "Ok babe, let me know if you change your mind."
 const BOOKING_CANCELLATION_REPLY = KIND_SALES_DECLINE_REPLY;
 const CUSTOM_CANCELLATION_REPLY = KIND_SALES_DECLINE_REPLY;
 const SEXTING_CANCELLATION_REPLY = KIND_SALES_DECLINE_REPLY;
-const PAID_IN_PERSON_SEX_REPLY = "I can talk about sex and fantasies, babe, but I don't arrange paid in person sex here.";
+const PAID_IN_PERSON_SEX_REPLY = "I don't arrange paid sex, babe. I may offer a professional meet and greet or professional shoot instead. Tell me which one you're interested in and I'll review it.";
 const IN_PERSON_MEET_UNAVAILABLE_REPLY = "I only offer private video chats here on Telegram, babe. Want to set one up?";
 const SEXTING_BUSINESS_DEFER_REPLY = "We can discuss that after our session is over, babe. For now, stay here with me.";
 const PRODUCT_TITLE = "Blonde Bombshell After Dark";

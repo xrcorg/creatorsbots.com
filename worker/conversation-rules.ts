@@ -160,7 +160,7 @@ export function isManualSalesHandoffRequest(text: string) {
   const value = normalizeCasualText(text);
   const intent = casualMessageIntent(value);
   if (intent === "catalog" || intent === "custom" || intent === "booking") return true;
-  return /\b(?:buy|buying|purchase|purchasing|for sale|sell|selling|catalog|shop|menu|trailers?|previews?|videos?|photos?|pics?|content|sets?|bundles?|customs?|custom content|custom video|panty|panties|worn items?|clothing|dick ratings?|video ratings?|rate my (?:dick|cock)|video chats?|video calls?|payment options?|how (?:do|can) i pay|price|cost)\b/i.test(value);
+  return /\b(?:buy|buying|purchase|purchasing|for sale|sell|selling|catalog|shop|menu|trailers?|previews?|videos?|photos?|pics?|content|sets?|bundles?|customs?|custom content|custom video|panty|panties|worn items?|clothing|dick ratings?|video ratings?|rate my (?:dick|cock)|video chats?|video calls?|meet and greet|professional (?:(?:photo|video) )?shoot|payment options?|how (?:do|can) i pay|price|cost)\b/i.test(value);
 }
 
 export function isCatalogFollowUpQuestion(text: string) {

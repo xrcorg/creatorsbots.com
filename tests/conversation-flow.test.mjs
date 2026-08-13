@@ -186,6 +186,8 @@ test("commercial requests pause for creator handling during the pilot", () => {
   }
   assert.equal(isManualSalesHandoffRequest("Can I book something?"), false);
   assert.equal(isManualSalesHandoffRequest("Can I book a video chat?"), true);
+  assert.equal(isManualSalesHandoffRequest("I'm interested in a professional meet and greet"), true);
+  assert.equal(isManualSalesHandoffRequest("Can we arrange a professional shoot?"), true);
 });
 
 test("partial catalog titles select the intended product", () => {
