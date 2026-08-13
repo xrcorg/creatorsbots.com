@@ -215,7 +215,7 @@ type SocialLink = {
 
 type TrainingSuggestion = {
   id: number;
-  category: "topic" | "fact" | "like" | "dislike" | "voice" | "avoid" | "tone" | "feedback";
+  category: "topic" | "fact" | "like" | "dislike" | "fear" | "voice" | "avoid" | "tone" | "feedback";
   suggestion: string;
   created_at: string;
 };
@@ -2812,15 +2812,15 @@ export default function Home() {
 
           <section className="conversationTraining dashboardSection dashboardSettings">
             <div className="sectionHeading"><strong>Conversation training</strong><span>{trainingSuggestions.length}</span></div>
-            <p className="queueNote">Teach the bot what the creator likes, dislikes, knows about herself, and how she naturally texts. Include complete examples. Saved changes apply immediately.</p>
+            <p className="queueNote">Teach the bot what the creator likes, dislikes, fears, knows about herself, and how she naturally texts. Include complete examples. Saved changes apply immediately.</p>
             <form onSubmit={addTrainingSuggestion}>
-              <label><span>Training type</span><select value={trainingForm.category} onChange={(event) => setTrainingForm((current) => ({ ...current, category: event.target.value as TrainingSuggestion["category"] }))}><option value="fact">Personal fact or answer</option><option value="like">Like or favorite</option><option value="dislike">Dislike</option><option value="voice">How I say things</option><option value="topic">Topic to discuss</option><option value="avoid">Topic to avoid</option><option value="tone">Tone instruction</option><option value="feedback">Behavior feedback</option></select></label>
-              <label><span>Suggestion</span><textarea required maxLength={1000} placeholder={trainingForm.category === "fact" ? "I went to Comic Con in 2025." : trainingForm.category === "like" ? "My favorite anime is Sailor Moon." : trainingForm.category === "dislike" ? "I don't like rude people." : trainingForm.category === "voice" ? "Example: lol yeah babe, that sounds fun" : "Add one clear instruction..."} value={trainingForm.suggestion} onChange={(event) => setTrainingForm((current) => ({ ...current, suggestion: event.target.value }))} /></label>
+              <label><span>Training type</span><select value={trainingForm.category} onChange={(event) => setTrainingForm((current) => ({ ...current, category: event.target.value as TrainingSuggestion["category"] }))}><option value="fact">Personal fact or answer</option><option value="like">Like or favorite</option><option value="dislike">Dislike</option><option value="fear">Fear</option><option value="voice">How I say things</option><option value="topic">Topic to discuss</option><option value="avoid">Topic to avoid</option><option value="tone">Tone instruction</option><option value="feedback">Behavior feedback</option></select></label>
+              <label><span>Suggestion</span><textarea required maxLength={1000} placeholder={trainingForm.category === "fact" ? "I went to Comic Con in 2025." : trainingForm.category === "like" ? "My favorite anime is Sailor Moon." : trainingForm.category === "dislike" ? "I don't like rude people." : trainingForm.category === "fear" ? "I'm afraid of spiders and deep water." : trainingForm.category === "voice" ? "Example: lol yeah babe, that sounds fun" : "Add one clear instruction..."} value={trainingForm.suggestion} onChange={(event) => setTrainingForm((current) => ({ ...current, suggestion: event.target.value }))} /></label>
               <button className="primaryAction" disabled={liveLoading}>{editingTrainingId ? "Save changes" : "Add training suggestion"}</button>
               {editingTrainingId && <button className="secondaryAction" type="button" onClick={cancelTrainingEdit}>Cancel editing</button>}
             </form>
             <div className="trainingSuggestionList">
-              {trainingSuggestions.map((item) => <article key={item.id}><div><span>{item.category === "fact" ? "Personal answer" : item.category === "like" ? "Likes and favorites" : item.category === "dislike" ? "Dislikes" : item.category === "voice" ? "My texting style" : item.category === "topic" ? "Talk about" : item.category === "avoid" ? "Avoid" : item.category === "tone" ? "Tone" : "Feedback"}</span><p>{item.suggestion}</p></div><button type="button" disabled={liveLoading} onClick={() => editTrainingSuggestion(item)}>Edit</button><button type="button" disabled={liveLoading} onClick={() => void deleteTrainingSuggestion(item.id)}>Delete</button></article>)}
+              {trainingSuggestions.map((item) => <article key={item.id}><div><span>{item.category === "fact" ? "Personal answer" : item.category === "like" ? "Likes and favorites" : item.category === "dislike" ? "Dislikes" : item.category === "fear" ? "Fears" : item.category === "voice" ? "My texting style" : item.category === "topic" ? "Talk about" : item.category === "avoid" ? "Avoid" : item.category === "tone" ? "Tone" : "Feedback"}</span><p>{item.suggestion}</p></div><button type="button" disabled={liveLoading} onClick={() => editTrainingSuggestion(item)}>Edit</button><button type="button" disabled={liveLoading} onClick={() => void deleteTrainingSuggestion(item.id)}>Delete</button></article>)}
             </div>
             <div className="fixedBoundaries">
               <strong>Fixed safety boundaries</strong>
