@@ -326,6 +326,9 @@ button { cursor: pointer; }
 .conversationTranscript article.user { align-self: flex-start; background: white; border: 1px solid #eadfe4; }
 .conversationTranscript article.assistant { align-self: flex-end; background: #ffe8f3; }
 .conversationTranscript article span, .conversationTranscript article time { display: block; color: var(--muted); font-size: 7px; }
+.conversationMessageHeader { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.conversationMessageHeader button { border: 0; padding: 2px 0; background: transparent; color: #a02c4d; font-size: 7px; font-weight: 850; text-decoration: underline; cursor: pointer; }
+.conversationMessageHeader button:disabled { opacity: .45; cursor: wait; }
 .conversationTranscript article p { margin: 4px 0; font-size: 9px; line-height: 1.45; white-space: pre-wrap; }
 .conversationTranscript audio { display: block; width: min(100%, 300px); height: 32px; margin: 7px 0 4px; }
 .voiceReviewFlag { display: block; margin-top: 5px; color: #a02c4d; font-size: 7px; font-weight: 800; }

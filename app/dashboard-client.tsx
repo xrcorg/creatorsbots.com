@@ -882,6 +882,32 @@ export default function Home() {
     }
   }
 
+  async function deleteConversationMessage(message: ConversationMessage) {
+    if (!selectedConversation) return;
+    const sender = message.role === "user" ? selectedConversation.telegram_name : "the creator or bot";
+    if (!window.confirm(`Delete this message from ${sender}? The portal will also ask Telegram to remove it when allowed.`)) return;
+    try {
+      setLiveLoading(true);
+      setConversationStatus("Deleting message...");
+      const response = await fetch(`/api/admin/conversations/${encodeURIComponent(selectedConversation.chat_id)}/messages/${message.id}`, {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ voice_note_id: message.voice_note_id }),
+      });
+      const data = await response.json() as { error?: string; warning?: string; telegram_deleted?: boolean };
+      if (!response.ok) throw new Error(data.error || "The message could not be deleted");
+      setConversationMessages((items) => items.filter((item) => item.id !== message.id));
+      setConversationStatus(data.warning || (data.telegram_deleted
+        ? "Message deleted from the Inbox and Telegram."
+        : "Message deleted from the Inbox."));
+      await loadLivePending();
+    } catch (error) {
+      setConversationStatus(error instanceof Error ? error.message : "The message could not be deleted.");
+    } finally {
+      setLiveLoading(false);
+    }
+  }
+
   async function confirmNewChatterName(chatId: string) {
     const name = (newChatterNames[chatId] || "").trim();
     if (!name) {
@@ -2260,7 +2286,10 @@ export default function Home() {
                   <div className="conversationTranscript">
                     {conversationMessages.length ? conversationMessages.map((message) => (
                       <article className={message.role} key={message.id}>
-                        <span>{message.role === "user" ? selectedConversation.telegram_name : (portalUser?.creator_name.split(/\s+/)[0] || "Creator")}</span>
+                        <div className="conversationMessageHeader">
+                          <span>{message.role === "user" ? selectedConversation.telegram_name : (portalUser?.creator_name.split(/\s+/)[0] || "Creator")}</span>
+                          <button aria-label={`Delete message from ${message.role === "user" ? selectedConversation.telegram_name : "creator"}`} disabled={liveLoading} onClick={() => void deleteConversationMessage(message)} type="button">Delete</button>
+                        </div>
                         {message.voice_note_id && <audio controls preload="none" src={`/api/admin/conversations/voice/${message.voice_note_id}`} />}
                         <p>{message.content}</p>
                         {message.voice_status === "creator_review" && <small className="voiceReviewFlag">Voice memo awaiting your reply</small>}

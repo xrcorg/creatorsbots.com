@@ -477,10 +477,21 @@ async function prepareDatabase(env: Env) {
       chat_id TEXT NOT NULL,
       role TEXT NOT NULL,
       content TEXT NOT NULL,
+      telegram_message_id INTEGER,
+      business_connection_id TEXT,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS chat_messages_chat_id_idx
       ON chat_messages(chat_id, id)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS telegram_message_log (
+      chat_id TEXT NOT NULL,
+      message_id INTEGER NOT NULL,
+      business_connection_id TEXT,
+      role TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (chat_id, message_id)
+    )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS voice_notes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       chat_id TEXT NOT NULL,
@@ -968,6 +979,13 @@ async function prepareDatabase(env: Env) {
   if (!fanProfileColumns.results.some((column) => column.name === "proposed_name")) {
     await db.prepare("ALTER TABLE fan_profiles ADD COLUMN proposed_name TEXT").run();
   }
+  const chatMessageColumns = await db.prepare("PRAGMA table_info(chat_messages)").all<{ name: string }>();
+  if (!chatMessageColumns.results.some((column) => column.name === "telegram_message_id")) {
+    await db.prepare("ALTER TABLE chat_messages ADD COLUMN telegram_message_id INTEGER").run();
+  }
+  if (!chatMessageColumns.results.some((column) => column.name === "business_connection_id")) {
+    await db.prepare("ALTER TABLE chat_messages ADD COLUMN business_connection_id TEXT").run();
+  }
   // A creator may deliver paid content from the Inbox before the browser has
   // refreshed its pending-order list. Older builds treated that as a manual
   // message, leaving the purchase pending even though its exact delivery link
@@ -1198,15 +1216,62 @@ async function sendTelegramMessage(env: Env, message: TelegramMessage, text: str
     body: JSON.stringify(payload),
   });
 
-  if (!response.ok) {
-    throw new Error(`Telegram send failed with status ${response.status}`);
+  const result = await response.json().catch(() => null) as {
+    ok?: boolean;
+    description?: string;
+    result?: { message_id?: number };
+  } | null;
+  if (!response.ok || !result?.ok) {
+    throw new Error(result?.description || `Telegram send failed with status ${response.status}`);
   }
 
-  if (localizedText !== text) {
-    await env.DB.prepare(`UPDATE chat_messages SET content = ? WHERE id = (
-      SELECT id FROM chat_messages WHERE chat_id = ? AND role = 'assistant' AND content = ?
-      ORDER BY id DESC LIMIT 1
-    )`).bind(localizedText, String(message.chat.id), text).run();
+  const chatId = String(message.chat.id);
+  const telegramMessageId = Number(result.result?.message_id || 0);
+  if (telegramMessageId) {
+    await env.DB.prepare(`INSERT OR REPLACE INTO telegram_message_log
+      (chat_id, message_id, business_connection_id, role, content)
+      VALUES (?, ?, ?, 'assistant', ?)`)
+      .bind(chatId, telegramMessageId, message.business_connection_id || null, localizedText).run();
+  }
+  if (localizedText !== text || telegramMessageId) {
+    await env.DB.prepare(`UPDATE chat_messages SET content = ?, telegram_message_id = ?,
+      business_connection_id = COALESCE(?, business_connection_id) WHERE id = (
+      SELECT id FROM chat_messages WHERE chat_id = ? AND role = 'assistant'
+      AND telegram_message_id IS NULL AND content = ? ORDER BY id DESC LIMIT 1
+    )`).bind(localizedText, telegramMessageId || null, message.business_connection_id || null,
+      chatId, text).run();
+  }
+}
+
+async function rememberTelegramMessage(db: D1Database, message: TelegramMessage,
+  role: "user" | "assistant", content: string) {
+  if (!message.message_id) return;
+  await db.prepare(`INSERT OR REPLACE INTO telegram_message_log
+    (chat_id, message_id, business_connection_id, role, content)
+    VALUES (?, ?, ?, ?, ?)`)
+    .bind(String(message.chat.id), message.message_id, message.business_connection_id || null, role, content)
+    .run();
+}
+
+async function deleteTelegramMessage(env: Env, chatId: string, messageId: number,
+  businessConnectionId: string | null) {
+  if (!env.TELEGRAM_BOT_TOKEN) return { ok: false, error: "Telegram is not configured" };
+  const method = businessConnectionId ? "deleteBusinessMessages" : "deleteMessage";
+  const payload = businessConnectionId
+    ? { business_connection_id: businessConnectionId, message_ids: [messageId] }
+    : { chat_id: Number(chatId), message_id: messageId };
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/${method}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const result = await response.json().catch(() => null) as { ok?: boolean; description?: string } | null;
+    return response.ok && result?.ok
+      ? { ok: true, error: "" }
+      : { ok: false, error: result?.description || `Telegram returned ${response.status}` };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Telegram deletion failed" };
   }
 }
 
@@ -2043,8 +2108,17 @@ function isTiffaniSleeping(settings: Record<string, string>, date = new Date()) 
 }
 
 async function saveMessage(db: D1Database, chatId: string, role: "user" | "assistant", content: string) {
-  await db.prepare("INSERT INTO chat_messages (chat_id, role, content) VALUES (?, ?, ?)")
-    .bind(chatId, role, content)
+  const telegramMessage = await db.prepare(`SELECT message_id, business_connection_id
+    FROM telegram_message_log WHERE chat_id = ? AND role = ? AND content = ?
+    AND NOT EXISTS (SELECT 1 FROM chat_messages
+      WHERE chat_messages.chat_id = telegram_message_log.chat_id
+      AND chat_messages.telegram_message_id = telegram_message_log.message_id)
+    ORDER BY message_id ASC LIMIT 1`)
+    .bind(chatId, role, content).first<{ message_id: number; business_connection_id: string | null }>();
+  await db.prepare(`INSERT INTO chat_messages
+    (chat_id, role, content, telegram_message_id, business_connection_id) VALUES (?, ?, ?, ?, ?)`)
+    .bind(chatId, role, content, telegramMessage?.message_id || null,
+      telegramMessage?.business_connection_id || null)
     .run();
 }
 
@@ -2166,6 +2240,7 @@ async function resetConversationState(db: D1Database, chatId: string) {
     db.prepare(`DELETE FROM inbound_message_buffer WHERE chat_id = ?`).bind(chatId),
     db.prepare(`DELETE FROM product_interest WHERE chat_id = ?`).bind(chatId),
     db.prepare(`DELETE FROM chat_messages WHERE chat_id = ?`).bind(chatId),
+    db.prepare(`DELETE FROM telegram_message_log WHERE chat_id = ?`).bind(chatId),
     db.prepare(`UPDATE fan_profiles SET proposed_name = NULL,
       name_status = CASE WHEN name IS NULL THEN 'awaiting_name' ELSE 'complete' END,
       updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?`).bind(chatId),
@@ -2196,6 +2271,7 @@ async function clearAllTestConversations(db: D1Database) {
     db.prepare("DELETE FROM product_interest"),
     db.prepare("DELETE FROM pending_replies"),
     db.prepare("DELETE FROM chat_messages"),
+    db.prepare("DELETE FROM telegram_message_log"),
     db.prepare("DELETE FROM voice_notes"),
     db.prepare("DELETE FROM conversation_controls"),
     db.prepare("DELETE FROM fan_profiles"),
@@ -2222,6 +2298,60 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
       "content-type": voice.mime_type,
       "cache-control": "private, max-age=3600",
     } });
+  }
+
+  const messageMatch = url.pathname.match(/^\/api\/admin\/conversations\/([^/]+)\/messages\/(-?\d+)$/);
+  if (request.method === "DELETE" && messageMatch) {
+    const chatId = decodeURIComponent(messageMatch[1]);
+    const messageId = Number(messageMatch[2]);
+    const body = await request.json<{ voice_note_id?: number }>().catch(() => ({}));
+    if (!Number.isSafeInteger(messageId) || messageId === 0) {
+      return json({ error: "That message could not be identified" }, 400);
+    }
+
+    let voiceNoteId = Number(body.voice_note_id || 0);
+    let telegramDeleted = false;
+    let telegramError = "";
+    if (messageId > 0) {
+      const saved = await env.DB.prepare(`SELECT id, role, content, telegram_message_id,
+        business_connection_id FROM chat_messages WHERE id = ? AND chat_id = ?`)
+        .bind(messageId, chatId).first<{
+          id: number; role: "user" | "assistant"; content: string;
+          telegram_message_id: number | null; business_connection_id: string | null;
+        }>();
+      if (!saved) return json({ error: "Message not found" }, 404);
+      if (saved.telegram_message_id) {
+        const telegramResult = await deleteTelegramMessage(env, chatId,
+          saved.telegram_message_id, saved.business_connection_id);
+        telegramDeleted = telegramResult.ok;
+        telegramError = telegramResult.error;
+      } else {
+        telegramError = "This older message was saved before Telegram deletion tracking was enabled";
+      }
+      await env.DB.batch([
+        env.DB.prepare("DELETE FROM chat_messages WHERE id = ? AND chat_id = ?").bind(messageId, chatId),
+        env.DB.prepare(`UPDATE pending_replies SET status = 'ignored', answered_at = CURRENT_TIMESTAMP
+          WHERE chat_id = ? AND question = ? AND status = 'pending'`).bind(chatId, saved.content),
+      ]);
+    } else {
+      voiceNoteId = voiceNoteId || Math.abs(messageId);
+    }
+
+    if (voiceNoteId) {
+      const voice = await env.DB.prepare("SELECT r2_key FROM voice_notes WHERE id = ? AND chat_id = ?")
+        .bind(voiceNoteId, chatId).first<{ r2_key: string }>();
+      if (voice) {
+        await env.MEDIA.delete(voice.r2_key);
+        await env.DB.prepare("DELETE FROM voice_notes WHERE id = ? AND chat_id = ?")
+          .bind(voiceNoteId, chatId).run();
+      }
+    }
+
+    return json({
+      ok: true,
+      telegram_deleted: telegramDeleted,
+      warning: telegramDeleted || !telegramError ? "" : `Removed from the Inbox. Telegram could not remove it: ${telegramError}.`,
+    });
   }
 
   const match = url.pathname.match(/^\/api\/admin\/conversations\/([^/]+)$/);
@@ -2613,6 +2743,7 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
       ...(conversation.business_connection_id ? { business_connection_id: conversation.business_connection_id } : {}),
     };
     await sendTelegramMessage(env, telegramMessage, reply);
+    await saveMessage(env.DB, chatId, "assistant", reply);
     const latestFanMessage = body.learn
       ? await env.DB.prepare(`SELECT content FROM chat_messages
           WHERE chat_id = ? AND role = 'user' ORDER BY id DESC LIMIT 1`)
@@ -2625,8 +2756,6 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
         VALUES (?, ?, ?, CURRENT_TIMESTAMP)
         ON CONFLICT(chat_id) DO UPDATE SET control_mode = excluded.control_mode, taken_over_by = excluded.taken_over_by,
         updated_at = CURRENT_TIMESTAMP`).bind(chatId, continuingWithBot ? "bot" : "human", continuingWithBot ? null : portalUser.email),
-      env.DB.prepare(`INSERT INTO chat_messages (chat_id, role, content) VALUES (?, 'assistant', ?)`)
-        .bind(chatId, reply),
       env.DB.prepare(`UPDATE sexting_sessions SET control_mode = ?,
         taken_over_at = CASE WHEN ? = 'human' THEN CURRENT_TIMESTAMP ELSE NULL END
         WHERE chat_id = ? AND status = 'active' AND ends_at IS NOT NULL
@@ -3039,6 +3168,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   // owner's sender id. Bot-authored business messages carry sender_business_bot.
   // Treat a personal creator reply as an immediate handoff for an active session.
   if (isCreatorBusinessReply) {
+    await rememberTelegramMessage(env.DB, message, "assistant", message.text);
     await env.DB.prepare(`INSERT INTO conversation_controls (chat_id, control_mode, taken_over_by, updated_at)
       VALUES (?, 'human', 'telegram', CURRENT_TIMESTAMP)
       ON CONFLICT(chat_id) DO UPDATE SET control_mode = 'human', taken_over_by = 'telegram',
@@ -3075,6 +3205,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
 
   await detectAndRememberFanLanguage(env, chatId, message.text);
   message.text = await translateFanMessageForRouting(env, chatId, message.text);
+  await rememberTelegramMessage(env.DB, message, "user", message.text);
 
   const session = await env.DB.prepare("SELECT age_status, is_blocked FROM fan_sessions WHERE chat_id = ?")
     .bind(chatId)

@@ -40,3 +40,17 @@ test("pauses an unclear age gate instead of repeating it indefinitely", async ()
   assert.match(worker, /queueCreatorReply\(env\.DB, message, "age_review"\)/);
   assert.match(worker, /age_creator_review_needed: true/);
 });
+
+test("allows Inbox deletion for fan and creator messages", async () => {
+  const [dashboard, worker] = await Promise.all([
+    readFile(dashboardPath, "utf8"),
+    readFile(workerPath, "utf8"),
+  ]);
+
+  assert.match(dashboard, /async function deleteConversationMessage/);
+  assert.match(dashboard, /Delete message from/);
+  assert.match(worker, /telegram_message_id INTEGER/);
+  assert.match(worker, /deleteBusinessMessages/);
+  assert.match(worker, /request\.method === "DELETE" && messageMatch/);
+  assert.match(worker, /DELETE FROM chat_messages WHERE id = \? AND chat_id = \?/);
+});
