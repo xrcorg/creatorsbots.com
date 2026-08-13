@@ -113,6 +113,32 @@ export function customDetailsMissing(text: string) {
   return { duration: !hasDuration, description: usefulWords.length < 5 };
 }
 
+export function customRequestType(text: string): "photo" | "video" | null {
+  const value = normalizeCasualText(text);
+  if (/\b(?:photo|photos|pic|pics|picture|pictures|image|images|photo set|picture set)\b/i.test(value)) return "photo";
+  if (/\b(?:video|videos|vid|vids|clip|clips)\b/i.test(value)) return "video";
+  return null;
+}
+
+export function customPhotoCount(text: string) {
+  const wordNumbers: Record<string, number> = {
+    a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5,
+    six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11,
+    twelve: 12, fifteen: 15, twenty: 20, thirty: 30, fifty: 50,
+  };
+  const match = text.match(/\b(\d{1,3}|a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|fifty)\s*(?:custom\s*)?(?:photo|photos|pic|pics|picture|pictures|image|images)\b/i);
+  if (match) return /^\d+$/.test(match[1]) ? Number(match[1]) : wordNumbers[match[1].toLowerCase()] || 0;
+  const bareCount = text.match(/(?:^|\n)\s*(\d{1,3})\s*(?:$|\n)/);
+  return bareCount ? Number(bareCount[1]) : 0;
+}
+
+export function customPhotoDetailsMissing(text: string) {
+  const count = customPhotoCount(text);
+  const usefulWords = text.replace(/\b(custom|customs|photo|photos|pic|pics|picture|pictures|image|images|content|i want|i would like|please|babe)\b/gi, " ")
+    .replace(/\b\d{1,3}\b/g, " ").trim().split(/\s+/).filter(Boolean);
+  return { quantity: count < 1, description: usefulWords.length < 5 };
+}
+
 export function isCustomDetailsFinished(text: string) {
   return /^(?:yes|yes,? that(?:'s| is) all|yes,? that(?:'s| is) everything|done|finished|all done|complete|i(?:'m| am) done|that(?:'s| is) all|that(?:'s| is) everything|that(?:'s| is) it|nothing else|no(?:pe)?,? that(?:'s| is) (?:it|all|everything)|those are all the details)[.! ]*$/i.test(text.trim());
 }

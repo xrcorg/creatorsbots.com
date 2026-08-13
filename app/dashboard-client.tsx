@@ -53,6 +53,8 @@ type LiveBooking = {
   created_at: string;
   telegram_name: string;
   suggested_type: "video_chat" | "custom_content";
+  custom_type?: "photo" | "video" | "";
+  custom_quantity?: number;
 };
 
 type PaymentMethods = {
@@ -66,6 +68,8 @@ type LiveCustom = {
   chat_id?: string;
   telegram_name: string;
   duration_minutes: number;
+  custom_type?: "photo" | "video";
+  photo_count?: number;
   description: string;
   amount_cents: number;
   created_at?: string;
@@ -1475,7 +1479,8 @@ export default function Home() {
     if (!current) return;
     const answer = creatorReply.trim();
     if (action === "decline" && !answer) return;
-    if (action === "approve" && !bookingDuration.trim()) return;
+    const selectedPhotoCustom = action === "approve" && bookingType === "custom_content" && current.custom_type === "photo";
+    if (action === "approve" && !selectedPhotoCustom && !bookingDuration.trim()) return;
     if (action === "approve" && bookingType === "custom_content" && !bookingAmount.trim()) return;
     const immediateVideoChat = bookingType === "video_chat" && /\b(?:right now|video (?:chat|call) now|immediately|asap|rn)\b/i.test(current.details);
     if (action === "approve" && bookingType === "video_chat" && !bookingScheduledAt && !immediateVideoChat) return;
@@ -2846,7 +2851,7 @@ export default function Home() {
               <div className="customCard" key={custom.id}>
                 <div className="customMeta">
                   <strong>{custom.telegram_name}</strong>
-                  <span>{custom.duration_minutes} minutes · {money(custom.amount_cents)}</span>
+                  <span>{custom.custom_type === "photo" ? `${custom.photo_count || 1} photos` : `${custom.duration_minutes} minutes`} · {money(custom.amount_cents)}</span>
                 </div>
                 <p>{custom.description}</p>
                 {custom.status === "awaiting_payment" && <>
@@ -2859,7 +2864,7 @@ export default function Home() {
                   <button className="secondaryAction" disabled={liveLoading} onClick={() => void reviewCustomPayment(custom.id, false)}>Payment not verified</button>
                 </>}
                 {custom.status === "awaiting_fulfillment" && <><label className="amountField">
-                  <span>Finished custom link</span>
+                  <span>{custom.custom_type === "photo" ? "Finished custom photos link" : "Finished custom video link"}</span>
                   <input
                     aria-label={`Delivery link for ${custom.telegram_name}`}
                     onChange={(event) => setCustomLinks((current) => ({ ...current, [custom.id]: event.target.value }))}
@@ -2879,7 +2884,7 @@ export default function Home() {
                   />
                 </label>
                 <button className="primaryAction" disabled={liveLoading || !customLinks[custom.id]?.trim()} onClick={() => void completeCustom(custom.id)}>
-                  Finish custom and send
+                  {custom.custom_type === "photo" ? "Send custom photos and complete" : "Send custom video and complete"}
                 </button>
                 </>}
                 <button className="secondaryAction" disabled={liveLoading} onClick={() => void cancelCustom(custom.id)}>
@@ -2941,7 +2946,9 @@ export default function Home() {
             </div>
           ) : liveBookings.length ? (
             <div className="takeoverCard bookingApproval dashboardSection dashboardToday">
-              <div className="alertTitle"><span>□</span> {liveBookings[0].suggested_type === "custom_content" ? "Custom request" : "Video chat request"}</div>
+              <div className="alertTitle"><span>□</span> {liveBookings[0].suggested_type === "custom_content"
+                ? liveBookings[0].custom_type === "photo" ? "Custom photo request" : "Custom video request"
+                : "Video chat request"}</div>
               <div className="requestOwner">{liveBookings[0].telegram_name}</div>
               <p className="fanQuestion">“{liveBookings[0].details}”</p>
               <small>Requested {new Date(`${liveBookings[0].created_at}Z`).toLocaleDateString()}</small>
@@ -2959,10 +2966,13 @@ export default function Home() {
                   <option value="custom_content">Custom content</option>
                 </select>
               </label>
-              <label className="amountField">
+              {(bookingType !== "custom_content" || liveBookings[0].custom_type !== "photo") && <label className="amountField">
                 <span>Minutes</span>
                 <input inputMode="decimal" min={bookingType === "video_chat" ? "5" : "1"} onChange={(event) => setBookingDuration(event.target.value)} placeholder={bookingType === "video_chat" ? "5" : "1"} value={bookingDuration} />
-              </label>
+              </label>}
+              {bookingType === "custom_content" && liveBookings[0].custom_type === "photo" && <div className="calculatedTotal">
+                Requested photos: {liveBookings[0].custom_quantity || "Not specified"}
+              </div>}
               {bookingType === "video_chat" && <label className="amountField">
                 <span>Confirmed date and time</span>
                 <input min={new Date().toISOString().slice(0, 16)} onChange={(event) => setBookingScheduledAt(event.target.value)} type="datetime-local" value={bookingScheduledAt} />
@@ -2991,7 +3001,8 @@ export default function Home() {
 
           <div className="testPrompts dashboardSection dashboardSettings">
             <strong>Quick test prompts</strong>
-            <button onClick={() => { setInput("Can I get a custom video?"); setCreatorMode(false); }}>Custom request</button>
+            <button onClick={() => { setInput("Can I get custom photos?"); setCreatorMode(false); }}>Custom photo request</button>
+            <button onClick={() => { setInput("Can I get a custom video?"); setCreatorMode(false); }}>Custom video request</button>
             <button onClick={() => { setInput("What anime do you like?"); setCreatorMode(false); }}>Personality question</button>
             <button onClick={() => { setInput("I want a video chat"); setCreatorMode(false); }}>Video chat request</button>
           </div>
@@ -3078,7 +3089,7 @@ export default function Home() {
               <div key={custom.id}>
                 <span>
                   <b>{custom.telegram_name}</b>
-                  <small>{custom.duration_minutes} minutes · {money(custom.amount_cents)}{custom.completion_comment ? ` · ${custom.completion_comment}` : ""}</small>
+                  <small>{custom.custom_type === "photo" ? `${custom.photo_count || 1} photos` : `${custom.duration_minutes} minutes`} · {money(custom.amount_cents)}{custom.completion_comment ? ` · ${custom.completion_comment}` : ""}</small>
                   {custom.delivery_url && <a href={custom.delivery_url} rel="noreferrer" target="_blank">Open finished custom</a>}
                 </span>
                 <time>{custom.status === "cancelled" ? "Cancelled" : custom.status === "closed_unpaid" ? "Closed unpaid" : custom.completed_at ? new Date(`${custom.completed_at}Z`).toLocaleDateString() : "Completed"}</time>

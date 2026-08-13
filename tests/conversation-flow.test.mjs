@@ -5,6 +5,9 @@ import {
   bookingDetailsMissing,
   casualMessageIntent,
   customDetailsMissing,
+  customPhotoCount,
+  customPhotoDetailsMissing,
+  customRequestType,
   isAffirmativeReply,
   isAmbiguousSexMessage,
   isBookingDecline,
@@ -346,6 +349,20 @@ test("customs require both creative details and a duration", () => {
   });
   assert.deepEqual(customDetailsMissing("I want a custom where you say my name and wear pink lingerie\n10"), {
     duration: false,
+    description: false,
+  });
+});
+
+test("custom photo requests collect a photo count instead of video minutes", () => {
+  assert.equal(customRequestType("Can I order custom photos?"), "photo");
+  assert.equal(customRequestType("Can I order a custom video?"), "video");
+  assert.equal(customPhotoCount("I want 8 custom photos in red lingerie"), 8);
+  assert.deepEqual(customPhotoDetailsMissing("I want custom photos"), {
+    quantity: true,
+    description: true,
+  });
+  assert.deepEqual(customPhotoDetailsMissing("I want 8 custom photos wearing red lingerie while posing by the pool"), {
+    quantity: false,
     description: false,
   });
 });

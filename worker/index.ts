@@ -1,7 +1,7 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { bookingDetailsMissing, casualMessageIntent, customDetailsMissing, isAffirmativeReply, isAmbiguousSexMessage, isBookingDecline, isBotQuestion, isCancelReply, isCatalogBrowseRequest, isCatalogContentRequest, isCatalogFollowUpQuestion, isConversationQuestion, isConversationReset, isCustomDecline, isCustomDetailsFinished, isGenericCancelReply, isLikelyBookingDetailReply, isLikelyShippingAddress, isLikelyShippingName, isManualSalesHandoffRequest, isMessageBurst, isPaidInPersonSexSolicitation, isPersonalFactTrainingSuggestion, isPhysicalOrderDecline, isPresenceCheck, isRatingDecline, isSextingDecline, isSextingPackageFollowUp, isSoftSalesDeclineReply, isTrailerOfferAwaitingConfirmation, normalizeCasualText, parseDeclaredAge, parseNameChangeRequest, parseNameIntroduction, productTitleMatchesMessage } from "./conversation-rules";
+import { bookingDetailsMissing, casualMessageIntent, customDetailsMissing, customPhotoCount, customPhotoDetailsMissing, customRequestType, isAffirmativeReply, isAmbiguousSexMessage, isBookingDecline, isBotQuestion, isCancelReply, isCatalogBrowseRequest, isCatalogContentRequest, isCatalogFollowUpQuestion, isConversationQuestion, isConversationReset, isCustomDecline, isCustomDetailsFinished, isGenericCancelReply, isLikelyBookingDetailReply, isLikelyShippingAddress, isLikelyShippingName, isManualSalesHandoffRequest, isMessageBurst, isPaidInPersonSexSolicitation, isPersonalFactTrainingSuggestion, isPhysicalOrderDecline, isPresenceCheck, isRatingDecline, isSextingDecline, isSextingPackageFollowUp, isSoftSalesDeclineReply, isTrailerOfferAwaitingConfirmation, normalizeCasualText, parseDeclaredAge, parseNameChangeRequest, parseNameIntroduction, productTitleMatchesMessage } from "./conversation-rules";
 import { isEnglishLanguage, parseDetectedLanguage, shouldDetectLanguage } from "./language-rules";
 
 interface Env {
@@ -290,8 +290,14 @@ function bookingPrompt(settings: Record<string, string>, requestText = "") {
   return `Yeah babe. Video chats happen here on Telegram and are ${dollars(settings.video_chat_rate, 50)} per minute with a 5 minute minimum. What date and time works for you, and how many minutes do you want?`;
 }
 
-function customVideoPrompt(_settings: Record<string, string>) {
-  return "Yeah babe, I make customs. Send me everything you want and how long you want it to be. You can send as many messages as you need, then say done when you're finished.";
+function customPrompt(type: "photo" | "video" | "undecided") {
+  if (type === "photo") {
+    return "Yeah babe, I make custom photos. Send me everything you want and how many photos you want. You can send as many messages as you need, then say done when you're finished.";
+  }
+  if (type === "video") {
+    return "Yeah babe, I make custom videos. Send me everything you want and how long you want it to be. You can send as many messages as you need, then say done when you're finished.";
+  }
+  return "Yeah babe, I make custom photos and videos. Which one do you want?";
 }
 
 function customDetailsCheckIn(details: string) {
@@ -672,6 +678,8 @@ async function prepareDatabase(env: Env) {
       chat_id TEXT NOT NULL,
       business_connection_id TEXT,
       details TEXT NOT NULL,
+      custom_type TEXT NOT NULL DEFAULT '',
+      custom_quantity INTEGER NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT 'pending',
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       resolved_at TEXT
@@ -716,6 +724,8 @@ async function prepareDatabase(env: Env) {
       status TEXT NOT NULL DEFAULT 'awaiting_details',
       details TEXT NOT NULL DEFAULT '',
       completion_mode TEXT NOT NULL DEFAULT 'yes_done',
+      custom_type TEXT NOT NULL DEFAULT 'undecided',
+      photo_count INTEGER NOT NULL DEFAULT 0,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS custom_fulfillments (
@@ -725,6 +735,8 @@ async function prepareDatabase(env: Env) {
       business_connection_id TEXT,
       telegram_name TEXT NOT NULL,
       duration_minutes INTEGER NOT NULL,
+      custom_type TEXT NOT NULL DEFAULT 'video',
+      photo_count INTEGER NOT NULL DEFAULT 0,
       description TEXT NOT NULL,
       amount_cents INTEGER NOT NULL,
       delivery_url TEXT,
@@ -973,12 +985,31 @@ async function prepareDatabase(env: Env) {
   if (!customColumns.results.some((column) => column.name === "completion_comment")) {
     await db.prepare("ALTER TABLE custom_fulfillments ADD COLUMN completion_comment TEXT NOT NULL DEFAULT ''").run();
   }
+  if (!customColumns.results.some((column) => column.name === "custom_type")) {
+    await db.prepare("ALTER TABLE custom_fulfillments ADD COLUMN custom_type TEXT NOT NULL DEFAULT 'video'").run();
+  }
+  if (!customColumns.results.some((column) => column.name === "photo_count")) {
+    await db.prepare("ALTER TABLE custom_fulfillments ADD COLUMN photo_count INTEGER NOT NULL DEFAULT 0").run();
+  }
   const customDraftColumns = await db.prepare("PRAGMA table_info(custom_drafts)").all<{ name: string }>();
   if (!customDraftColumns.results.some((column) => column.name === "details")) {
     await db.prepare("ALTER TABLE custom_drafts ADD COLUMN details TEXT NOT NULL DEFAULT ''").run();
   }
   if (!customDraftColumns.results.some((column) => column.name === "completion_mode")) {
     await db.prepare("ALTER TABLE custom_drafts ADD COLUMN completion_mode TEXT NOT NULL DEFAULT 'yes_done'").run();
+  }
+  if (!customDraftColumns.results.some((column) => column.name === "custom_type")) {
+    await db.prepare("ALTER TABLE custom_drafts ADD COLUMN custom_type TEXT NOT NULL DEFAULT 'undecided'").run();
+  }
+  if (!customDraftColumns.results.some((column) => column.name === "photo_count")) {
+    await db.prepare("ALTER TABLE custom_drafts ADD COLUMN photo_count INTEGER NOT NULL DEFAULT 0").run();
+  }
+  const bookingRequestColumns = await db.prepare("PRAGMA table_info(booking_requests)").all<{ name: string }>();
+  if (!bookingRequestColumns.results.some((column) => column.name === "custom_type")) {
+    await db.prepare("ALTER TABLE booking_requests ADD COLUMN custom_type TEXT NOT NULL DEFAULT ''").run();
+  }
+  if (!bookingRequestColumns.results.some((column) => column.name === "custom_quantity")) {
+    await db.prepare("ALTER TABLE booking_requests ADD COLUMN custom_quantity INTEGER NOT NULL DEFAULT 0").run();
   }
   const bookingDraftColumns = await db.prepare("PRAGMA table_info(booking_drafts)").all<{ name: string }>();
   if (!bookingDraftColumns.results.some((column) => column.name === "service_type")) {
@@ -3898,8 +3929,9 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   if (!collected) return json({ ok: true, combined_with_newer_message: true });
   message.text = collected.text;
   const requestedFlow = requestedConversationFlow(message.text);
-  const customDraft = await env.DB.prepare(`SELECT status, details, completion_mode FROM custom_drafts
-    WHERE chat_id = ?`).bind(chatId).first<{ status: string; details: string; completion_mode: string }>();
+  const customDraft = await env.DB.prepare(`SELECT status, details, completion_mode, custom_type, photo_count FROM custom_drafts
+    WHERE chat_id = ?`).bind(chatId).first<{ status: string; details: string; completion_mode: string;
+      custom_type: "photo" | "video" | "undecided"; photo_count: number }>();
   const collectingCustomDetails = customDraft?.status === "awaiting_details";
   if (isMessageBurst(collected.count)) {
     if (isPermanentlyRestrictedTopic(message.text)) {
@@ -4195,20 +4227,38 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       await sendTelegramMessage(env, message, CUSTOM_CANCELLATION_REPLY);
       return json({ ok: true });
     }
+    if (customDraft.custom_type === "undecided") {
+      const selectedType = customRequestType(message.text);
+      if (!selectedType) {
+        await sendSavedReply(env, message, chatId, "Do you want custom photos or a custom video, babe?");
+        return json({ ok: true });
+      }
+      customDraft.custom_type = selectedType;
+      await env.DB.prepare(`UPDATE custom_drafts SET custom_type = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE chat_id = ?`).bind(selectedType, chatId).run();
+      if (/^(?:custom\s+)?(?:photo|photos|pic|pics|pictures?|images?|video|videos?|vid|vids|clips?)[.! ]*$/i.test(message.text.trim())) {
+        await sendSavedReply(env, message, chatId, customPrompt(selectedType));
+        return json({ ok: true });
+      }
+    }
     if (continueCustomDraft) {
       const continueReply = "Okay babe, keep going. Send me everything you want, then tell me when that's everything.";
       await sendSavedReply(env, message, chatId, continueReply);
       return json({ ok: true });
     }
     if (isManualPaymentQuestion(message.text)) {
-      const paymentReply = "I need to know what you want and for how long before I can quote it, babe. Send me your idea and I'll check it first.";
+      const paymentReply = customDraft.custom_type === "photo"
+        ? "I need to know what photos you want and how many before I can quote it, babe. Send me your idea and I'll check it first."
+        : "I need to know what you want and for how long before I can quote it, babe. Send me your idea and I'll check it first.";
       await saveMessage(env.DB, chatId, "user", message.text);
       await saveMessage(env.DB, chatId, "assistant", paymentReply);
       await sendTelegramMessage(env, message, paymentReply);
       return json({ ok: true });
     }
     if (isPriceQuestion(message.text)) {
-      const customPriceReply = "I can't quote you until I know what you want and for how long. Can you send me your idea?";
+      const customPriceReply = customDraft.custom_type === "photo"
+        ? "I can't quote you until I know what photos you want and how many. Can you send me your idea?"
+        : "I can't quote you until I know what you want and for how long. Can you send me your idea?";
       await sendSavedReply(env, message, chatId, customPriceReply);
       return json({ ok: true });
     }
@@ -4217,13 +4267,21 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       .filter(Boolean).join("\n").slice(0, 100000);
     const finishingMissingDetails = customDraft.completion_mode === "finished_missing";
     if (finishedWithBatch || finishingMissingDetails) {
-      const missingCustomDetails = customDetailsMissing(combinedCustomDetails);
-      if (missingCustomDetails.description || missingCustomDetails.duration) {
-        const customFollowUp = missingCustomDetails.description && missingCustomDetails.duration
-          ? "I still need your custom idea and how many minutes you want, babe. Send the details, then say done when you're finished."
-          : missingCustomDetails.description
+      const photoCustom = customDraft.custom_type === "photo";
+      const photoMissing = photoCustom ? customPhotoDetailsMissing(combinedCustomDetails) : null;
+      const videoMissing = photoCustom ? null : customDetailsMissing(combinedCustomDetails);
+      const missingDescription = photoMissing?.description ?? videoMissing?.description ?? true;
+      const missingQuantity = photoMissing?.quantity ?? videoMissing?.duration ?? true;
+      if (missingDescription || missingQuantity) {
+        const customFollowUp = missingDescription && missingQuantity
+          ? photoCustom
+            ? "I still need your photo idea and how many photos you want, babe. Send the details, then say done when you're finished."
+            : "I still need your custom idea and how many minutes you want, babe. Send the details, then say done when you're finished."
+          : missingDescription
             ? "I still need to know what you want me to do. Send the details, then say done when you're finished."
-            : "How many minutes do you want the custom to be? Send the length, then say done when you're finished.";
+            : photoCustom
+              ? "How many custom photos do you want? Send the number, then say done when you're finished."
+              : "How many minutes do you want the custom to be? Send the length, then say done when you're finished.";
         await env.DB.prepare(`UPDATE custom_drafts
           SET details = ?, completion_mode = 'finished_missing', updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?`)
           .bind(combinedCustomDetails, chatId).run();
@@ -4232,8 +4290,12 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       }
       await env.DB.prepare(`UPDATE custom_drafts SET status = 'submitted', updated_at = CURRENT_TIMESTAMP
         WHERE chat_id = ?`).bind(chatId).run();
-      await env.DB.prepare(`INSERT INTO booking_requests (chat_id, business_connection_id, details)
-        VALUES (?, ?, ?)`).bind(chatId, message.business_connection_id || null, `Custom content request:\n${combinedCustomDetails}`).run();
+      const photoCount = photoCustom ? customPhotoCount(combinedCustomDetails) : 0;
+      await env.DB.prepare(`INSERT INTO booking_requests
+        (chat_id, business_connection_id, details, custom_type, custom_quantity)
+        VALUES (?, ?, ?, ?, ?)`).bind(chatId, message.business_connection_id || null,
+          `${photoCustom ? "Custom photo request" : "Custom video request"}:\n${combinedCustomDetails}`,
+          customDraft.custom_type, photoCount).run();
       const received = "Got it, babe. I'll look over everything and send you a quote.";
       await saveMessage(env.DB, chatId, "user", message.text);
       await saveMessage(env.DB, chatId, "assistant", received);
@@ -4260,22 +4322,29 @@ async function handleTelegramWebhook(request: Request, env: Env) {
 
   if (isCustomVideoQuestion(message.text)) {
     if (settings.custom_approval === "off") {
-      const unavailable = "I'm not taking custom video requests right now.";
+      const unavailable = "I'm not taking custom photo or video requests right now.";
       await sendTelegramMessage(env, message, unavailable);
       return json({ ok: true });
     }
-    const initialCustomMissing = customDetailsMissing(message.text);
+    const initialCustomType = customRequestType(message.text) || "undecided";
+    const initialPhotoMissing = initialCustomType === "photo" ? customPhotoDetailsMissing(message.text) : null;
+    const initialVideoMissing = initialCustomType === "photo" ? null : customDetailsMissing(message.text);
+    const initialDescriptionMissing = initialPhotoMissing?.description ?? initialVideoMissing?.description ?? true;
+    const initialQuantityMissing = initialPhotoMissing?.quantity ?? initialVideoMissing?.duration ?? true;
     const initialCustomDetails = !isAnotherCustomIdea(message.text) &&
-      (!initialCustomMissing.description || !initialCustomMissing.duration)
+      (!initialDescriptionMissing || !initialQuantityMissing)
       ? message.text.trim()
       : "";
-    await env.DB.prepare(`INSERT INTO custom_drafts (chat_id, business_connection_id, status, details, completion_mode)
-      VALUES (?, ?, 'awaiting_details', ?, 'yes_done') ON CONFLICT(chat_id) DO UPDATE SET
+    await env.DB.prepare(`INSERT INTO custom_drafts
+      (chat_id, business_connection_id, status, details, completion_mode, custom_type, photo_count)
+      VALUES (?, ?, 'awaiting_details', ?, 'yes_done', ?, ?) ON CONFLICT(chat_id) DO UPDATE SET
       business_connection_id = excluded.business_connection_id, status = 'awaiting_details', details = excluded.details,
-      completion_mode = 'yes_done', updated_at = CURRENT_TIMESTAMP`)
-      .bind(chatId, message.business_connection_id || null, initialCustomDetails).run();
+      completion_mode = 'yes_done', custom_type = excluded.custom_type, photo_count = excluded.photo_count,
+      updated_at = CURRENT_TIMESTAMP`)
+      .bind(chatId, message.business_connection_id || null, initialCustomDetails, initialCustomType,
+        initialCustomType === "photo" ? customPhotoCount(message.text) : 0).run();
     await saveMessage(env.DB, chatId, "user", message.text);
-    const prompt = customVideoPrompt(settings);
+    const prompt = customPrompt(initialCustomType);
     await saveMessage(env.DB, chatId, "assistant", prompt);
     await sendTelegramMessage(env, message, prompt);
     return json({ ok: true });
@@ -4889,11 +4958,14 @@ async function handleAdminPending(request: Request, env: Env) {
       question: string;
     }>();
   for (const item of misplacedCustoms.results.filter((entry) => isCustomVideoQuestion(entry.question))) {
+    const itemCustomType = customRequestType(item.question) || "undecided";
     await env.DB.batch([
-      env.DB.prepare(`INSERT INTO custom_drafts (chat_id, business_connection_id, status, details, completion_mode)
-        VALUES (?, ?, 'awaiting_details', '', 'yes_done') ON CONFLICT(chat_id) DO UPDATE SET
+      env.DB.prepare(`INSERT INTO custom_drafts
+        (chat_id, business_connection_id, status, details, completion_mode, custom_type, photo_count)
+        VALUES (?, ?, 'awaiting_details', '', 'yes_done', ?, 0) ON CONFLICT(chat_id) DO UPDATE SET
         business_connection_id = excluded.business_connection_id, status = 'awaiting_details',
-        details = '', completion_mode = 'yes_done', updated_at = CURRENT_TIMESTAMP`).bind(item.chat_id, item.business_connection_id),
+        details = '', completion_mode = 'yes_done', custom_type = excluded.custom_type,
+        photo_count = 0, updated_at = CURRENT_TIMESTAMP`).bind(item.chat_id, item.business_connection_id, itemCustomType),
       env.DB.prepare(`UPDATE pending_replies SET status = 'routed', answered_at = CURRENT_TIMESTAMP
         WHERE id = ? AND status = 'pending'`).bind(item.id),
     ]);
@@ -4901,8 +4973,8 @@ async function handleAdminPending(request: Request, env: Env) {
       message_id: 0,
       chat: { id: Number(item.chat_id) },
       business_connection_id: item.business_connection_id || undefined,
-    }, customVideoPrompt(settings));
-    await saveMessage(env.DB, item.chat_id, "assistant", customVideoPrompt(settings));
+    }, customPrompt(itemCustomType));
+    await saveMessage(env.DB, item.chat_id, "assistant", customPrompt(itemCustomType));
   }
   const pending = await env.DB.prepare(`SELECT id, chat_id, question, created_at
     FROM pending_replies WHERE status = 'pending' AND chat_id <> ? ORDER BY id ASC LIMIT 100`)
@@ -4920,19 +4992,20 @@ async function handleAdminPending(request: Request, env: Env) {
     status, created_at, resolved_at FROM purchase_requests WHERE status != 'disputed_removed'
       AND chat_id <> ? ORDER BY id DESC LIMIT 200`).bind(DASHBOARD_TEST_CHAT_ID).all();
   const bookings = await env.DB.prepare(`SELECT booking_requests.id, booking_requests.chat_id, booking_requests.details,
-    booking_requests.created_at,
+    booking_requests.created_at, booking_requests.custom_type, booking_requests.custom_quantity,
     COALESCE(fan_profiles.name, telegram_contacts.username, telegram_contacts.display_name, 'Telegram fan') AS telegram_name,
-    CASE WHEN details LIKE 'Custom content request:%' THEN 'custom_content' ELSE 'video_chat' END AS suggested_type
+    CASE WHEN booking_requests.custom_type IN ('photo', 'video') OR details LIKE 'Custom % request:%'
+      THEN 'custom_content' ELSE 'video_chat' END AS suggested_type
     FROM booking_requests
     LEFT JOIN telegram_contacts ON telegram_contacts.chat_id = booking_requests.chat_id
     LEFT JOIN fan_profiles ON fan_profiles.chat_id = booking_requests.chat_id
     WHERE booking_requests.status = 'pending' AND booking_requests.chat_id <> ?
     ORDER BY booking_requests.id ASC LIMIT 100`).bind(DASHBOARD_TEST_CHAT_ID).all();
-  const customs = await env.DB.prepare(`SELECT id, chat_id, telegram_name, duration_minutes, description,
+  const customs = await env.DB.prepare(`SELECT id, chat_id, telegram_name, duration_minutes, custom_type, photo_count, description,
     amount_cents, completion_comment, status, created_at FROM custom_fulfillments
     WHERE status IN ('awaiting_payment', 'payment_review', 'awaiting_fulfillment') AND chat_id <> ?
     ORDER BY id ASC LIMIT 100`).bind(DASHBOARD_TEST_CHAT_ID).all();
-  const customHistory = await env.DB.prepare(`SELECT id, telegram_name, duration_minutes, description,
+  const customHistory = await env.DB.prepare(`SELECT id, telegram_name, duration_minutes, custom_type, photo_count, description,
     amount_cents, delivery_url, completion_comment, status, created_at, completed_at FROM custom_fulfillments
     WHERE status IN ('completed', 'cancelled', 'closed_unpaid') AND chat_id <> ?
     ORDER BY COALESCE(completed_at, created_at) DESC LIMIT 100`).bind(DASHBOARD_TEST_CHAT_ID).all();
@@ -5613,6 +5686,7 @@ async function handleAdminBooking(request: Request, env: Env) {
   }
   const booking = await env.DB.prepare(`SELECT booking_requests.id, booking_requests.chat_id,
     booking_requests.business_connection_id, booking_requests.details,
+    booking_requests.custom_type, booking_requests.custom_quantity,
     COALESCE(telegram_contacts.username, telegram_contacts.display_name, fan_profiles.name, 'Telegram fan') AS telegram_name
     FROM booking_requests
     LEFT JOIN telegram_contacts ON telegram_contacts.chat_id = booking_requests.chat_id
@@ -5622,6 +5696,8 @@ async function handleAdminBooking(request: Request, env: Env) {
       chat_id: string;
       business_connection_id: string | null;
       details: string;
+      custom_type: "photo" | "video" | "";
+      custom_quantity: number;
       telegram_name: string;
     }>();
   if (!booking) return json({ error: "That video chat or custom request is no longer pending" }, 404);
@@ -5631,7 +5707,7 @@ async function handleAdminBooking(request: Request, env: Env) {
     return json({ ok: true });
   }
   if (body.action === "close_unpaid") {
-    const customRequest = /^Custom content request:/i.test(booking.details);
+    const customRequest = booking.custom_type === "photo" || booking.custom_type === "video" || /^Custom (?:content|photo|video) request:/i.test(booking.details);
     const reminder = customRequest
       ? "Hey babe, do you still want this custom? I know you'll love it, but I still need you to send the payment so I can get it done. Lmk if you still want it."
       : "Hey babe, do you still want to set this up? I know you'll love it, but I still need you to send the payment so I can confirm it. Lmk if you still want it.";
@@ -5649,8 +5725,10 @@ async function handleAdminBooking(request: Request, env: Env) {
   if (body.action === "decline" && !answer) return json({ error: "Write a reply before declining" }, 400);
   const duration = Number(body.duration || 0);
   const quotedAmount = Number(body.amount || 0);
-  if (body.action === "approve" && (!body.service_type || !Number.isFinite(duration) || duration <= 0)) {
-    return json({ error: "A valid service and duration are required" }, 400);
+  const photoCustom = body.service_type === "custom_content" && booking.custom_type === "photo";
+  if (body.action === "approve" && (!body.service_type ||
+      (!photoCustom && (!Number.isFinite(duration) || duration <= 0)))) {
+    return json({ error: photoCustom ? "A valid service is required" : "A valid service and duration are required" }, 400);
   }
   if (body.action === "approve" && !["video_chat", "custom_content"].includes(body.service_type || "")) {
     return json({ error: "Only video chats and custom content are supported" }, 400);
@@ -5715,9 +5793,12 @@ async function handleAdminBooking(request: Request, env: Env) {
   if (body.action === "approve" && body.service_type === "custom_content") {
     await env.DB.prepare(`INSERT OR IGNORE INTO custom_fulfillments
       (booking_request_id, chat_id, business_connection_id, telegram_name, duration_minutes,
-      description, amount_cents, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'awaiting_payment')`)
+      custom_type, photo_count, description, amount_cents, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'awaiting_payment')`)
       .bind(booking.id, booking.chat_id, booking.business_connection_id, booking.telegram_name,
-        Math.round(duration), booking.details.replace(/^Custom content request:\s*/i, ""), amountCents)
+        photoCustom ? 0 : Math.round(duration), booking.custom_type || "video",
+        photoCustom ? booking.custom_quantity : 0,
+        booking.details.replace(/^Custom (?:content|photo|video) request:\s*/i, ""), amountCents)
       .run();
   }
   return json({ ok: true });
@@ -5812,11 +5893,12 @@ async function handleAdminCustom(request: Request, env: Env) {
     return json({ error: "A valid delivery link is required" }, 400);
   }
   const custom = await env.DB.prepare(`SELECT id, booking_request_id, chat_id, business_connection_id,
-    telegram_name, amount_cents, status FROM custom_fulfillments
+    telegram_name, custom_type, photo_count, amount_cents, status FROM custom_fulfillments
     WHERE id = ? AND status IN ('awaiting_payment', 'payment_review', 'awaiting_fulfillment')`)
     .bind(body.id)
     .first<{ id: number; booking_request_id: number; chat_id: string; business_connection_id: string | null;
-      telegram_name: string; amount_cents: number; status: string }>();
+      telegram_name: string; custom_type: "photo" | "video"; photo_count: number;
+      amount_cents: number; status: string }>();
   if (!custom) return json({ error: "Custom request is no longer awaiting fulfillment" }, 404);
   if (action === "complete" && custom.status !== "awaiting_fulfillment") {
     return json({ error: "Confirm payment before completing this custom" }, 409);
@@ -5829,14 +5911,18 @@ async function handleAdminCustom(request: Request, env: Env) {
   };
   if (action === "approve_payment") {
     if (custom.status !== "payment_review") return json({ error: "No custom payment is awaiting review" }, 409);
-    const confirmation = "Your payment is confirmed, babe. I'll get started on your custom and send it here when it's ready!";
+    const confirmation = custom.custom_type === "photo"
+      ? "Your payment is confirmed, babe. I'll get started on your custom photos and send them here when they're ready!"
+      : "Your payment is confirmed, babe. I'll get started on your custom video and send it here when it's ready!";
     await sendTelegramMessage(env, telegramMessage, confirmation);
     await saveMessage(env.DB, custom.chat_id, "assistant", confirmation);
     await env.DB.batch([
       env.DB.prepare(`UPDATE custom_fulfillments SET status = 'awaiting_fulfillment' WHERE id = ?`).bind(custom.id),
       env.DB.prepare(`INSERT OR IGNORE INTO earnings_events
         (source_type, source_id, description, amount_cents) VALUES ('custom_content', ?, ?, ?)`)
-        .bind(String(custom.booking_request_id), `Custom content for ${custom.telegram_name}`, custom.amount_cents),
+        .bind(String(custom.booking_request_id),
+          `${custom.custom_type === "photo" ? "Custom photos" : "Custom video"} for ${custom.telegram_name}`,
+          custom.amount_cents),
     ]);
     return json({ ok: true });
   }
@@ -5871,7 +5957,7 @@ async function handleAdminCustom(request: Request, env: Env) {
     ]);
     return json({ ok: true });
   }
-  const deliveryMessage = `I made this for you! ${deliveryUrl}${comment ? `\n\n${comment}` : ""}`;
+  const deliveryMessage = `${custom.custom_type === "photo" ? "I made these for you!" : "I made this for you!"} ${deliveryUrl}${comment ? `\n\n${comment}` : ""}`;
   const followUp = "I hope you enjoy it! Lmk what you think";
   await sendTelegramMessage(env, telegramMessage, deliveryMessage);
   await sendTelegramMessage(env, telegramMessage, followUp);
