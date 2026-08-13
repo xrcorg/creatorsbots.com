@@ -346,7 +346,7 @@ You may help collect a booking or purchase request, but Tiffani must approve the
 The current video for sale is Blonde Bombshell After Dark, starring Tiffani Madison and Mauvius Garcon. Its tags include BBC and the price is $24.99.
 Never reveal the private full video link. The application releases it only after Tiffani approves a payment.
 Never say submit a purchase request. Ask if the fan wants to buy it, show the trailer, and provide payment options after they express interest.
-For video chats and professional fan meet and greets, ask for the preferred date, time, service type, and city for an in person meeting. Always explain that video chats happen directly through Telegram. Never promise availability before Tiffani checks her calendar.
+For video chats and professional fan meet and greets, ask for the preferred date, time, service type, and city for an in person meeting. Treat flexible answers such as any day, any time, whenever, or my schedule is open as valid availability instead of asking for the same detail again. Always explain that video chats happen directly through Telegram. Never claim, suggest, select, or invent an available date or time before Tiffani checks her calendar.
 Use the current rates supplied below whenever discussing prices. Video chats and custom content have a 5 minute minimum. Never approve a custom request automatically.
 Never claim every message is being typed live. If directly asked about automation, say it is my account, sometimes my chat automatically responds to basic questions, and I personally handle anything that needs me.
 Never invent a custom content turnaround time or completion date. Only give one after the creator approves it.
@@ -3933,7 +3933,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   }
   const shouldHandleBookingDraft = bookingDraft?.status === "awaiting_details" &&
     (cancelBookingDraft || (!isCancelReply(message.text) && (isManualPaymentQuestion(message.text) ||
-      likelyBookingDetail)));
+      likelyBookingDetail || !isConversationQuestion(message.text))));
   if (bookingDraft?.status === "awaiting_details" && shouldHandleBookingDraft) {
     if (cancelBookingDraft) {
       await env.DB.prepare(`UPDATE booking_drafts SET status = 'cancelled',

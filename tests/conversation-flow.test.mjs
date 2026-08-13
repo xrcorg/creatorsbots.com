@@ -18,6 +18,7 @@ import {
   isCustomDecline,
   isCustomDetailsFinished,
   isGenericCancelReply,
+  isFlexibleBookingAvailability,
   isLikelyBookingDetailReply,
   isLikelyCityReply,
   isLikelyCustomDetailReply,
@@ -215,7 +216,28 @@ test("natural fulfillment and booking answers remain accepted", () => {
   assert.equal(isLikelyBookingDetailReply("right now"), true);
   assert.equal(isLikelyBookingDetailReply("rn"), true);
   assert.equal(isLikelyBookingDetailReply("Los Angeles", true), true);
+  assert.equal(isLikelyBookingDetailReply("Any day that week works for me. My schedule will be open."), true);
+  assert.equal(isLikelyBookingDetailReply("The week of December 28th through January 2nd"), true);
   assert.equal(isLikelyCustomDetailReply("5 minutes wearing red lingerie"), true);
+});
+
+test("flexible booking availability is accepted without repeated date and time prompts", () => {
+  for (const reply of [
+    "Any day that week that you think you'll be free works for me. I'll be on leave, so my schedule will be open.",
+    "Whatever day works best for you",
+    "I'm free all week",
+    "Whenever",
+  ]) {
+    assert.equal(isFlexibleBookingAvailability(reply), true, reply);
+  }
+  assert.deepEqual(
+    bookingDetailsMissing("in person meet in Seattle the week of December 28th through January 2nd, any day and time works for me"),
+    [],
+  );
+  assert.deepEqual(
+    bookingDetailsMissing("in person meet in Tacoma December 28th through January 2nd. My schedule will be open."),
+    [],
+  );
 });
 
 test("stale sexting offers do not hijack a changed subject", () => {
