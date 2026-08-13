@@ -1,6 +1,9 @@
 {$APP_DOMAIN} {
   encode zstd gzip
 
+  @portal path /
+  header @portal Cache-Control "no-store, no-cache, must-revalidate"
+
   @telegram path /api/telegram/webhook
   handle @telegram {
     reverse_proxy app:3000
@@ -32,6 +35,9 @@
 
 {$MADISON_APP_DOMAIN} {
   encode zstd gzip
+
+  @portal path /
+  header @portal Cache-Control "no-store, no-cache, must-revalidate"
 
   @telegram path /api/telegram/webhook
   handle @telegram {

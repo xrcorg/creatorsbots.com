@@ -53,6 +53,7 @@ button { cursor: pointer; }
 .brand strong { font-size: 15px; }
 .brand span { color: var(--muted); font-size: 12px; margin-top: 2px; }
 .topActions { gap: 10px; }
+.releaseBadge { color: #ad2b68; font-size: 10px; font-weight: 800; white-space: nowrap; }
 .accountBadge { max-width: 260px; overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .statusPill, .liveBadge {
   display: inline-flex; align-items: center; gap: 7px; border: 1px solid #d9ebe0;
@@ -673,6 +674,7 @@ button { cursor: pointer; }
   .appShell { padding: 10px; }
   .topbar { align-items: flex-start; gap: 12px; }
   .statusPill, .ghostButton, .accountBadge { display: none; }
+  .releaseBadge { font-size: 9px; }
   .intakeLink { display: inline-flex; }
   .ownerOverview { padding: 16px; border-radius: 18px; }
   .ownerHeading { display: grid; }

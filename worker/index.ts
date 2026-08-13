@@ -6618,6 +6618,7 @@ const worker = {
     if (url.pathname === "/api/health") {
       return json({
         ok: true,
+        release: "2026.08.13.1",
         telegram: Boolean(env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_WEBHOOK_SECRET),
         openai: Boolean(env.OPENAI_API_KEY),
         database: Boolean(env.DB),

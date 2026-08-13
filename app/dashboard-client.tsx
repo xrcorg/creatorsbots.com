@@ -2,6 +2,8 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
+const PORTAL_RELEASE = "2026.08.13.1";
+
 type Message = {
   id: number;
   role: "bot" | "fan" | "system";
@@ -2160,6 +2162,7 @@ export default function Home() {
           </div>
         </div>
         <div className="topActions">
+          <span className="releaseBadge">Version {PORTAL_RELEASE}</span>
           {portalUser && <span className="accountBadge">{portalUser.role === "owner" ? "Owner" : "Creator"} · {portalUser.email}</span>}
           <a className="ghostButton intakeLink" href="/onboarding">Creator intake</a>
           {portalUser?.role === "owner" && (
