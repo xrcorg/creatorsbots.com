@@ -453,6 +453,20 @@ async function prepareDatabase(env: Env) {
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS creator_intake_submissions (
+      creator_key TEXT PRIMARY KEY,
+      creator_email TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'draft',
+      answers_json TEXT NOT NULL DEFAULT '{}',
+      submitted_at TEXT,
+      reviewed_at TEXT,
+      reviewed_by TEXT,
+      review_note TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_creator_intake_status_updated
+      ON creator_intake_submissions(status, updated_at)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS fan_sessions (
       chat_id TEXT PRIMARY KEY,
       telegram_user_id TEXT,
@@ -4734,6 +4748,133 @@ async function handleAdminTestChat(request: Request, env: Env) {
   return json({ ok: true, outcome, ...(await dashboardTestChatData(env.DB)) });
 }
 
+function sanitizeIntakeAnswers(value: unknown, depth = 0): unknown {
+  if (depth > 4) return "";
+  if (typeof value === "string") return value.trim().slice(0, 5000);
+  if (typeof value === "boolean") return value;
+  if (Array.isArray(value)) return value.slice(0, 100).map((item) => sanitizeIntakeAnswers(item, depth + 1));
+  if (!value || typeof value !== "object") return "";
+  const output: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value as Record<string, unknown>).slice(0, 250)) {
+    if (!/^[a-z0-9_]+$/i.test(key)) continue;
+    output[key] = sanitizeIntakeAnswers(item, depth + 1);
+  }
+  return output;
+}
+
+async function handleAdminIntake(request: Request, env: Env) {
+  const portalUser = await getPortalUser(request, env);
+  if (!portalUser) return json({ error: "Sign in required" }, 401);
+  await prepareDatabase(env);
+
+  if (request.method === "GET") {
+    const record = await env.DB.prepare(`SELECT creator_key, creator_email, status, answers_json,
+      submitted_at, reviewed_at, reviewed_by, review_note, created_at, updated_at
+      FROM creator_intake_submissions WHERE creator_key = ?`).bind(portalUser.creator_key).first<{
+        creator_key: string;
+        creator_email: string;
+        status: string;
+        answers_json: string;
+        submitted_at: string | null;
+        reviewed_at: string | null;
+        reviewed_by: string | null;
+        review_note: string;
+        created_at: string;
+        updated_at: string;
+      }>();
+    let answers: Record<string, unknown> = {};
+    if (record?.answers_json) {
+      try {
+        answers = JSON.parse(record.answers_json) as Record<string, unknown>;
+      } catch {
+        answers = {};
+      }
+    }
+    return json({
+      portal_user: portalUser,
+      intake: record ? { ...record, answers_json: undefined, answers } : {
+        creator_key: portalUser.creator_key,
+        creator_email: portalUser.role === "creator" ? portalUser.email : "",
+        status: "draft",
+        answers,
+        submitted_at: null,
+        reviewed_at: null,
+        reviewed_by: null,
+        review_note: "",
+        created_at: null,
+        updated_at: null,
+      },
+    });
+  }
+
+  if (request.method !== "PUT" && request.method !== "POST") {
+    return json({ error: "Method not allowed" }, 405);
+  }
+
+  const body = await request.json().catch(() => ({})) as {
+    action?: string;
+    answers?: unknown;
+    review_note?: string;
+  };
+  const action = String(body.action || "save");
+  const allowedActions = new Set(["save", "submit", "approve", "request_changes"]);
+  if (!allowedActions.has(action)) return json({ error: "Unknown intake action" }, 400);
+  if ((action === "approve" || action === "request_changes") && portalUser.role !== "owner") {
+    return json({ error: "Owner access required" }, 403);
+  }
+
+  const existing = await env.DB.prepare(`SELECT answers_json, creator_email, status
+    FROM creator_intake_submissions WHERE creator_key = ?`).bind(portalUser.creator_key).first<{
+      answers_json: string;
+      creator_email: string;
+      status: string;
+    }>();
+  let currentAnswers: Record<string, unknown> = {};
+  try {
+    currentAnswers = existing?.answers_json ? JSON.parse(existing.answers_json) as Record<string, unknown> : {};
+  } catch {
+    currentAnswers = {};
+  }
+  const answers = body.answers === undefined
+    ? currentAnswers
+    : sanitizeIntakeAnswers(body.answers) as Record<string, unknown>;
+  const encoded = JSON.stringify(answers);
+  if (encoded.length > 180000) return json({ error: "The intake is too large to save" }, 413);
+  if (action === "submit" && answers.adult_confirmation !== true) {
+    return json({ error: "Adult confirmation is required before submission" }, 400);
+  }
+
+  const nextStatus = action === "approve" ? "approved"
+    : action === "request_changes" ? "changes_requested"
+      : action === "submit" ? "submitted"
+        : existing?.status === "approved" ? "approved" : "draft";
+  const creatorEmail = portalUser.role === "creator" ? portalUser.email : existing?.creator_email || "";
+  const reviewNote = String(body.review_note || "").trim().slice(0, 5000);
+  await env.DB.prepare(`INSERT INTO creator_intake_submissions
+    (creator_key, creator_email, status, answers_json, submitted_at, reviewed_at, reviewed_by, review_note, updated_at)
+    VALUES (?, ?, ?, ?,
+      CASE WHEN ? = 'submit' THEN CURRENT_TIMESTAMP ELSE NULL END,
+      CASE WHEN ? IN ('approve', 'request_changes') THEN CURRENT_TIMESTAMP ELSE NULL END,
+      CASE WHEN ? IN ('approve', 'request_changes') THEN ? ELSE NULL END,
+      ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(creator_key) DO UPDATE SET
+      creator_email = CASE WHEN excluded.creator_email <> '' THEN excluded.creator_email ELSE creator_intake_submissions.creator_email END,
+      status = excluded.status,
+      answers_json = excluded.answers_json,
+      submitted_at = CASE WHEN ? = 'submit' THEN CURRENT_TIMESTAMP ELSE creator_intake_submissions.submitted_at END,
+      reviewed_at = CASE WHEN ? IN ('approve', 'request_changes') THEN CURRENT_TIMESTAMP ELSE creator_intake_submissions.reviewed_at END,
+      reviewed_by = CASE WHEN ? IN ('approve', 'request_changes') THEN ? ELSE creator_intake_submissions.reviewed_by END,
+      review_note = CASE WHEN ? IN ('approve', 'request_changes') THEN ? ELSE creator_intake_submissions.review_note END,
+      updated_at = CURRENT_TIMESTAMP`)
+    .bind(
+      portalUser.creator_key, creatorEmail, nextStatus, encoded,
+      action, action, action, portalUser.email, reviewNote,
+      action, action, action, portalUser.email, action, reviewNote,
+    ).run();
+
+  return json({ ok: true, status: nextStatus, updated_at: new Date().toISOString() });
+}
+
 async function handleAdminPending(request: Request, env: Env) {
   const portalUser = await getPortalUser(request, env);
   if (!portalUser) return json({ error: "Sign in required" }, 401);
@@ -6306,6 +6447,10 @@ const worker = {
 
     if (url.pathname === "/api/admin/pending" && request.method === "GET") {
       return handleAdminPending(request, env);
+    }
+
+    if (url.pathname === "/api/admin/intake") {
+      return handleAdminIntake(request, env);
     }
 
     if (url.pathname === "/api/admin/test-chat") {

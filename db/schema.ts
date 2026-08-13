@@ -120,3 +120,18 @@ export const ageVerificationAudit = sqliteTable("age_verification_audit", {
 }, (table) => [
   index("idx_age_verification_audit_chat_id").on(table.chatId, table.confirmedAt),
 ]);
+
+export const creatorIntakeSubmissions = sqliteTable("creator_intake_submissions", {
+  creatorKey: text("creator_key").primaryKey(),
+  creatorEmail: text("creator_email").notNull().default(""),
+  status: text("status").notNull().default("draft"),
+  answersJson: text("answers_json").notNull().default("{}"),
+  submittedAt: text("submitted_at"),
+  reviewedAt: text("reviewed_at"),
+  reviewedBy: text("reviewed_by"),
+  reviewNote: text("review_note").notNull().default(""),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  index("idx_creator_intake_status_updated").on(table.status, table.updatedAt),
+]);

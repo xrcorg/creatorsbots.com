@@ -615,6 +615,30 @@ export default function Home() {
     }
   }, []);
 
+  async function markConversationRead(chatId: string) {
+    try {
+      const response = await fetch("/api/admin/conversations/mark-read", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId }),
+      });
+      if (!response.ok) return;
+      const data = await response.json() as {
+        last_read_message_id?: number; last_read_at?: string | null;
+      };
+      setConversations((items) => items.map((item) => item.chat_id === chatId
+        ? {
+            ...item,
+            unread_count: 0,
+            last_read_message_id: Number(data.last_read_message_id || item.last_read_message_id || 0),
+            inbox_last_read_at: data.last_read_at || item.inbox_last_read_at || null,
+          }
+        : item));
+    } catch {
+      // Keep the Inbox usable if Telegram read synchronization is temporarily unavailable.
+    }
+  }
+
   useEffect(() => {
     const initialLoad = window.setTimeout(() => void loadLivePending(), 0);
     const timer = window.setInterval(() => void loadLivePending(), 10000);
@@ -911,30 +935,6 @@ export default function Home() {
     } catch {
       setConversationMessages([]);
       setConversationStatus("This conversation could not be loaded.");
-    }
-  }
-
-  async function markConversationRead(chatId: string) {
-    try {
-      const response = await fetch("/api/admin/conversations/mark-read", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ chat_id: chatId }),
-      });
-      if (!response.ok) return;
-      const data = await response.json() as {
-        last_read_message_id?: number; last_read_at?: string | null;
-      };
-      setConversations((items) => items.map((item) => item.chat_id === chatId
-        ? {
-            ...item,
-            unread_count: 0,
-            last_read_message_id: Number(data.last_read_message_id || item.last_read_message_id || 0),
-            inbox_last_read_at: data.last_read_at || item.inbox_last_read_at || null,
-          }
-        : item));
-    } catch {
-      // Keep the Inbox usable if Telegram read synchronization is temporarily unavailable.
     }
   }
 
@@ -2148,6 +2148,7 @@ export default function Home() {
         </div>
         <div className="topActions">
           {portalUser && <span className="accountBadge">{portalUser.role === "owner" ? "Owner" : "Creator"} · {portalUser.email}</span>}
+          <a className="ghostButton intakeLink" href="/onboarding">Creator intake</a>
           {portalUser?.role === "owner" && (
             <button
               className="adminInboxButton"
