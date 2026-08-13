@@ -109,3 +109,14 @@ export const testChatFeedback = sqliteTable("test_chat_feedback", {
 }, (table) => [
   index("idx_test_chat_feedback_created").on(table.createdAt),
 ]);
+
+export const ageVerificationAudit = sqliteTable("age_verification_audit", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  chatId: text("chat_id").notNull(),
+  telegramUserId: text("telegram_user_id"),
+  confirmedBy: text("confirmed_by").notNull(),
+  source: text("source").notNull().default("creator_override"),
+  confirmedAt: text("confirmed_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  index("idx_age_verification_audit_chat_id").on(table.chatId, table.confirmedAt),
+]);

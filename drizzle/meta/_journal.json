@@ -50,6 +50,13 @@
       "when": 1786528434194,
       "tag": "0006_illegal_glorian",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1786579455686,
+      "tag": "0007_luxuriant_the_initiative",
+      "breakpoints": true
     }
   ]
 }

@@ -306,6 +306,10 @@ button { cursor: pointer; }
 .conversationDetail > header strong { font-size: 11px; }
 .conversationDetail > header small { color: var(--muted); font-size: 8px; }
 .conversationHeaderActions { display: flex !important; grid-auto-flow: column; align-items: center; gap: 7px; }
+.confirmAgeOverride { border: 1px solid #d184a0; border-radius: 9px; padding: 7px 9px; background: #fff; color: #862746; font-size: 8px; font-weight: 850; }
+.ageStatusBadge { border-radius: 999px; padding: 6px 9px; font-size: 8px; font-weight: 850; white-space: nowrap; }
+.ageStatusBadge.verified { background: #effbf4; color: #26744a; }
+.ageStatusBadge.blocked { background: #fff0f0; color: #971f2a; }
 .exitConversationFlow { border: 1px solid #d184a0; border-radius: 9px; padding: 7px 9px; background: #fff; color: #862746; font-size: 8px; font-weight: 850; }
 .resetConversation { border: 1px solid #e1a6b7; border-radius: 9px; padding: 7px 9px; background: #fff7f8; color: #a02c4d; font-size: 8px; font-weight: 850; }
 .blockConversation { border: 1px solid #d6787e; border-radius: 9px; padding: 7px 9px; background: #fff1f2; color: #971f2a; font-size: 8px; font-weight: 850; }

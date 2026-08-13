@@ -1180,6 +1180,30 @@ export default function Home() {
     }
   }
 
+  async function confirmConversationAge(chatId: string) {
+    if (!window.confirm("Confirm that this fan has stated they are 18 or older? This applies only to this fan and is recorded.")) return;
+    try {
+      setLiveLoading(true);
+      setConversationStatus("Confirming age...");
+      const response = await fetch("/api/admin/conversations/confirm-age", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, confirmed: true }),
+      });
+      const data = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(data.error || "Age confirmation failed");
+      setConversations((items) => items.map((item) => item.chat_id === chatId
+        ? { ...item, age_status: "verified" }
+        : item));
+      setConversationStatus("18+ confirmation saved. The bot can continue when this fan sends their next message.");
+      await loadLivePending();
+    } catch (error) {
+      setConversationStatus(error instanceof Error ? error.message : "Age confirmation could not be saved.");
+    } finally {
+      setLiveLoading(false);
+    }
+  }
+
   async function exitLiveConversationFlow(chatId: string) {
     if (!window.confirm("Exit the current flow? This stops unfinished booking, custom, sexting, rating, shipping, and catalog steps. Message history, fan details, sales, and completed orders stay saved.")) return;
     try {
@@ -2218,6 +2242,11 @@ export default function Home() {
                   <header>
                     <div><strong>{selectedConversation.telegram_name}</strong><small>{selectedConversation.message_count} saved messages · {selectedConversation.is_blocked ? "Blocked" : selectedConversation.control_mode === "human" ? "Creator replying" : "Bot active"}</small></div>
                     <div className="conversationHeaderActions">
+                      {selectedConversation.age_status === "verified"
+                        ? <span className="ageStatusBadge verified">18+ confirmed</span>
+                        : selectedConversation.age_status === "blocked"
+                          ? <span className="ageStatusBadge blocked">Age declined</span>
+                          : <button className="confirmAgeOverride" disabled={liveLoading} onClick={() => void confirmConversationAge(selectedConversation.chat_id)} type="button">Confirm fan is 18+</button>}
                       <label className="botReplySwitch">
                         <span>Bot replies</span>
                         <input aria-label="Bot replies" checked={!selectedConversation.is_blocked && selectedConversation.control_mode === "bot"} disabled={liveLoading || Boolean(selectedConversation.is_blocked)} onChange={(event) => void setConversationBotMode(selectedConversation.chat_id, event.target.checked)} type="checkbox" />

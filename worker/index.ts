@@ -462,6 +462,16 @@ async function prepareDatabase(env: Env) {
       telegram_user_id TEXT PRIMARY KEY,
       verified_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS age_verification_audit (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      chat_id TEXT NOT NULL,
+      telegram_user_id TEXT,
+      confirmed_by TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'creator_override',
+      confirmed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_age_verification_audit_chat_id
+      ON age_verification_audit(chat_id, confirmed_at)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS chat_messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       chat_id TEXT NOT NULL,
@@ -2270,6 +2280,37 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
     if (!exists) return json({ error: "Conversation not found" }, 404);
     await resetConversationState(env.DB, chatId);
     return json({ ok: true });
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/admin/conversations/confirm-age") {
+    const body = await request.json<{ chat_id?: string; confirmed?: boolean }>();
+    const chatId = String(body.chat_id || "").trim();
+    if (!chatId) return json({ error: "A conversation is required" }, 400);
+    if (body.confirmed !== true) {
+      return json({ error: "Confirm that the fan stated they are 18 or older" }, 400);
+    }
+    const conversation = await env.DB.prepare(`SELECT chat_id, telegram_user_id, age_status
+      FROM fan_sessions WHERE chat_id = ?`).bind(chatId).first<{
+        chat_id: string; telegram_user_id: string | null; age_status: string;
+      }>();
+    if (!conversation) return json({ error: "Conversation not found" }, 404);
+    if (conversation.age_status === "blocked") {
+      return json({ error: "This fan stated they are under 18. Their age status cannot be overridden." }, 409);
+    }
+    const updates = [
+      env.DB.prepare(`UPDATE fan_sessions SET age_status = 'verified', updated_at = CURRENT_TIMESTAMP
+        WHERE chat_id = ?`).bind(chatId),
+      env.DB.prepare(`INSERT INTO age_verification_audit
+        (chat_id, telegram_user_id, confirmed_by, source) VALUES (?, ?, ?, 'creator_override')`)
+        .bind(chatId, conversation.telegram_user_id || null, portalUser.email),
+    ];
+    if (conversation.telegram_user_id) {
+      updates.push(env.DB.prepare(`INSERT INTO adult_verifications (telegram_user_id, verified_at)
+        VALUES (?, CURRENT_TIMESTAMP) ON CONFLICT(telegram_user_id) DO UPDATE SET
+        verified_at = CURRENT_TIMESTAMP`).bind(conversation.telegram_user_id));
+    }
+    await env.DB.batch(updates);
+    return json({ ok: true, age_status: "verified" });
   }
 
   if (request.method === "POST" && url.pathname === "/api/admin/conversations/confirm-name") {
