@@ -198,7 +198,7 @@ test("soft sales declines end the pitch without another offer", () => {
 test("ordinary questions are not mistaken for form answers", () => {
   assert.equal(isConversationQuestion("Which movie?"), true);
   assert.equal(isLikelyCityReply("Which movie?"), false);
-  assert.equal(isLikelyBookingDetailReply("Which movie?", true), false);
+  assert.equal(isLikelyBookingDetailReply("Which movie?"), false);
   assert.equal(isLikelyBookingDetailReply("Got any plans today?"), false);
   assert.equal(isLikelyBookingDetailReply("Hey Tiffani, how's your morning?"), false);
   assert.equal(isLikelyBookingDetailReply("What are you doing tonight?"), false);
@@ -215,7 +215,7 @@ test("natural fulfillment and booking answers remain accepted", () => {
   assert.equal(isLikelyBookingDetailReply("10 minutes"), true);
   assert.equal(isLikelyBookingDetailReply("right now"), true);
   assert.equal(isLikelyBookingDetailReply("rn"), true);
-  assert.equal(isLikelyBookingDetailReply("Los Angeles", true), true);
+  assert.equal(isLikelyBookingDetailReply("Los Angeles"), false);
   assert.equal(isLikelyBookingDetailReply("Any day that week works for me. My schedule will be open."), true);
   assert.equal(isLikelyBookingDetailReply("The week of December 28th through January 2nd"), true);
   assert.equal(isLikelyCustomDetailReply("5 minutes wearing red lingerie"), true);
@@ -231,11 +231,11 @@ test("flexible booking availability is accepted without repeated date and time p
     assert.equal(isFlexibleBookingAvailability(reply), true, reply);
   }
   assert.deepEqual(
-    bookingDetailsMissing("in person meet in Seattle the week of December 28th through January 2nd, any day and time works for me"),
+    bookingDetailsMissing("video chat the week of December 28th through January 2nd, any day and time works for me for 10 minutes"),
     [],
   );
   assert.deepEqual(
-    bookingDetailsMissing("in person meet in Tacoma December 28th through January 2nd. My schedule will be open."),
+    bookingDetailsMissing("video chat December 28th through January 2nd for 10 minutes. My schedule will be open."),
     [],
   );
 });
@@ -281,9 +281,7 @@ test("bookings require a service, date, time, and video chat length", () => {
   assert.deepEqual(bookingDetailsMissing("videochat rn for 5 mins"), []);
   assert.deepEqual(bookingDetailsMissing("video chat tomorrow at 3 pm"), ["video chat length"]);
   assert.deepEqual(bookingDetailsMissing("video chat"), ["preferred date", "preferred time", "video chat length"]);
-  assert.deepEqual(bookingDetailsMissing("tomorrow at 3 pm"), ["video chat or in person meet"]);
-  assert.deepEqual(bookingDetailsMissing("in person tomorrow at 3 pm"), ["city"]);
-  assert.deepEqual(bookingDetailsMissing("in person tomorrow at 3 pm in Los Angeles"), []);
+  assert.deepEqual(bookingDetailsMissing("tomorrow at 3 pm"), ["video chat"]);
 });
 
 test("standalone city replies are accepted after the city prompt", () => {

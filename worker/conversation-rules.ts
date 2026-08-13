@@ -73,8 +73,7 @@ export function isFlexibleBookingAvailability(text: string) {
 export function bookingDetailsMissing(text: string) {
   const normalized = normalizeCasualText(text);
   const isVideoChat = /\b(video chat|video call)\b/i.test(normalized);
-  const isInPerson = /\b(in person|meet in person|meet and greet)\b/i.test(text);
-  const hasService = isVideoChat || isInPerson;
+  const hasService = isVideoChat;
   const isImmediate = isVideoChat && /\b(?:right now|now|immediately|asap)\b/i.test(normalized);
   const hasFlexibleAvailability = isFlexibleBookingAvailability(text);
   const hasDate = isImmediate || hasFlexibleAvailability || /\b(today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|january|february|march|april|may|june|july|august|september|october|november|december)\b/i.test(text) ||
@@ -84,11 +83,10 @@ export function bookingDetailsMissing(text: string) {
   const hasDuration = /\b\d+(?:\.\d+)?\s*(?:minute|minutes|min|mins)\b/i.test(text) ||
     /\b(five|six|seven|eight|nine|ten|fifteen|twenty|thirty)\s*(?:minute|minutes|min|mins)\b/i.test(text);
   const missing = [];
-  if (!hasService) missing.push("video chat or in person meet");
+  if (!hasService) missing.push("video chat");
   if (!hasDate) missing.push("preferred date");
   if (!hasTime) missing.push("preferred time");
   if (isVideoChat && !hasDuration) missing.push("video chat length");
-  if (isInPerson && !/\b(?:city(?:\s+is)?|location(?:\s+is)?|in\s+(?!person\b))[ :]?[a-z][a-z .']{2,}\b/i.test(text)) missing.push("city");
   return missing;
 }
 
@@ -222,9 +220,9 @@ export function isLikelyShippingAddress(text: string) {
     /\b\d{5}(?:-\d{4})?\b/.test(value));
 }
 
-export function isLikelyBookingDetailReply(text: string, expectingCity = false) {
+export function isLikelyBookingDetailReply(text: string) {
   const normalized = normalizeCasualText(text);
-  if (/\b(video chat|video call|in person|meet and greet|right now|immediately|asap)\b/i.test(normalized)) return true;
+  if (/\b(video chat|video call|right now|immediately|asap)\b/i.test(normalized)) return true;
   if (isFlexibleBookingAvailability(normalized)) return true;
   // Calendar words also appear in ordinary conversation. Questions about the
   // creator's day must not revive an unfinished booking draft just because
@@ -236,7 +234,7 @@ export function isLikelyBookingDetailReply(text: string, expectingCity = false) 
   if (/\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b|\b\d{1,2}(?:st|nd|rd|th)\b|\b\d{1,2}[\/.\-]\d{1,2}(?:[\/.\-]\d{2,4})?\b/i.test(text)) return true;
   if (/\b\d+(?:\.\d+)?\s*(?:minute|minutes|min|mins)\b/i.test(text)) return true;
   if (/^(?:you|with you|a meeting with you|meet with you)\??[.! ]*$/i.test(text.trim())) return true;
-  return expectingCity && isLikelyCityReply(text);
+  return false;
 }
 
 export function isLikelyCustomDetailReply(text: string) {

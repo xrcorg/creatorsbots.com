@@ -334,7 +334,6 @@ type CreatorSettings = {
   custom_approval: "required" | "off";
   video_chat_rate: string;
   custom_content_rate: string;
-  in_person_rate: string;
   video_rating_rate: string;
   preferred_topics: string;
   avoid_topics: string;
@@ -519,11 +518,11 @@ export default function Home() {
   const [ownerDayView, setOwnerDayView] = useState<string | null>(null);
   const [earningsView, setEarningsView] = useState<"weekly" | "all" | null>(null);
   const [earningsReferenceTime] = useState(() => Date.now());
-  const [bookingType, setBookingType] = useState<"video_chat" | "custom_content" | "in_person">("video_chat");
+  const [bookingType, setBookingType] = useState<"video_chat" | "custom_content">("video_chat");
   const [bookingDuration, setBookingDuration] = useState("");
   const [bookingAmount, setBookingAmount] = useState("");
   const [bookingScheduledAt, setBookingScheduledAt] = useState("");
-  const [settings, setSettings] = useState<CreatorSettings>({ flirty_level: "very", human_takeover: "on", learning: "approval", custom_approval: "required", video_chat_rate: "50", custom_content_rate: "50", in_person_rate: "1500", video_rating_rate: "75", preferred_topics: "", avoid_topics: "", tone_guidance: "Short, blunt, warm, confident, flirty, and natural", creator_feedback: "", sexting_enabled: "on", sexting_intensity: "soft", sexting_rate: "10", sexting_min_minutes: "5", sexting_5_stars: "500", sexting_10_stars: "1000", sleep_hours_enabled: "on", response_test_mode: "off", sleep_start: "02:00", sleep_end: "08:00" });
+  const [settings, setSettings] = useState<CreatorSettings>({ flirty_level: "very", human_takeover: "on", learning: "approval", custom_approval: "required", video_chat_rate: "50", custom_content_rate: "50", video_rating_rate: "75", preferred_topics: "", avoid_topics: "", tone_guidance: "Short, blunt, warm, confident, flirty, and natural", creator_feedback: "", sexting_enabled: "on", sexting_intensity: "soft", sexting_rate: "10", sexting_min_minutes: "5", sexting_5_stars: "500", sexting_10_stars: "1000", sleep_hours_enabled: "on", response_test_mode: "off", sleep_start: "02:00", sleep_end: "08:00" });
   const [settingsDirty, setSettingsDirty] = useState(false);
   const [settingsSaveStatus, setSettingsSaveStatus] = useState("");
   const [liveLoading, setLiveLoading] = useState(false);
@@ -582,7 +581,7 @@ export default function Home() {
       setSocialLinks(data.social_links || []);
       setTrainingSuggestions(data.training_suggestions || []);
       setSaleDisputes(data.sale_disputes || []);
-      if (data.bookings[0]?.suggested_type) setBookingType(data.bookings[0].suggested_type);
+      if (data.bookings[0]?.suggested_type) setBookingType(data.bookings[0].suggested_type === "custom_content" ? "custom_content" : "video_chat");
       setEarnings({ ...data.earnings, by_type: data.earnings.by_type || [] });
       if (!settingsDirtyRef.current) setSettings(data.settings);
       setSavedAnswers(data.learned_count);
@@ -1038,9 +1037,8 @@ export default function Home() {
       custom_more: "Anything else you want me to add?",
       custom_review: "Got it! I'll review everything and let you know what it will cost.",
       custom_quote: "I can't quote you until I know what you want and for how long. Can you send me your idea?",
-      booking_options: "Do you wanna set something up? I offer video chats here on Telegram and fan meet and greets. Which one are you interested in?",
-      booking_schedule: "Send me your preferred date and time and tell me if you want a video chat or fan meet and greet. If it's a meet and greet, tell me what city you're in too.",
-      booking_contact: "What city are you in, babe? Send me your phone number or email and I'll reach out when I'm in your city.",
+      booking_options: "Do you wanna set something up? I offer private video chats here on Telegram. What date and time works for you, and how many minutes do you want?",
+      booking_schedule: "Send me your preferred date, time, and how many minutes you want for a private video chat here on Telegram.",
       video_chat: `Video chats happen right here on Telegram and are $${settings.video_chat_rate} per minute with a 5 minute minimum. What date and time works for you, and how many minutes do you want?`,
       video_chat_now: `I might be able to video chat right now, babe. It's $${settings.video_chat_rate} per minute with a 5 minute minimum, and we'll call right here on Telegram. How many minutes do you want? I'll confirm I'm available before you send payment.`,
       video_chat_not_now: "I can't video chat right this second, babe, but send me a date, time, and how many minutes you want and I'll check my schedule.",
@@ -1059,7 +1057,7 @@ export default function Home() {
     setConversationReply(replies[template] || "");
     if (["custom_start", "custom_more", "custom_quote"].includes(template)) setQuickReplyWorkflow("start_custom");
     else if (["video_chat", "video_chat_now", "video_chat_not_now", "video_chat_schedule", "video_chat_payment"].includes(template)) setQuickReplyWorkflow("start_video_chat");
-    else if (["booking_options", "booking_schedule", "booking_contact"].includes(template)) setQuickReplyWorkflow("start_booking");
+    else if (["booking_options", "booking_schedule"].includes(template)) setQuickReplyWorkflow("start_booking");
     else setQuickReplyWorkflow(null);
   }
 
@@ -2365,7 +2363,7 @@ export default function Home() {
                       {quickReplyCategory === "general" && <><button onClick={() => fillQuickReply("saw_message")} type="button">Saw your message</button><button onClick={() => fillQuickReply("busy")} type="button">Busy right now</button><button onClick={() => fillQuickReply("anything_else")} type="button">Anything else</button></>}
                       {quickReplyCategory === "content" && <><button onClick={() => fillQuickReply("catalog")} type="button">Show catalog</button><button onClick={() => fillQuickReply("trailer")} type="button">Preview trailer reply</button><button onClick={() => fillQuickReply("product_details")} type="button">Send details</button><button onClick={() => fillQuickReply("product_payment")} type="button">Payment instructions</button><button onClick={() => fillQuickReply("product_delivery")} type="button">Preview delivery reply</button></>}
                       {quickReplyCategory === "custom" && <><button onClick={() => fillQuickReply("custom_start")} type="button">Ask for idea</button><button onClick={() => fillQuickReply("custom_more")} type="button">Anything else</button><button onClick={() => fillQuickReply("custom_review")} type="button">Review request</button><button onClick={() => fillQuickReply("custom_quote")} type="button">Need details first</button><button className="quickSendContent" disabled={!selectedCustom} onClick={() => document.querySelector<HTMLInputElement>(`.paidFulfillmentPanel input[type="url"]`)?.focus()} title={selectedCustom ? "Add the delivery link above" : "Available after a custom payment is confirmed"} type="button">Send finished custom</button></>}
-                      {quickReplyCategory === "bookings" && <><button onClick={() => fillQuickReply("booking_options")} type="button">Booking options</button><button onClick={() => fillQuickReply("booking_schedule")} type="button">Date and time</button><button onClick={() => fillQuickReply("booking_contact")} type="button">City and contact</button></>}
+                      {quickReplyCategory === "bookings" && <><button onClick={() => fillQuickReply("booking_options")} type="button">Booking options</button><button onClick={() => fillQuickReply("booking_schedule")} type="button">Date and time</button></>}
                       {quickReplyCategory === "video_chat" && <><button onClick={() => fillQuickReply("video_chat_now")} type="button">Available right now</button><button onClick={() => fillQuickReply("video_chat_not_now")} type="button">Not available now</button><button onClick={() => fillQuickReply("video_chat")} type="button">Rate and minimum</button><button onClick={() => fillQuickReply("video_chat_schedule")} type="button">Ask for schedule</button><button onClick={() => fillQuickReply("video_chat_payment")} type="button">Payment methods</button><button onClick={() => fillQuickReply("video_chat_confirm")} type="button">Confirm Telegram call</button></>}
                       {quickReplyCategory === "ratings" && <><button onClick={() => fillQuickReply("rating_offer")} type="button">Offer video rating</button><button onClick={() => fillQuickReply("rating_photo")} type="button">Request photo</button><button onClick={() => fillQuickReply("rating_payment")} type="button">Rating payment</button><button className="quickSendContent" disabled={!selectedRating} onClick={() => document.querySelector<HTMLInputElement>(`.paidFulfillmentPanel input[type="file"]`)?.click()} title={selectedRating ? "Choose the response video above" : "Available after payment and the rating photo are confirmed"} type="button">Upload and send rating video</button></>}
                       {quickReplyCategory === "payment" && <><button onClick={() => fillQuickReply("payment_options")} type="button">Payment options</button><button onClick={() => fillQuickReply("payment_screenshot")} type="button">Request screenshot</button><button onClick={() => fillQuickReply("payment_received")} type="button">Payment received</button><button className="quickSendContent" disabled={!selectedPurchase} onClick={() => selectedPurchase && void resolvePurchaseById(selectedPurchase.id, "approve")} title={selectedPurchase ? "Confirm and fulfill this paid order" : "Available when this chat has a payment awaiting confirmation"} type="button">Confirm payment and send content</button></>}
@@ -2465,7 +2463,7 @@ export default function Home() {
             <form className="taskForm" onSubmit={addDailyTask}>
               <strong>Add a task</strong>
               <label><span>Task</span><input required value={taskForm.title} onChange={(event) => setTaskForm((current) => ({ ...current, title: event.target.value }))} placeholder="Video chat with Alex" /></label>
-              <label><span>Type</span><select value={taskForm.task_type} onChange={(event) => setTaskForm((current) => ({ ...current, task_type: event.target.value as DailyTask["task_type"] }))}><option value="video_chat">Video chat</option><option value="custom">Custom</option><option value="delivery">Content delivery</option><option value="follow_up">Follow up</option><option value="in_person">In person</option><option value="other">Other</option></select></label>
+              <label><span>Type</span><select value={taskForm.task_type} onChange={(event) => setTaskForm((current) => ({ ...current, task_type: event.target.value as DailyTask["task_type"] }))}><option value="video_chat">Video chat</option><option value="custom">Custom</option><option value="delivery">Content delivery</option><option value="follow_up">Follow up</option><option value="other">Other</option></select></label>
               <label><span>Date and time</span><input required type="datetime-local" value={taskForm.scheduled_at} onChange={(event) => setTaskForm((current) => ({ ...current, scheduled_at: event.target.value }))} /></label>
               <label><span>Fan or client</span><input value={taskForm.fan_name} onChange={(event) => setTaskForm((current) => ({ ...current, fan_name: event.target.value }))} placeholder="@username" /></label>
               <label><span>Amount</span><input inputMode="decimal" min="0" step="0.01" type="number" value={taskForm.amount} onChange={(event) => setTaskForm((current) => ({ ...current, amount: event.target.value }))} placeholder="250.00" /></label>
@@ -2718,7 +2716,7 @@ export default function Home() {
               <div className="requestOwner">{liveBookings[0].telegram_name}</div>
               <p className="fanQuestion">“{liveBookings[0].details}”</p>
               <small>Requested {new Date(`${liveBookings[0].created_at}Z`).toLocaleDateString()}</small>
-              <div className="botPaused">Check the date, time, service, city, and calendar before replying.</div>
+              <div className="botPaused">Check the date, time, duration, and calendar before replying.</div>
               <textarea
                 aria-label="Booking reply"
                 onChange={(event) => setCreatorReply(event.target.value)}
@@ -2730,11 +2728,10 @@ export default function Home() {
                 <select onChange={(event) => setBookingType(event.target.value as typeof bookingType)} value={bookingType}>
                   <option value="video_chat">Video chat</option>
                   <option value="custom_content">Custom content</option>
-                  <option value="in_person">In person meet</option>
                 </select>
               </label>
               <label className="amountField">
-                <span>{bookingType === "in_person" ? "Hours" : "Minutes"}</span>
+                <span>Minutes</span>
                 <input inputMode="decimal" min={bookingType === "video_chat" ? "5" : "1"} onChange={(event) => setBookingDuration(event.target.value)} placeholder={bookingType === "video_chat" ? "5" : "1"} value={bookingDuration} />
               </label>
               {bookingType === "video_chat" && <label className="amountField">
@@ -2746,11 +2743,10 @@ export default function Home() {
                 <span>Custom quote total</span>
                 <input inputMode="decimal" min="1" onChange={(event) => setBookingAmount(event.target.value)} placeholder="Enter the amount the creator wants to charge" type="number" value={bookingAmount} />
               </label> : <div className="calculatedTotal">
-                Total: {money(Math.round(Number(bookingDuration || 0) * Number(bookingType === "in_person" ? settings.in_person_rate : settings.video_chat_rate) * 100))}
-                {bookingType === "in_person" && <small>Excluded from earnings</small>}
+                Total: {money(Math.round(Number(bookingDuration || 0) * Number(settings.video_chat_rate) * 100))}
               </div>}
               <button className="primaryAction" disabled={liveLoading} onClick={() => void resolveBooking("approve")}>
-                {bookingType === "custom_content" ? "Accept custom and send quote" : bookingType === "video_chat" ? "Approve video chat and request payment" : "Approve booking and send"}
+                {bookingType === "custom_content" ? "Accept custom and send quote" : "Approve video chat and request payment"}
               </button>
               <button className="secondaryAction" disabled={liveLoading} onClick={() => void resolveBooking("decline")}>
                 Decline and send reply
@@ -2785,7 +2781,6 @@ export default function Home() {
             <div className="rateSetting"><span>Wake time</span><label><input aria-label="Wake time" onChange={(event) => changeSetting("sleep_end", event.target.value)} type="time" value={settings.sleep_end} /></label></div>
             <div><span>Sexting intensity</span><section>{(["soft", "hard", "hot"] as const).map((value) => <button className={settings.sexting_intensity === value ? "selected" : ""} key={value} onClick={() => changeSetting("sexting_intensity", value)}>{value}</button>)}</section></div>
             <div className="rateSetting"><span>Video chat per minute</span><label>$<input aria-label="Video chat rate per minute" inputMode="decimal" min="1" onChange={(event) => changeSetting("video_chat_rate", event.target.value)} type="number" value={settings.video_chat_rate} /></label></div>
-            <div className="rateSetting"><span>In person meet per hour</span><label>$<input aria-label="In person meet rate per hour" inputMode="decimal" min="1" onChange={(event) => changeSetting("in_person_rate", event.target.value)} type="number" value={settings.in_person_rate} /></label></div>
             <div className="rateSetting"><span>Dick rating price</span><label>$<input aria-label="Dick rating price" inputMode="decimal" min="1" onChange={(event) => changeSetting("video_rating_rate", event.target.value)} step="0.01" type="number" value={settings.video_rating_rate} /></label></div>
             <div className="rateSetting"><span>Sexting per minute</span><label>$<input aria-label="Sexting rate per minute" inputMode="decimal" min="1" onChange={(event) => changeSetting("sexting_rate", event.target.value)} type="number" value={settings.sexting_rate} /></label></div>
             <div className="rateSetting"><span>Sexting minimum minutes</span><label><input aria-label="Minimum sexting session length" inputMode="numeric" min="1" max="9" onChange={(event) => changeSetting("sexting_min_minutes", event.target.value)} type="number" value={settings.sexting_min_minutes} /></label></div>

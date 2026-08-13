@@ -1,7 +1,7 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { bookingDetailsMissing, casualMessageIntent, customDetailsMissing, isAffirmativeReply, isAmbiguousSexMessage, isBookingDecline, isBotQuestion, isCancelReply, isCatalogBrowseRequest, isCatalogContentRequest, isCatalogFollowUpQuestion, isConversationQuestion, isConversationReset, isCustomDecline, isCustomDetailsFinished, isGenericCancelReply, isLikelyBookingDetailReply, isLikelyCityReply, isLikelyShippingAddress, isLikelyShippingName, isMessageBurst, isPersonalFactTrainingSuggestion, isPhysicalOrderDecline, isPresenceCheck, isRatingDecline, isSextingDecline, isSextingPackageFollowUp, isSoftSalesDeclineReply, isTrailerOfferAwaitingConfirmation, normalizeCasualText, parseDeclaredAge, parseNameChangeRequest, parseNameIntroduction, productTitleMatchesMessage } from "./conversation-rules";
+import { bookingDetailsMissing, casualMessageIntent, customDetailsMissing, isAffirmativeReply, isAmbiguousSexMessage, isBookingDecline, isBotQuestion, isCancelReply, isCatalogBrowseRequest, isCatalogContentRequest, isCatalogFollowUpQuestion, isConversationQuestion, isConversationReset, isCustomDecline, isCustomDetailsFinished, isGenericCancelReply, isLikelyBookingDetailReply, isLikelyShippingAddress, isLikelyShippingName, isMessageBurst, isPersonalFactTrainingSuggestion, isPhysicalOrderDecline, isPresenceCheck, isRatingDecline, isSextingDecline, isSextingPackageFollowUp, isSoftSalesDeclineReply, isTrailerOfferAwaitingConfirmation, normalizeCasualText, parseDeclaredAge, parseNameChangeRequest, parseNameIntroduction, productTitleMatchesMessage } from "./conversation-rules";
 import { isEnglishLanguage, parseDetectedLanguage, shouldDetectLanguage } from "./language-rules";
 
 interface Env {
@@ -145,7 +145,7 @@ function isCreatorTakeoverReply(reply: string | null | undefined) {
   const normalized = reply.trim().replace(/^['"`]+|['"`]+$/g, "").trim();
   return normalized === CREATOR_TAKEOVER || normalized.includes(CREATOR_TAKEOVER);
 }
-const CAPABILITIES = "I can help you book a private video chat with me here on Telegram or an in person fan meet and greet. You can also buy photo and video content, shop clothing or worn items, request custom content, get a private video rating, or have a private sexting session with me. What sounds fun?";
+const CAPABILITIES = "I can help you book a private video chat with me here on Telegram. You can also buy photo and video content, shop clothing or worn items, request custom content, get a private video rating, or have a private sexting session with me. What sounds fun?";
 const INSTAGRAM_URL = "https://www.instagram.com/tiffanimadisonvip/?hl=en";
 const PORNHUB_URL = "https://www.pornhub.com/pornstar/tiffani-madison";
 const X_URL = "https://x.com/TiffaniMadison_";
@@ -156,6 +156,7 @@ const BOOKING_CANCELLATION_REPLY = KIND_SALES_DECLINE_REPLY;
 const CUSTOM_CANCELLATION_REPLY = KIND_SALES_DECLINE_REPLY;
 const SEXTING_CANCELLATION_REPLY = KIND_SALES_DECLINE_REPLY;
 const IN_PERSON_SEX_REPLY = "I don't discuss in person sex on here due to Telegram TOS. I don't want to get banned.";
+const IN_PERSON_MEET_UNAVAILABLE_REPLY = "I only offer private video chats here on Telegram, babe. Want to set one up?";
 const SEXTING_BUSINESS_DEFER_REPLY = "We can discuss that after our session is over, babe. For now, stay here with me.";
 const PRODUCT_TITLE = "Blonde Bombshell After Dark";
 const PRODUCT_TRAILER = "https://www.dropbox.com/scl/fi/nek2nzmoy3tkecys5avqj/ARTTEASER.mov?rlkey=ikhlb3tdar9dg9bsmd4e9b6cc&st=zn3d9jpu&dl=0";
@@ -272,7 +273,9 @@ function isImmediateVideoChatRequest(text: string) {
 }
 
 function isInPersonRequest(text: string) {
-  return /\b(in person|meet in person|meet and greet)\b/i.test(text);
+  const value = normalizeCasualText(text);
+  return /\b(in person|meet in person|meet and greet|fan meet|meet up)\b/i.test(value) ||
+    /\b(?:can|could|would)\s+(?:i|we)\s+meet\b/i.test(value);
 }
 
 function bookingPrompt(settings: Record<string, string>, requestText = "") {
@@ -282,10 +285,7 @@ function bookingPrompt(settings: Record<string, string>, requestText = "") {
     }
     return `Yeah babe. Video chats happen here on Telegram and are ${dollars(settings.video_chat_rate, 50)} per minute with a 5 minute minimum. What date and time works for you, and how many minutes do you want?`;
   }
-  if (isInPersonRequest(requestText)) {
-    return `Yeah babe. In person meets are ${dollars(settings.in_person_rate, 1500)} per hour. Send me your preferred date, time, and city, then I'll check my calendar.`;
-  }
-  return "Yeah babe. Did you want a video chat with me here on Telegram or an in person meet?";
+  return `Yeah babe. Video chats happen here on Telegram and are ${dollars(settings.video_chat_rate, 50)} per minute with a 5 minute minimum. What date and time works for you, and how many minutes do you want?`;
 }
 
 function customVideoPrompt(_settings: Record<string, string>) {
@@ -341,12 +341,12 @@ Maintain one continuous scene during an active conversation. Do not restart the 
 She values acts of service. She likes easygoing and chill people. Bad hygiene and rudeness are instant turnoffs.
 Her favorite date is dinner. She appreciates supportive fans and dislikes time wasters.
 Answer known profile questions directly and naturally. Never ask Tiffani to answer when the profile already contains the answer.
-When asked what you can do, explain that fans can book private video chats with me on Telegram and professional fan meet and greets, buy photo and video content, request custom content, or have a private sexting session with me.
+When asked what you can do, explain that fans can book private video chats with me on Telegram, buy photo and video content, request custom content, or have a private sexting session with me. Never advertise or offer in person meetings.
 You may help collect a booking or purchase request, but Tiffani must approve the final availability, payment, and delivery.
 The current video for sale is Blonde Bombshell After Dark, starring Tiffani Madison and Mauvius Garcon. Its tags include BBC and the price is $24.99.
 Never reveal the private full video link. The application releases it only after Tiffani approves a payment.
 Never say submit a purchase request. Ask if the fan wants to buy it, show the trailer, and provide payment options after they express interest.
-For video chats and professional fan meet and greets, ask for the preferred date, time, service type, and city for an in person meeting. Treat flexible answers such as any day, any time, whenever, or my schedule is open as valid availability instead of asking for the same detail again. Always explain that video chats happen directly through Telegram. Never claim, suggest, select, or invent an available date or time before Tiffani checks her calendar.
+For video chats, ask for the preferred date, time, and duration. Treat flexible answers such as any day, any time, whenever, or my schedule is open as valid availability instead of asking for the same detail again. Always explain that video chats happen directly through Telegram. Never claim, suggest, select, or invent an available date or time before Tiffani checks her calendar.
 Use the current rates supplied below whenever discussing prices. Video chats and custom content have a 5 minute minimum. Never approve a custom request automatically.
 Never claim every message is being typed live. If directly asked about automation, say it is my account, sometimes my chat automatically responds to basic questions, and I personally handle anything that needs me.
 Never invent a custom content turnaround time or completion date. Only give one after the creator approves it.
@@ -376,7 +376,7 @@ Every fan facing response must use first person language such as I, me, my, and 
 When several fan messages arrive together, read them as one turn and send one cohesive reply. Do not repeat an offer or get stuck in a prior workflow. A clear request for content, a custom, a video chat, a rating, payment help, or cancellation always replaces an unfinished offer.
 Only converse with users whose adult status has already been confirmed by the application.
 Interpret ordinary misspellings, shorthand, lazy texting, and close paraphrases before deciding that an answer is unknown. Known answers may come only from creator settings, approved training, the content catalog, and recent conversation history. If a personal answer is still unknown or requires the creator's decision, respond with exactly: ${CREATOR_TAKEOVER}
-When asked what you can do, explain that fans can book private video chats on Telegram and professional fan meet and greets, buy photo and video content, shop clothing or worn items, request custom content, get a private video rating, or have a private sexting session.
+When asked what you can do, explain that fans can book private video chats on Telegram, buy photo and video content, shop clothing or worn items, request custom content, get a private video rating, or have a private sexting session. Never advertise or offer in person meetings.
 Custom content never has a universal rate. Collect the complete idea and requested length across as many messages as needed, ask naturally whether there is anything else, and wait for the creator to review and quote it.
 Never reveal private delivery links before the creator confirms payment. Never promise availability, payment approval, a discount, turnaround time, meeting, custom, or delivery before creator approval.
 During an active approved sexting session, keep one continuous consensual adult scene and do not reinterpret sexual wording as a purchase request. Outside a session, flirt naturally and offer a private sexting session without repeatedly calling it paid.
@@ -2955,7 +2955,7 @@ async function createAIReply(env: Env, chatId: string, incoming: string) {
     },
     body: JSON.stringify({
       model: env.OPENAI_MODEL || "gpt-5.6",
-      instructions: `${creatorPrompt(env)}\nCurrent time context: ${pacificTimeContext()} Use this context in every reply. Keep activities, greetings, meals, sleep references, tense, and plans appropriate for the actual Pacific time and weekday. Do not claim to be at a public event, holiday celebration, appointment, trip, movie, or scheduled engagement unless it appears in the creator's approved information or recent conversation. Never contradict a plan already stated in the conversation.\nThe fan's name is ${profile?.name || "unknown"}. Use their name naturally and occasionally, not in every response.\nCurrent flirty level: ${settings.flirty_level || "very"}.\nCurrent rates: video chat ${dollars(settings.video_chat_rate, 50)} per minute with a 5 minute minimum and in person meetings ${dollars(settings.in_person_rate, 1500)} per hour. Custom content never has a universal rate. Collect the fan's idea and requested length, then say I will review it and provide a quote. Never invent or estimate a custom price.\nCreator approved topics to discuss: ${settings.preferred_topics || "No additional topics supplied."}\nApproved creator personal facts and answers: ${approvedPersonalFacts.length ? approvedPersonalFacts.join("\n") : "No additional personal facts supplied."}\nApproved creator likes and favorites: ${approvedLikes.length ? approvedLikes.join("\n") : "No additional likes supplied."}\nApproved creator dislikes: ${approvedDislikes.length ? approvedDislikes.join("\n") : "No additional dislikes supplied."}\nApproved creator fears: ${approvedFears.length ? approvedFears.join("\n") : "No additional fears supplied."}\nTreat the personal facts, likes, favorites, dislikes, and fears above as creator approved first person information. Use them to answer matching questions directly and naturally. Creator added personal entries override older baseline profile details if they conflict. A topic name by itself is not an answer and must never be treated as the creator's personal preference.\nExamples of how the creator naturally texts: ${approvedVoiceExamples.length ? approvedVoiceExamples.join("\n") : "No additional voice examples supplied."}\nUse voice examples only to learn phrasing, rhythm, slang, capitalization, punctuation, and emoji frequency. Do not treat their subject matter as personal facts and do not copy an unrelated example word for word.\nCreator topics to avoid: ${settings.avoid_topics || "No additional topics supplied."}\nCreator tone guidance: ${settings.tone_guidance || (creatorConfig(env).profileSeed === "tiffani" ? "Short, blunt, warm, confident, flirty, and natural." : "Warm, concise, and natural until the creator supplies tone guidance.")}\nCreator feedback about my habits: ${settings.creator_feedback || "No additional feedback supplied."}\n${activeSexting ? `An approved ${activeSexting.duration_minutes} minute sexting session is active now. You may respond explicitly between consenting adults. Current creator selected intensity: ${settings.sexting_intensity || "soft"}. Soft means intimate, playful, and gently explicit. Hard means direct and assertive while remaining clearly consensual. Hot means highly explicit while still consensual and within the creator's approved boundaries. At every intensity, exclude age coded roleplay, incest, choking, breath restriction, injury, forced activity, threats, humiliation that was not specifically approved, or language suggesting ignored boundaries. Use the approved playbook below as guidance, adapt it naturally to the fan's replies, never repeat a line mechanically, and never claim to send media unless the application actually sends it.\nApproved sexting playbook:\n${sextingScripts.results.map((item) => `${item.stage}: ${item.title}\n${item.script_text}${item.media_label ? `\nSuggested creator media: ${item.media_label}` : ""}`).join("\n\n")}` : "No sexting session is active. Do not provide a free explicit sexting session. Flirt naturally and offer a private sexting session. Do not mention payment or Stars until the fan asks about price, selects five or ten minutes, asks how to pay, or says they are ready."}\nFollow creator preferences unless they conflict with safety, age restrictions, privacy, or the fixed business rules above.\nApproved learned answers:\n${settings.learning === "off" ? "Learning is off." : learned.results
+      instructions: `${creatorPrompt(env)}\nCurrent time context: ${pacificTimeContext()} Use this context in every reply. Keep activities, greetings, meals, sleep references, tense, and plans appropriate for the actual Pacific time and weekday. Do not claim to be at a public event, holiday celebration, appointment, trip, movie, or scheduled engagement unless it appears in the creator's approved information or recent conversation. Never contradict a plan already stated in the conversation.\nThe fan's name is ${profile?.name || "unknown"}. Use their name naturally and occasionally, not in every response.\nCurrent flirty level: ${settings.flirty_level || "very"}.\nCurrent rates: video chat ${dollars(settings.video_chat_rate, 50)} per minute with a 5 minute minimum. Do not advertise or offer in person meetings. Custom content never has a universal rate. Collect the fan's idea and requested length, then say I will review it and provide a quote. Never invent or estimate a custom price.\nCreator approved topics to discuss: ${settings.preferred_topics || "No additional topics supplied."}\nApproved creator personal facts and answers: ${approvedPersonalFacts.length ? approvedPersonalFacts.join("\n") : "No additional personal facts supplied."}\nApproved creator likes and favorites: ${approvedLikes.length ? approvedLikes.join("\n") : "No additional likes supplied."}\nApproved creator dislikes: ${approvedDislikes.length ? approvedDislikes.join("\n") : "No additional dislikes supplied."}\nApproved creator fears: ${approvedFears.length ? approvedFears.join("\n") : "No additional fears supplied."}\nTreat the personal facts, likes, favorites, dislikes, and fears above as creator approved first person information. Use them to answer matching questions directly and naturally. Creator added personal entries override older baseline profile details if they conflict. A topic name by itself is not an answer and must never be treated as the creator's personal preference.\nExamples of how the creator naturally texts: ${approvedVoiceExamples.length ? approvedVoiceExamples.join("\n") : "No additional voice examples supplied."}\nUse voice examples only to learn phrasing, rhythm, slang, capitalization, punctuation, and emoji frequency. Do not treat their subject matter as personal facts and do not copy an unrelated example word for word.\nCreator topics to avoid: ${settings.avoid_topics || "No additional topics supplied."}\nCreator tone guidance: ${settings.tone_guidance || (creatorConfig(env).profileSeed === "tiffani" ? "Short, blunt, warm, confident, flirty, and natural." : "Warm, concise, and natural until the creator supplies tone guidance.")}\nCreator feedback about my habits: ${settings.creator_feedback || "No additional feedback supplied."}\n${activeSexting ? `An approved ${activeSexting.duration_minutes} minute sexting session is active now. You may respond explicitly between consenting adults. Current creator selected intensity: ${settings.sexting_intensity || "soft"}. Soft means intimate, playful, and gently explicit. Hard means direct and assertive while remaining clearly consensual. Hot means highly explicit while still consensual and within the creator's approved boundaries. At every intensity, exclude age coded roleplay, incest, choking, breath restriction, injury, forced activity, threats, humiliation that was not specifically approved, or language suggesting ignored boundaries. Use the approved playbook below as guidance, adapt it naturally to the fan's replies, never repeat a line mechanically, and never claim to send media unless the application actually sends it.\nApproved sexting playbook:\n${sextingScripts.results.map((item) => `${item.stage}: ${item.title}\n${item.script_text}${item.media_label ? `\nSuggested creator media: ${item.media_label}` : ""}`).join("\n\n")}` : "No sexting session is active. Do not provide a free explicit sexting session. Flirt naturally and offer a private sexting session. Do not mention payment or Stars until the fan asks about price, selects five or ten minutes, asks how to pay, or says they are ready."}\nFollow creator preferences unless they conflict with safety, age restrictions, privacy, or the fixed business rules above.\nApproved learned answers:\n${settings.learning === "off" ? "Learning is off." : learned.results
         .map((item) => `Fan question: ${item.question}\nApproved answer: ${item.answer}`)
         .join("\n\n")}`,
       input,
@@ -3921,14 +3921,11 @@ async function handleTelegramWebhook(request: Request, env: Env) {
         ORDER BY id DESC LIMIT 5`).bind(chatId).all<{ content: string }>()
     : { results: [] as Array<{ content: string }> };
   const priorBookingTextForRouting = [
-    bookingDraft?.service_type === "video_chat" ? "video chat" :
-      bookingDraft?.service_type === "in_person" ? "in person meet" : "",
+    bookingDraft?.service_type === "video_chat" ? "video chat" : "",
     ...[...priorBookingMessagesForRouting.results].reverse().map((item) => item.content),
   ].filter(Boolean).join(" ");
-  const expectingBookingCity = bookingDraft?.status === "awaiting_details" &&
-    bookingDetailsMissing(priorBookingTextForRouting).includes("city");
   const cancelBookingDraft = isGenericCancelReply(message.text) || isBookingDecline(message.text);
-  const likelyBookingDetail = isLikelyBookingDetailReply(message.text, expectingBookingCity);
+  const likelyBookingDetail = isLikelyBookingDetailReply(message.text);
   if (bookingDraft?.status === "awaiting_details" && !cancelBookingDraft &&
       requestedFlow !== "booking" && isConversationQuestion(message.text) && !likelyBookingDetail) {
     await env.DB.prepare(`UPDATE booking_drafts SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
@@ -3948,28 +3945,25 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       return json({ ok: true });
     }
     if (isManualPaymentQuestion(message.text)) {
-      const paymentReply = manualPaymentMethods(env, "Once I confirm the date, time, service, and total, you can pay using one of these, babe.");
+      const paymentReply = manualPaymentMethods(env, "Once I confirm the date, time, duration, and total, you can pay using one of these, babe.");
       await saveMessage(env.DB, chatId, "user", message.text);
       await saveMessage(env.DB, chatId, "assistant", paymentReply);
       await sendTelegramMessage(env, message, paymentReply);
       return json({ ok: true });
     }
     if (/^(you|with you|a meeting with you|meet with you)\??[.! ]*$/i.test(message.text.trim())) {
-      const clarification = "Yes, with me, babe. Send me your preferred date and time, and let me know if you want a video chat here on Telegram or an in person meet. If it's in person, tell me the city too.";
+      const clarification = "Yes, with me, babe. Send me your preferred date, time, and how many minutes you want for a video chat here on Telegram.";
       await saveMessage(env.DB, chatId, "user", message.text);
       await saveMessage(env.DB, chatId, "assistant", clarification);
       await sendTelegramMessage(env, message, clarification);
       return json({ ok: true });
     }
     const priorBookingDetails = priorBookingTextForRouting;
-    const standaloneCityReply = bookingDetailsMissing(priorBookingDetails).includes("city") && isLikelyCityReply(message.text);
-    const combinedBookingDetails = `${priorBookingDetails}${standaloneCityReply ? " city is " : " "}${message.text}`.trim();
+    const combinedBookingDetails = `${priorBookingDetails} ${message.text}`.trim();
     const missingBookingDetails = bookingDetailsMissing(combinedBookingDetails);
     if (missingBookingDetails.length) {
-      const detailsPrompt = missingBookingDetails.includes("video chat or in person meet")
-        ? "Did you want a video chat here on Telegram or an in person meet, babe?"
-        : missingBookingDetails.includes("city")
-          ? "What city did you want to meet in, babe?"
+      const detailsPrompt = missingBookingDetails.includes("video chat")
+        ? "Did you want a video chat here on Telegram, babe?"
         : missingBookingDetails.includes("video chat length")
           ? "How many minutes do you want the video chat to be, babe? The minimum is 5 minutes."
         : missingBookingDetails.includes("preferred date") && missingBookingDetails.includes("preferred time")
@@ -3996,8 +3990,13 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   }
 
   if (isBookingQuestion(message.text)) {
-    const bookingService = isVideoChatRequest(message.text) ? "video_chat"
-      : isInPersonRequest(message.text) ? "in_person" : "";
+    if (isInPersonRequest(message.text)) {
+      await saveMessage(env.DB, chatId, "user", message.text);
+      await saveMessage(env.DB, chatId, "assistant", IN_PERSON_MEET_UNAVAILABLE_REPLY);
+      await sendTelegramMessage(env, message, IN_PERSON_MEET_UNAVAILABLE_REPLY);
+      return json({ ok: true, in_person_meet_unavailable: true });
+    }
+    const bookingService = "video_chat";
     await env.DB.prepare(`INSERT INTO booking_drafts
       (chat_id, business_connection_id, service_type, status) VALUES (?, ?, ?, 'awaiting_details')
       ON CONFLICT(chat_id) DO UPDATE SET business_connection_id = excluded.business_connection_id,
@@ -5063,7 +5062,7 @@ async function handleAdminBooking(request: Request, env: Env) {
     id?: number;
     action?: "approve" | "decline" | "ignore" | "close_unpaid";
     answer?: string;
-    service_type?: "video_chat" | "custom_content" | "in_person";
+    service_type?: "video_chat" | "custom_content";
     duration?: string;
     amount?: string;
     scheduled_at?: string;
@@ -5113,6 +5112,9 @@ async function handleAdminBooking(request: Request, env: Env) {
   if (body.action === "approve" && (!body.service_type || !Number.isFinite(duration) || duration <= 0)) {
     return json({ error: "A valid service and duration are required" }, 400);
   }
+  if (body.action === "approve" && !["video_chat", "custom_content"].includes(body.service_type || "")) {
+    return json({ error: "Only video chats and custom content are supported" }, 400);
+  }
   if (body.action === "approve" && body.service_type === "video_chat" && duration < 5) {
     return json({ error: "Video chat requires at least 5 minutes" }, 400);
   }
@@ -5129,9 +5131,7 @@ async function handleAdminBooking(request: Request, env: Env) {
       (!Number.isFinite(quotedAmount) || quotedAmount <= 0 || quotedAmount > 100000)) {
     return json({ error: "Enter the total custom quote" }, 400);
   }
-  const rate = body.service_type === "in_person"
-    ? Number(settings.in_person_rate || 1500)
-    : Number(settings.video_chat_rate || 50);
+  const rate = Number(settings.video_chat_rate || 50);
   const amountCents = body.service_type === "custom_content"
     ? Math.round(quotedAmount * 100)
     : Math.round(duration * rate * 100);
@@ -5745,7 +5745,7 @@ async function handleAdminSettings(request: Request, env: Env) {
     sleep_hours_enabled: ["on", "off"],
     response_test_mode: ["on", "off"],
   };
-  const rateKeys = ["video_chat_rate", "custom_content_rate", "in_person_rate", "video_rating_rate", "sexting_rate"];
+  const rateKeys = ["video_chat_rate", "custom_content_rate", "video_rating_rate", "sexting_rate"];
   const starKeys = ["sexting_5_stars", "sexting_10_stars"];
   const minuteKeys = ["sexting_min_minutes"];
   const textKeys = ["preferred_topics", "avoid_topics", "tone_guidance", "creator_feedback"];
