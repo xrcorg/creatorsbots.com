@@ -344,6 +344,11 @@ button { cursor: pointer; }
 .conversationTranscript article.user { align-self: flex-start; background: white; border: 1px solid #eadfe4; }
 .conversationTranscript article.assistant { align-self: flex-end; background: #ffe8f3; }
 .conversationTranscript article span, .conversationTranscript article time { display: block; color: var(--muted); font-size: 7px; }
+.conversationTranscript article .messageMeta { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 5px; }
+.conversationTranscript article .messageReadStatus { display: inline-flex; align-items: center; gap: 3px; font-size: 7px; font-weight: 850; white-space: nowrap; }
+.messageReadStatus.new { color: #c72f72 !important; }
+.messageReadStatus.read { color: #28744a !important; }
+.messageReadStatus.sent { color: #79586a !important; }
 .conversationMessageHeader { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .conversationMessageHeader button { border: 0; padding: 2px 0; background: transparent; color: #a02c4d; font-size: 7px; font-weight: 850; text-decoration: underline; cursor: pointer; }
 .conversationMessageHeader button:disabled { opacity: .45; cursor: wait; }

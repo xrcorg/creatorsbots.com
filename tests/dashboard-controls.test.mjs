@@ -104,3 +104,18 @@ test("shows Telegram identity separately from the fan supplied name", async () =
   assert.match(worker, /AS telegram_username/);
   assert.match(worker, /AS telegram_user_id/);
 });
+
+test("tracks unread fan messages and marks an opened business chat read", async () => {
+  const [dashboard, worker] = await Promise.all([
+    readFile(dashboardPath, "utf8"),
+    readFile(workerPath, "utf8"),
+  ]);
+
+  assert.match(worker, /CREATE TABLE IF NOT EXISTS conversation_inbox_reads/);
+  assert.match(worker, /\/api\/admin\/conversations\/mark-read/);
+  assert.match(worker, /readBusinessMessage/);
+  assert.match(worker, /AS unread_count/);
+  assert.match(dashboard, /Read in Inbox/);
+  assert.match(dashboard, /messageReadStatus/);
+  assert.match(dashboard, /conversation\.unread_count/);
+});

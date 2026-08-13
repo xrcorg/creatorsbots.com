@@ -280,6 +280,9 @@ type LiveConversation = {
   last_message_at: string;
   message_count: number;
   pending_count: number;
+  unread_count: number;
+  last_read_message_id: number;
+  inbox_last_read_at: string | null;
   active_workflow: "chat" | "sexting" | "custom" | "booking" | "sexting checkout";
   control_mode: "bot" | "human";
   low_priority: number;
@@ -734,8 +737,16 @@ export default function Home() {
       try {
         const response = await fetch(`/api/admin/conversations/${encodeURIComponent(selectedConversationId)}`, { cache: "no-store" });
         if (!response.ok) return;
-        const data = await response.json() as { messages: ConversationMessage[] };
+        const data = await response.json() as { conversation?: LiveConversation; messages: ConversationMessage[] };
         setConversationMessages(data.messages || []);
+        if (data.conversation) {
+          setConversations((items) => items.map((item) => item.chat_id === selectedConversationId
+            ? { ...item, ...data.conversation }
+            : item));
+          if (Number(data.conversation.unread_count || 0) > 0) {
+            await markConversationRead(selectedConversationId);
+          }
+        }
       } catch {
         // Keep the current transcript visible if a background refresh fails.
       }
@@ -884,7 +895,7 @@ export default function Home() {
       setConversationStatus("Loading conversation...");
       const response = await fetch(`/api/admin/conversations/${encodeURIComponent(chatId)}`, { cache: "no-store" });
       if (!response.ok) throw new Error("Conversation failed to load");
-      const data = await response.json() as { conversation: Pick<LiveConversation, "chat_id" | "telegram_name" | "telegram_display_name" | "telegram_username" | "telegram_user_id" | "age_status" | "is_blocked" | "control_mode" | "low_priority" | "next_reply_at" | "cash_spent_cents" | "stars_spent">; messages: ConversationMessage[] };
+      const data = await response.json() as { conversation: Pick<LiveConversation, "chat_id" | "telegram_name" | "telegram_display_name" | "telegram_username" | "telegram_user_id" | "age_status" | "is_blocked" | "control_mode" | "low_priority" | "next_reply_at" | "cash_spent_cents" | "stars_spent" | "unread_count" | "last_read_message_id" | "inbox_last_read_at">; messages: ConversationMessage[] };
       setConversationMessages(data.messages || []);
       if (data.conversation) {
         setFanNameDraft(data.conversation.telegram_name || "");
@@ -892,11 +903,36 @@ export default function Home() {
           ? { ...item, ...data.conversation }
           : item));
       }
+      await markConversationRead(chatId);
       setConversationReply("");
       setConversationStatus("");
     } catch {
       setConversationMessages([]);
       setConversationStatus("This conversation could not be loaded.");
+    }
+  }
+
+  async function markConversationRead(chatId: string) {
+    try {
+      const response = await fetch("/api/admin/conversations/mark-read", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId }),
+      });
+      if (!response.ok) return;
+      const data = await response.json() as {
+        last_read_message_id?: number; last_read_at?: string | null;
+      };
+      setConversations((items) => items.map((item) => item.chat_id === chatId
+        ? {
+            ...item,
+            unread_count: 0,
+            last_read_message_id: Number(data.last_read_message_id || item.last_read_message_id || 0),
+            inbox_last_read_at: data.last_read_at || item.inbox_last_read_at || null,
+          }
+        : item));
+    } catch {
+      // Keep the Inbox usable if Telegram read synchronization is temporarily unavailable.
     }
   }
 
@@ -2355,6 +2391,7 @@ export default function Home() {
             <div className="sectionHeading">
               <div><strong>Current chats</strong><small>{conversations.length} conversations</small></div>
               <div className="conversationInboxActions">
+                <span>{conversations.reduce((total, conversation) => total + Number(conversation.unread_count || 0), 0)} unread</span>
                 <span>{conversations.reduce((total, conversation) => total + Number(conversation.pending_count || 0), 0)} need attention</span>
                 {portalUser?.role === "owner" && <button className="clearAllConversations" disabled={liveLoading || (conversations.length === 0 && newChatters.length === 0)} onClick={() => void clearAllTestChats()} type="button">Clear all test chats</button>}
               </div>
@@ -2377,7 +2414,7 @@ export default function Home() {
                       <time>{new Date(`${conversation.last_message_at.replace(" ", "T")}Z`).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time>
                     </span>
                     <span className={`workflowBadge ${conversation.is_blocked ? "blocked" : conversation.low_priority ? "low-priority" : conversation.active_workflow.replace(" ", "-")}`}>{conversation.is_blocked ? "blocked" : conversation.low_priority ? "Broke mode" : conversation.active_workflow}</span>
-                    {Number(conversation.pending_count) > 0 && <b className="unreadBadge">{conversation.pending_count}</b>}
+                    {Number(conversation.unread_count) > 0 && <b aria-label={`${conversation.unread_count} unread messages`} className="unreadBadge">{conversation.unread_count}</b>}
                   </button>
                 )) : <p>No chats match that search.</p>}
               </div>
@@ -2434,7 +2471,12 @@ export default function Home() {
                         {message.voice_note_id && <audio controls preload="none" src={`/api/admin/conversations/voice/${message.voice_note_id}`} />}
                         <p>{message.content}</p>
                         {message.voice_status === "creator_review" && <small className="voiceReviewFlag">Voice memo awaiting your reply</small>}
-                        <time>{new Date(`${message.created_at.replace(" ", "T")}Z`).toLocaleString()}</time>
+                        <div className="messageMeta">
+                          <time>{new Date(`${message.created_at.replace(" ", "T")}Z`).toLocaleString()}</time>
+                          <span className={`messageReadStatus ${message.role === "assistant" ? "sent" : message.id <= Number(selectedConversation.last_read_message_id || 0) ? "read" : "new"}`}>
+                            {message.role === "assistant" ? "Sent" : message.id <= Number(selectedConversation.last_read_message_id || 0) ? "Read in Inbox" : "New"}
+                          </span>
+                        </div>
                       </article>
                     )) : <p className="conversationPlaceholder">{conversationStatus || "No saved messages in this conversation."}</p>}
                   </div>

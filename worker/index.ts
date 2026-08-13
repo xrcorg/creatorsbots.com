@@ -483,6 +483,12 @@ async function prepareDatabase(env: Env) {
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS chat_messages_chat_id_idx
       ON chat_messages(chat_id, id)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS conversation_inbox_reads (
+      chat_id TEXT PRIMARY KEY,
+      last_read_message_id INTEGER NOT NULL DEFAULT 0,
+      last_read_at TEXT,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS telegram_message_log (
       chat_id TEXT NOT NULL,
       message_id INTEGER NOT NULL,
@@ -1280,6 +1286,26 @@ async function deleteTelegramMessage(env: Env, chatId: string, messageId: number
       : { ok: false, error: result?.description || `Telegram returned ${response.status}` };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : "Telegram deletion failed" };
+  }
+}
+
+async function markTelegramBusinessMessageRead(env: Env, chatId: string,
+  businessConnectionId: string | null, messageId: number | null) {
+  if (!env.TELEGRAM_BOT_TOKEN || !businessConnectionId || !messageId) return false;
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/readBusinessMessage`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        business_connection_id: businessConnectionId,
+        chat_id: /^-?\d+$/.test(chatId) ? Number(chatId) : chatId,
+        message_id: messageId,
+      }),
+    });
+    const result = await response.json().catch(() => null) as { ok?: boolean } | null;
+    return Boolean(response.ok && result?.ok);
+  } catch {
+    return false;
   }
 }
 
@@ -2356,6 +2382,7 @@ async function deleteConversationFromInbox(env: Env, chatId: string) {
     env.DB.prepare(`UPDATE booking_requests SET status = 'cancelled', resolved_at = CURRENT_TIMESTAMP
       WHERE chat_id = ? AND status = 'pending'`).bind(chatId),
     env.DB.prepare("DELETE FROM pending_replies WHERE chat_id = ?").bind(chatId),
+    env.DB.prepare("DELETE FROM conversation_inbox_reads WHERE chat_id = ?").bind(chatId),
     env.DB.prepare("DELETE FROM chat_messages WHERE chat_id = ?").bind(chatId),
     env.DB.prepare("DELETE FROM telegram_message_log WHERE chat_id = ?").bind(chatId),
     env.DB.prepare("DELETE FROM voice_notes WHERE chat_id = ?").bind(chatId),
@@ -2386,6 +2413,7 @@ async function clearAllTestConversations(db: D1Database) {
     db.prepare("DELETE FROM inbound_message_buffer"),
     db.prepare("DELETE FROM product_interest"),
     db.prepare("DELETE FROM pending_replies"),
+    db.prepare("DELETE FROM conversation_inbox_reads"),
     db.prepare("DELETE FROM chat_messages"),
     db.prepare("DELETE FROM telegram_message_log"),
     db.prepare("DELETE FROM voice_notes"),
@@ -2431,6 +2459,40 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
       next_reply_at = NULL, updated_at = CURRENT_TIMESTAMP`)
       .bind(chatId, enabled ? 1 : 0).run();
     return json({ ok: true, low_priority: enabled ? 1 : 0, next_reply_at: null });
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/admin/conversations/mark-read") {
+    const body = await request.json<{ chat_id?: string }>().catch(() => ({}));
+    const chatId = String(body.chat_id || "").trim();
+    if (!chatId) return json({ error: "A conversation is required" }, 400);
+    const latest = await env.DB.prepare(`SELECT id, telegram_message_id, business_connection_id
+      FROM chat_messages WHERE chat_id = ? AND role = 'user' ORDER BY id DESC LIMIT 1`)
+      .bind(chatId).first<{
+        id: number; telegram_message_id: number | null; business_connection_id: string | null;
+      }>();
+    if (!latest) {
+      return json({ ok: true, last_read_message_id: 0, last_read_at: null, telegram_marked_read: false });
+    }
+    await env.DB.prepare(`INSERT INTO conversation_inbox_reads
+      (chat_id, last_read_message_id, last_read_at, updated_at)
+      VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      ON CONFLICT(chat_id) DO UPDATE SET
+        last_read_message_id = MAX(conversation_inbox_reads.last_read_message_id, excluded.last_read_message_id),
+        last_read_at = CURRENT_TIMESTAMP,
+        updated_at = CURRENT_TIMESTAMP`)
+      .bind(chatId, latest.id).run();
+    const telegramMarkedRead = await markTelegramBusinessMessageRead(env, chatId,
+      latest.business_connection_id, latest.telegram_message_id);
+    const readState = await env.DB.prepare(`SELECT last_read_message_id, last_read_at
+      FROM conversation_inbox_reads WHERE chat_id = ?`).bind(chatId).first<{
+        last_read_message_id: number; last_read_at: string;
+      }>();
+    return json({
+      ok: true,
+      last_read_message_id: Number(readState?.last_read_message_id || latest.id),
+      last_read_at: readState?.last_read_at || null,
+      telegram_marked_read: telegramMarkedRead,
+    });
   }
 
   const messageMatch = url.pathname.match(/^\/api\/admin\/conversations\/([^/]+)\/messages\/(-?\d+)$/);
@@ -2512,6 +2574,12 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
       COALESCE(conversation_controls.control_mode, 'bot') AS control_mode,
       COALESCE(conversation_reply_preferences.low_priority, 0) AS low_priority,
       conversation_reply_preferences.next_reply_at,
+      COALESCE(conversation_inbox_reads.last_read_message_id, 0) AS last_read_message_id,
+      conversation_inbox_reads.last_read_at AS inbox_last_read_at,
+      (SELECT COUNT(*) FROM chat_messages unread_messages
+        WHERE unread_messages.chat_id = fan_sessions.chat_id
+          AND unread_messages.role = 'user'
+          AND unread_messages.id > COALESCE(conversation_inbox_reads.last_read_message_id, 0)) AS unread_count,
       COALESCE((SELECT SUM(earnings_events.amount_cents) FROM earnings_events
         WHERE (earnings_events.source_type IN ('content', 'physical_item', 'video_rating')
           AND EXISTS (SELECT 1 FROM purchase_requests WHERE CAST(purchase_requests.id AS TEXT) = earnings_events.source_id
@@ -2533,6 +2601,7 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
       LEFT JOIN fan_profiles ON fan_profiles.chat_id = fan_sessions.chat_id
       LEFT JOIN conversation_controls ON conversation_controls.chat_id = fan_sessions.chat_id
       LEFT JOIN conversation_reply_preferences ON conversation_reply_preferences.chat_id = fan_sessions.chat_id
+      LEFT JOIN conversation_inbox_reads ON conversation_inbox_reads.chat_id = fan_sessions.chat_id
       WHERE fan_sessions.chat_id = ?`).bind(chatId).first();
     if (!conversation) return json({ error: "Conversation not found" }, 404);
     const messages = await env.DB.prepare(`SELECT id, role, content, created_at
@@ -4778,6 +4847,12 @@ async function handleAdminPending(request: Request, env: Env) {
     (SELECT COUNT(*) FROM chat_messages WHERE chat_messages.chat_id = fan_sessions.chat_id) AS message_count,
     (SELECT COUNT(*) FROM pending_replies WHERE pending_replies.chat_id = fan_sessions.chat_id
       AND pending_replies.status = 'pending') AS pending_count,
+    COALESCE(conversation_inbox_reads.last_read_message_id, 0) AS last_read_message_id,
+    conversation_inbox_reads.last_read_at AS inbox_last_read_at,
+    (SELECT COUNT(*) FROM chat_messages unread_messages
+      WHERE unread_messages.chat_id = fan_sessions.chat_id
+        AND unread_messages.role = 'user'
+        AND unread_messages.id > COALESCE(conversation_inbox_reads.last_read_message_id, 0)) AS unread_count,
     CASE
       WHEN EXISTS (SELECT 1 FROM sexting_sessions WHERE sexting_sessions.chat_id = fan_sessions.chat_id AND status = 'active') THEN 'sexting'
       WHEN EXISTS (SELECT 1 FROM custom_drafts WHERE custom_drafts.chat_id = fan_sessions.chat_id AND status = 'awaiting_details') THEN 'custom'
@@ -4790,6 +4865,7 @@ async function handleAdminPending(request: Request, env: Env) {
     LEFT JOIN fan_profiles ON fan_profiles.chat_id = fan_sessions.chat_id
     LEFT JOIN conversation_controls ON conversation_controls.chat_id = fan_sessions.chat_id
     LEFT JOIN conversation_reply_preferences ON conversation_reply_preferences.chat_id = fan_sessions.chat_id
+    LEFT JOIN conversation_inbox_reads ON conversation_inbox_reads.chat_id = fan_sessions.chat_id
     WHERE COALESCE(fan_profiles.name_status, '') != 'pending_name_approval'
       AND fan_sessions.chat_id <> ?
     ORDER BY datetime(last_message_at) DESC LIMIT 200`).bind(DASHBOARD_TEST_CHAT_ID).all();
