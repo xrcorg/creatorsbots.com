@@ -57,6 +57,7 @@ services:
       - madison
     environment:
       APP_DOMAIN: ${APP_DOMAIN}
+      ONBOARDING_DOMAIN: ${ONBOARDING_DOMAIN:-creatorsbots.com}
       MADISON_APP_DOMAIN: ${MADISON_APP_DOMAIN:-madison.creatorsbots.com}
     ports:
       - "80:80"

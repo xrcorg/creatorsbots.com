@@ -16,6 +16,20 @@
   }
 }
 
+{$ONBOARDING_DOMAIN} {
+  encode zstd gzip
+
+  @root path /
+  handle @root {
+    rewrite * /onboarding
+    reverse_proxy app:3000
+  }
+
+  handle {
+    reverse_proxy app:3000
+  }
+}
+
 {$MADISON_APP_DOMAIN} {
   encode zstd gzip
 

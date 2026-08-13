@@ -2,7 +2,16 @@
 
 This deployment runs isolated Tiffani Madison and Madison Morgan creator instances in Docker. Each creator has a separate application process and persistent data volume, so conversations, customer profiles, media, catalogs, settings, payments, orders, learned replies, and earnings cannot mix.
 
-Caddy routes `APP_DOMAIN` to Tiffani and `MADISON_APP_DOMAIN` to Madison. The two instances share the same application code and fixed safety rules, but each uses its own Telegram bot token, webhook secret, Cloudflare Access audience, creator login list, profile, and payment settings.
+Caddy routes `APP_DOMAIN` to Tiffani's dashboard, `ONBOARDING_DOMAIN` to the creator intake, and `MADISON_APP_DOMAIN` to Madison. The two creator instances share the same application code and fixed safety rules, but each uses its own Telegram bot token, webhook secret, Cloudflare Access audience, creator login list, profile, and payment settings.
+
+The recommended production values are:
+
+```dotenv
+APP_DOMAIN=app.creatorsbots.com
+ONBOARDING_DOMAIN=creatorsbots.com
+```
+
+Add both hostnames to the same Cloudflare Access application so the existing approved email list and audience protect the dashboard and intake. The root `creatorsbots.com` address opens the intake form while keeping the short address in the browser.
 
 Each application process registers its own Telegram webhook when it starts. This includes chat, checkout, and paid-media purchase updates, so per-item Stars unlocks are recorded without a separate webhook command.
 
