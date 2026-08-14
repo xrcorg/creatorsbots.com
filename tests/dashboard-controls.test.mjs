@@ -115,6 +115,18 @@ test("explains slow replies without trapping a Low Priority fan in the long queu
   assert.match(worker, /slow_reply_explained: true/);
 });
 
+test("suppresses replies that were already waiting when the creator pauses or lowers priority", async () => {
+  const [dashboard, worker] = await Promise.all([
+    readFile(dashboardPath, "utf8"),
+    readFile(workerPath, "utf8"),
+  ]);
+
+  assert.match(worker, /async function isConversationHumanControlled/);
+  assert.match(worker, /collectQuickMessages[\s\S]*delayed_reply_suppressed: true/);
+  assert.match(worker, /refreshedPreference[\s\S]*queueLowPriorityReply/);
+  assert.match(dashboard, /Creator replying/);
+});
+
 test("shows Telegram identity separately from the fan supplied name", async () => {
   const [dashboard, worker] = await Promise.all([
     readFile(dashboardPath, "utf8"),

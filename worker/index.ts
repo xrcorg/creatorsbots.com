@@ -2316,6 +2316,12 @@ async function sendSavedReply(env: Env, message: TelegramMessage, chatId: string
   await sendTelegramMessage(env, message, reply);
 }
 
+async function isConversationHumanControlled(db: D1Database, chatId: string) {
+  const control = await db.prepare(`SELECT control_mode FROM conversation_controls
+    WHERE chat_id = ?`).bind(chatId).first<{ control_mode: string }>();
+  return control?.control_mode === "human";
+}
+
 async function queueCreatorReply(db: D1Database, message: TelegramMessage, source = "creator") {
   const chatId = String(message.chat.id);
   const statements = [
@@ -4029,6 +4035,32 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     settings.response_test_mode === "on");
   if (!collected) return json({ ok: true, combined_with_newer_message: true });
   message.text = collected.text;
+
+  // The creator can pause this chat while its natural response delay is still
+  // running. Recheck the live controls after that delay so an already queued
+  // automatic reply cannot leak through after the Inbox says Creator replying.
+  if (await isConversationHumanControlled(env.DB, chatId)) {
+    await saveMessage(env.DB, chatId, "user", message.text);
+    return json({ ok: true, creator_controlling_conversation: true,
+      delayed_reply_suppressed: true });
+  }
+  if (!isDashboardTestMessage(message)) {
+    const refreshedSettings = await getSettings(env.DB);
+    if (refreshedSettings.response_test_mode !== "on" && isTiffaniSleeping(refreshedSettings)) {
+      await saveMessage(env.DB, chatId, "user", message.text);
+      await queueCreatorReply(env.DB, message, "sleep");
+      return json({ ok: true, sleep_queued: true, delayed_reply_suppressed: true });
+    }
+    const refreshedPreference = await env.DB.prepare(`SELECT low_priority
+      FROM conversation_reply_preferences WHERE chat_id = ?`)
+      .bind(chatId).first<{ low_priority: number }>();
+    if (Number(refreshedPreference?.low_priority || 0) === 1 && !isSlowReplyComplaint(message.text)) {
+      await saveMessage(env.DB, chatId, "user", message.text);
+      const queuedSource = await queueLowPriorityReply(env.DB, message);
+      return json({ ok: true, low_priority_queued: queuedSource === "low_priority",
+        sleep_queued: queuedSource === "sleep", delayed_reply_suppressed: true });
+    }
+  }
   const requestedFlow = requestedConversationFlow(message.text);
   const customDraft = await env.DB.prepare(`SELECT status, details, completion_mode, custom_type, photo_count FROM custom_drafts
     WHERE chat_id = ?`).bind(chatId).first<{ status: string; details: string; completion_mode: string;
@@ -4162,6 +4194,10 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       return json({ ok: true, combined_with_newer_message: true });
     }
     await saveMessage(env.DB, chatId, "user", message.text);
+    if (await isConversationHumanControlled(env.DB, chatId)) {
+      return json({ ok: true, creator_controlling_conversation: true,
+        delayed_reply_suppressed: true });
+    }
     if (isCreatorTakeoverReply(combinedReply)) {
       if (settings.human_takeover !== "off") await queueCreatorReply(env.DB, message);
       return json({ ok: true, creator_reply_needed: true });
@@ -4777,6 +4813,10 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   }
 
   await saveMessage(env.DB, chatId, "user", message.text);
+  if (await isConversationHumanControlled(env.DB, chatId)) {
+    return json({ ok: true, creator_controlling_conversation: true,
+      delayed_reply_suppressed: true });
+  }
   if (isCreatorTakeoverReply(reply)) {
     if (settings.human_takeover !== "off") await queueCreatorReply(env.DB, message);
     return json({ ok: true, creator_reply_needed: true });
