@@ -317,6 +317,10 @@ type ConversationMessage = {
   voice_note_id?: number;
   voice_duration?: number;
   voice_status?: "creator_review";
+  media_id?: number;
+  media_type?: "photo" | "video" | "voice";
+  media_mime_type?: string;
+  media_duration?: number;
 };
 
 type QuickReplyCategory = "general" | "content" | "custom" | "video_chat" | "ratings" | "payment" | "boundaries";
@@ -2604,7 +2608,10 @@ export default function Home() {
                           <span>{message.role === "user" ? selectedConversation.telegram_name : (portalUser?.creator_name.split(/\s+/)[0] || "Creator")}</span>
                           <button aria-label={`Delete message from ${message.role === "user" ? selectedConversation.telegram_name : "creator"}`} disabled={liveLoading} onClick={() => void deleteConversationMessage(message)} type="button">Delete</button>
                         </div>
-                        {message.voice_note_id && <audio controls preload="none" src={`/api/admin/conversations/voice/${message.voice_note_id}`} />}
+                        {message.voice_note_id && message.media_type !== "voice" && <audio controls preload="none" src={`/api/admin/conversations/voice/${message.voice_note_id}`} />}
+                        {message.media_id && message.media_type === "photo" && <a className="inboxMediaLink" href={`/api/admin/conversations/media/${message.media_id}`} rel="noreferrer" target="_blank"><img alt="Photo sent in Telegram" className="inboxMediaPreview" loading="lazy" src={`/api/admin/conversations/media/${message.media_id}`} /></a>}
+                        {message.media_id && message.media_type === "video" && <video className="inboxMediaPreview inboxVideoPreview" controls playsInline preload="metadata" src={`/api/admin/conversations/media/${message.media_id}`} />}
+                        {message.media_id && message.media_type === "voice" && <audio controls preload="none" src={`/api/admin/conversations/media/${message.media_id}`} />}
                         <p>{message.content}</p>
                         {message.voice_status === "creator_review" && <small className="voiceReviewFlag">Voice memo awaiting your reply</small>}
                         <div className="messageMeta">

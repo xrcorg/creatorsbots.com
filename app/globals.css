@@ -361,6 +361,9 @@ button { cursor: pointer; }
 .conversationMessageHeader button:disabled { opacity: .45; cursor: wait; }
 .conversationTranscript article p { margin: 4px 0; font-size: 9px; line-height: 1.45; white-space: pre-wrap; }
 .conversationTranscript audio { display: block; width: min(100%, 300px); height: 32px; margin: 7px 0 4px; }
+.inboxMediaLink { display: block; margin: 7px 0 4px; }
+.inboxMediaPreview { display: block; width: min(100%, 240px); max-height: 220px; border-radius: 10px; background: #1c171a; object-fit: contain; }
+.inboxVideoPreview { margin: 7px 0 4px; }
 .voiceReviewFlag { display: block; margin-top: 5px; color: #a02c4d; font-size: 7px; font-weight: 800; }
 .conversationPlaceholder { margin: auto; padding: 24px; color: var(--muted); font-size: 10px; line-height: 1.5; text-align: center; }
 .conversationNotice { margin: 0; padding: 9px 12px; border-top: 1px solid #eddde5; background: #f5fff8; color: #28744a; font-size: 8px; }

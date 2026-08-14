@@ -558,6 +558,19 @@ async function prepareDatabase(env: Env) {
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS voice_notes_chat_id_idx
       ON voice_notes(chat_id, id)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS telegram_inbox_media (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      chat_id TEXT NOT NULL,
+      telegram_message_id INTEGER NOT NULL,
+      telegram_file_id TEXT NOT NULL,
+      media_type TEXT NOT NULL,
+      mime_type TEXT NOT NULL DEFAULT '',
+      duration_seconds INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(chat_id, telegram_message_id, media_type)
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS telegram_inbox_media_chat_id_idx
+      ON telegram_inbox_media(chat_id, telegram_message_id)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS conversation_controls (
       chat_id TEXT PRIMARY KEY,
       control_mode TEXT NOT NULL DEFAULT 'bot',
@@ -1488,6 +1501,47 @@ async function processTelegramVoice(env: Env, chatId: string, voice: NonNullable
     VALUES (?, ?, ?, ?, ?, '', 'creator_review')`).bind(chatId, voice.file_id, r2Key, mimeType,
       voice.duration || 0).run();
   return { needsReview: true };
+}
+
+async function rememberTelegramInboxMedia(db: D1Database, chatId: string, message: TelegramMessage) {
+  if (!message.message_id) return;
+  const photoFileId = message.photo?.at(-1)?.file_id;
+  const media = photoFileId
+    ? { fileId: photoFileId, type: "photo", mimeType: "image/jpeg", duration: 0 }
+    : message.video?.file_id
+      ? { fileId: message.video.file_id, type: "video", mimeType: "video/mp4", duration: 0 }
+      : message.voice?.file_id
+        ? { fileId: message.voice.file_id, type: "voice", mimeType: message.voice.mime_type || "audio/ogg", duration: message.voice.duration || 0 }
+        : null;
+  if (!media) return;
+  await db.prepare(`INSERT INTO telegram_inbox_media
+    (chat_id, telegram_message_id, telegram_file_id, media_type, mime_type, duration_seconds)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(chat_id, telegram_message_id, media_type) DO UPDATE SET
+      telegram_file_id = excluded.telegram_file_id,
+      mime_type = excluded.mime_type,
+      duration_seconds = excluded.duration_seconds`)
+    .bind(chatId, message.message_id, media.fileId, media.type, media.mimeType, media.duration).run();
+}
+
+async function telegramInboxMediaResponse(env: Env, mediaId: number) {
+  if (!env.TELEGRAM_BOT_TOKEN) return json({ error: "Telegram is not configured" }, 404);
+  const media = await env.DB.prepare(`SELECT telegram_file_id, mime_type FROM telegram_inbox_media
+    WHERE id = ?`).bind(mediaId).first<{ telegram_file_id: string; mime_type: string }>();
+  if (!media) return json({ error: "Attachment not found" }, 404);
+  const fileResponse = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/getFile?file_id=${encodeURIComponent(media.telegram_file_id)}`);
+  const fileData = await fileResponse.json().catch(() => null) as {
+    ok?: boolean; result?: { file_path?: string };
+  } | null;
+  if (!fileResponse.ok || !fileData?.ok || !fileData.result?.file_path) {
+    return json({ error: "Telegram attachment could not be located" }, 404);
+  }
+  const download = await fetch(`https://api.telegram.org/file/bot${env.TELEGRAM_BOT_TOKEN}/${fileData.result.file_path}`);
+  if (!download.ok || !download.body) return json({ error: "Telegram attachment could not be downloaded" }, 404);
+  return new Response(download.body, { headers: {
+    "content-type": download.headers.get("content-type") || media.mime_type || "application/octet-stream",
+    "cache-control": "private, max-age=3600",
+  } });
 }
 
 async function sendTelegramProductMedia(env: Env, message: TelegramMessage, media: ProductMedia) {
@@ -2613,6 +2667,11 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
     } });
   }
 
+  const mediaMatch = url.pathname.match(/^\/api\/admin\/conversations\/media\/(\d+)$/);
+  if (request.method === "GET" && mediaMatch) {
+    return telegramInboxMediaResponse(env, Number(mediaMatch[1]));
+  }
+
   if (request.method === "POST" && url.pathname === "/api/admin/conversations/priority") {
     const body = await request.json<{ chat_id?: string; enabled?: boolean }>().catch(() => ({}));
     const chatId = String(body.chat_id || "").trim();
@@ -2823,18 +2882,46 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
       LEFT JOIN conversation_inbox_reads ON conversation_inbox_reads.chat_id = fan_sessions.chat_id
       WHERE fan_sessions.chat_id = ?`).bind(chatId).first();
     if (!conversation) return json({ error: "Conversation not found" }, 404);
-    const messages = await env.DB.prepare(`SELECT id, role, content, created_at
+    const messages = await env.DB.prepare(`SELECT id, role, content, telegram_message_id, created_at
       FROM chat_messages WHERE chat_id = ? ORDER BY id DESC LIMIT 100`).bind(chatId).all<{
-        id: number; role: string; content: string; created_at: string;
+        id: number; role: string; content: string; telegram_message_id: number | null; created_at: string;
+      }>();
+    const mediaItems = await env.DB.prepare(`SELECT id, telegram_message_id, media_type, mime_type,
+      duration_seconds, created_at FROM telegram_inbox_media WHERE chat_id = ?
+      ORDER BY id DESC LIMIT 100`).bind(chatId).all<{
+        id: number; telegram_message_id: number; media_type: string; mime_type: string;
+        duration_seconds: number; created_at: string;
       }>();
     const voiceNotes = await env.DB.prepare(`SELECT id, transcript, duration_seconds, status, created_at
       FROM voice_notes WHERE chat_id = ? ORDER BY id DESC LIMIT 100`).bind(chatId).all<{
         id: number; transcript: string; duration_seconds: number; status: string; created_at: string;
       }>();
     const orderedMessages = messages.results.reverse().map((item) => ({ ...item })) as Array<{
-      id: number; role: string; content: string; created_at: string;
+      id: number; role: string; content: string; telegram_message_id: number | null; created_at: string;
       voice_note_id?: number; voice_duration?: number; voice_status?: string;
+      media_id?: number; media_type?: string; media_mime_type?: string; media_duration?: number;
     }>;
+    for (const media of mediaItems.results.reverse()) {
+      const match = orderedMessages.find((item) => item.telegram_message_id === media.telegram_message_id);
+      if (match) {
+        match.media_id = media.id;
+        match.media_type = media.media_type;
+        match.media_mime_type = media.mime_type;
+        match.media_duration = media.duration_seconds;
+      } else {
+        orderedMessages.push({
+          id: -1000000 - media.id,
+          role: "user",
+          content: media.media_type === "video" ? "Video received" : media.media_type === "voice" ? "Voice memo received" : "Photo received",
+          created_at: media.created_at,
+          telegram_message_id: media.telegram_message_id,
+          media_id: media.id,
+          media_type: media.media_type,
+          media_mime_type: media.mime_type,
+          media_duration: media.duration_seconds,
+        });
+      }
+    }
     const claimedMessages = new Set<number>();
     for (const voice of voiceNotes.results.reverse()) {
       const matchIndex = orderedMessages.findIndex((item, index) => !claimedMessages.has(index) &&
@@ -3622,8 +3709,14 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       return json({ ok: true, rating_completed: true });
     }
   }
+  if (!isCreatorBusinessReply && (message.photo?.length || message.video?.file_id || message.voice?.file_id)) {
+    await rememberTelegramInboxMedia(env.DB, chatId, message);
+  }
   if (!message.text && message.photo?.length) {
     message.text = message.caption?.trim() || "Payment screenshot sent";
+  }
+  if (!message.text && message.video?.file_id) {
+    message.text = message.caption?.trim() || "Video received";
   }
   let voiceNeedsReview = false;
   if (!message.text && message.voice) {
@@ -4832,7 +4925,7 @@ async function isAdminRequest(request: Request, env: Env) {
 
 async function clearDashboardTestChat(db: D1Database, onboarding = false) {
   const chatTables = [
-    "chat_messages", "voice_notes", "pending_replies", "purchase_requests", "product_interest",
+    "chat_messages", "voice_notes", "telegram_inbox_media", "pending_replies", "purchase_requests", "product_interest",
     "inbound_message_buffer", "sexting_drafts", "sexting_sessions", "custom_drafts", "booking_drafts",
     "booking_requests", "custom_fulfillments", "video_chat_orders", "physical_orders", "rating_orders",
     "paid_photo_unlocks", "sexting_media_sends", "paid_media_sales", "conversation_controls",
