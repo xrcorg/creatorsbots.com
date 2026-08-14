@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
-const PORTAL_RELEASE = "2026.08.13.7";
+const PORTAL_RELEASE = "2026.08.13.8";
 
 type Message = {
   id: number;
@@ -2605,16 +2605,8 @@ export default function Home() {
                   </div>
                   {conversationStatus && conversationMessages.length > 0 && <p className="conversationNotice">{conversationStatus}</p>}
                   {selectedConversation.is_blocked ? <div className="blockedFanNotice"><strong>This fan is blocked</strong><p>The bot and Inbox cannot send messages or content to this fan. Their conversation, orders, and earnings history remain saved.</p></div> : null}
-                  <div className="paidFulfillmentPanel">
-                    <div className="quickReplyHeading"><strong>Paid order fulfillment</strong><small>These controls stay visible. Each one unlocks when this chat has the matching order.</small></div>
-                    <div className="fulfillmentActionBar">
-                      <button className="primaryAction" disabled={liveLoading || !selectedPurchase} onClick={() => selectedPurchase && void resolvePurchaseById(selectedPurchase.id, "approve")} type="button">Confirm content payment</button>
-                      <button className="secondaryAction" disabled={liveLoading || selectedVideoChat?.status !== "payment_review"} onClick={() => selectedVideoChat && void resolveVideoChat(selectedVideoChat.id, "approve_payment")} type="button">Confirm video chat payment</button>
-                      <button className="secondaryAction" disabled={liveLoading || selectedVideoChat?.status !== "scheduled"} onClick={() => selectedVideoChat && void resolveVideoChat(selectedVideoChat.id, "complete")} type="button">Complete video chat + resume bot</button>
-                      <button className="secondaryAction" disabled={!selectedCustom} onClick={() => document.querySelector<HTMLInputElement>(`.paidFulfillmentPanel input[type="url"]`)?.focus()} type="button">Send completed custom</button>
-                      <button className="secondaryAction" disabled={!selectedRating} onClick={() => document.querySelector<HTMLInputElement>(`.paidFulfillmentPanel input[type="file"]`)?.click()} type="button">Send dick rating video</button>
-                    </div>
-                    {!selectedPurchase && !selectedCustom && !selectedRating && !selectedVideoChat && <p className="fulfillmentEmpty">No paid order is linked to this chat yet. The correct button will unlock as soon as payment is submitted and the order appears for approval.</p>}
+                  {(selectedPurchase || selectedCustom || selectedRating || selectedVideoChat) && <div className="paidFulfillmentPanel">
+                    <div className="quickReplyHeading"><strong>Active order</strong><small>Complete the next step for this chat.</small></div>
                     {selectedPurchase && <article>
                       <div><strong>{selectedPurchase.product_title}</strong><small>{selectedPurchase.price} · {selectedPurchase.payment_proof_received_at ? "payment screenshot received" : "payment claimed"}</small></div>
                       <button className="primaryAction" disabled={liveLoading} onClick={() => void resolvePurchaseById(selectedPurchase.id, "approve")} type="button">
@@ -2624,6 +2616,8 @@ export default function Home() {
                     {selectedVideoChat && <article className="videoChatCompletionCard">
                       <div><strong>Video chat with {selectedVideoChat.telegram_name}</strong><small>{videoChatSchedule(selectedVideoChat.scheduled_at)} · {selectedVideoChat.duration_minutes} minutes</small></div>
                       {selectedVideoChat.status === "payment_review" ? <p>The payment screenshot is ready for review. Confirm it to schedule the Telegram call and record the sale.</p> : selectedVideoChat.status === "scheduled" ? <p>Payment is confirmed. After the call, complete it here to move it to history and turn normal bot replies back on.</p> : <p>Waiting for the fan to send payment and a screenshot.</p>}
+                      {selectedVideoChat.status === "payment_review" && <button className="primaryAction" disabled={liveLoading} onClick={() => void resolveVideoChat(selectedVideoChat.id, "approve_payment")} type="button">Confirm video chat payment</button>}
+                      {selectedVideoChat.status === "scheduled" && <button className="primaryAction" disabled={liveLoading} onClick={() => void resolveVideoChat(selectedVideoChat.id, "complete")} type="button">Complete video chat + resume bot</button>}
                     </article>}
                     {selectedCustom && <article>
                       <div><strong>Finished custom for {selectedCustom.telegram_name}</strong><small>{money(selectedCustom.amount_cents)} confirmed</small></div>
@@ -2636,9 +2630,9 @@ export default function Home() {
                       <input accept="video/*" onChange={(event) => setRatingResponseFiles((current) => ({ ...current, [selectedRating.id]: event.target.files?.[0] || null }))} type="file" />
                       <button className="primaryAction" disabled={liveLoading || !ratingResponseFiles[selectedRating.id]} onClick={() => void completeRatingOrder(selectedRating.id)} type="button">Send rating video and complete order</button>
                     </article>}
-                  </div>
+                  </div>}
                   <div className="quickReplies">
-                    <div className="quickReplyHeading"><strong>Quick replies</strong><small>Choose one to fill the message, then edit or send it.</small></div>
+                    <div className="quickReplyHeading"><strong>Reply tools</strong><small>Pick an action. You can edit the message before sending.</small></div>
                     <div className="quickReplyCategories">
                       {(["general", "content", "custom", "video_chat", "ratings", "payment", "boundaries"] as QuickReplyCategory[]).map((category) => <button className={quickReplyCategory === category ? "selected" : ""} key={category} onClick={() => setQuickReplyCategory(category)} type="button">{category === "video_chat" ? "Video chat" : category === "ratings" ? "Dick ratings" : category}</button>)}
                     </div>
@@ -2646,22 +2640,24 @@ export default function Home() {
                       <label className="quickReplyProduct"><span>Selected content</span><select value={quickReplyProductId || quickReplyProducts[0]?.id || 0} onChange={(event) => setQuickReplyProductId(Number(event.target.value))}>{quickReplyProducts.length ? quickReplyProducts.map((product) => <option key={product.id} value={product.id}>{product.title}</option>) : <option value={0}>No active content</option>}</select></label>
                       <button className="quickSendContent" disabled={!quickReplyProducts.length} onClick={() => void sendQuickProduct("send_product")} type="button">Send selected content</button>
                     </div>}
-                    {quickReplyCategory === "content" && <div className="paidPhotoUnlockPanel">
-                      <div className="paidPhotoUnlockHeading">
-                        <div><strong>Single photo unlock</strong><small>Choose one photo and send it locked behind Telegram Stars.</small></div>
+                    {quickReplyCategory === "content" && <details className="paidPhotoUnlockPanel">
+                      <summary className="paidPhotoUnlockHeading">
+                        <div><strong>Send a photo with Stars</strong><small>Optional locked photo</small></div>
                         {selectedPaidPhotoPreview && <img alt="Selected photo preview" src={selectedPaidPhotoPreview} />}
+                      </summary>
+                      <div className="paidPhotoUnlockBody">
+                        <div className="paidPhotoUnlockFields">
+                          <label><span>Photo source</span><select value={paidPhotoSource} onChange={(event) => {
+                            setPaidPhotoSource(event.target.value as "sexting" | "catalog");
+                            setPaidPhotoMediaId(0);
+                          }}><option value="sexting">Sexting photos</option><option value="catalog">Content library</option></select></label>
+                          <label><span>Photo</span><select value={selectedPaidPhoto?.id || 0} onChange={(event) => setPaidPhotoMediaId(Number(event.target.value))}>{paidPhotoOptions.length ? paidPhotoOptions.map((media) => <option key={media.id} value={media.id}>{paidPhotoSource === "sexting" ? ((media as SextingMedia).label || media.file_name) : `${(media as CatalogPhotoMedia).product_title} · ${media.file_name}`}</option>) : <option value={0}>No uploaded photos</option>}</select></label>
+                          <label><span>Stars price</span><input inputMode="numeric" min={1} max={25000} onChange={(event) => setPaidPhotoStars(event.target.value)} placeholder="500" type="number" value={paidPhotoStars} /></label>
+                          <label><span>Unlock title</span><input maxLength={120} onChange={(event) => setPaidPhotoTitle(event.target.value)} placeholder="Private photo" type="text" value={paidPhotoTitle} /></label>
+                        </div>
+                        <button className="paidPhotoUnlockButton" disabled={liveLoading || !selectedPaidPhoto || !Number.isInteger(Number(paidPhotoStars)) || Number(paidPhotoStars) < 1} onClick={() => void sendPaidPhotoUnlock()} type="button">Send locked photo</button>
                       </div>
-                      <div className="paidPhotoUnlockFields">
-                        <label><span>Photo source</span><select value={paidPhotoSource} onChange={(event) => {
-                          setPaidPhotoSource(event.target.value as "sexting" | "catalog");
-                          setPaidPhotoMediaId(0);
-                        }}><option value="sexting">Sexting photos</option><option value="catalog">Content library</option></select></label>
-                        <label><span>Photo</span><select value={selectedPaidPhoto?.id || 0} onChange={(event) => setPaidPhotoMediaId(Number(event.target.value))}>{paidPhotoOptions.length ? paidPhotoOptions.map((media) => <option key={media.id} value={media.id}>{paidPhotoSource === "sexting" ? ((media as SextingMedia).label || media.file_name) : `${(media as CatalogPhotoMedia).product_title} · ${media.file_name}`}</option>) : <option value={0}>No uploaded photos</option>}</select></label>
-                        <label><span>Stars price</span><input inputMode="numeric" min={1} max={25000} onChange={(event) => setPaidPhotoStars(event.target.value)} placeholder="500" type="number" value={paidPhotoStars} /></label>
-                        <label><span>Unlock title</span><input maxLength={120} onChange={(event) => setPaidPhotoTitle(event.target.value)} placeholder="Private photo" type="text" value={paidPhotoTitle} /></label>
-                      </div>
-                      <button className="paidPhotoUnlockButton" disabled={liveLoading || !selectedPaidPhoto || !Number.isInteger(Number(paidPhotoStars)) || Number(paidPhotoStars) < 1} onClick={() => void sendPaidPhotoUnlock()} type="button">Send locked photo</button>
-                    </div>}
+                    </details>}
                     <div className="quickReplyOptions">
                       {quickReplyCategory === "general" && <><button onClick={() => fillQuickReply("saw_message")} type="button">Saw your message</button><button onClick={() => fillQuickReply("busy")} type="button">Busy right now</button><button onClick={() => fillQuickReply("anything_else")} type="button">Anything else</button></>}
                       {quickReplyCategory === "content" && <><button onClick={() => fillQuickReply("catalog")} type="button">Show catalog</button><button onClick={() => fillQuickReply("trailer")} type="button">Preview trailer reply</button><button onClick={() => fillQuickReply("product_details")} type="button">Send details</button><button onClick={() => fillQuickReply("product_payment")} type="button">Payment instructions</button><button onClick={() => fillQuickReply("product_delivery")} type="button">Preview delivery reply</button></>}

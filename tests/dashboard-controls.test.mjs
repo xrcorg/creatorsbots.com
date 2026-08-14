@@ -21,6 +21,21 @@ test("keeps content delivery and video chat fulfillment controls in the inbox", 
   assert.ok(secondaryTools > sendContent);
 });
 
+test("shows only relevant order actions and keeps optional photo tools compact", async () => {
+  const [dashboard, styles] = await Promise.all([
+    readFile(dashboardPath, "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(dashboard, /\(selectedPurchase \|\| selectedCustom \|\| selectedRating \|\| selectedVideoChat\) && <div className="paidFulfillmentPanel">/);
+  assert.match(dashboard, /<strong>Active order<\/strong>/);
+  assert.doesNotMatch(dashboard, /className="fulfillmentActionBar"/);
+  assert.doesNotMatch(dashboard, /No paid order is linked to this chat yet/);
+  assert.match(dashboard, /<details className="paidPhotoUnlockPanel">/);
+  assert.match(dashboard, /<strong>Send a photo with Stars<\/strong>/);
+  assert.match(styles, /\.paidPhotoUnlockPanel\[open\] \.paidPhotoUnlockHeading::after/);
+});
+
 test("allows a recorded per-fan adult confirmation without a global age bypass", async () => {
   const [dashboard, worker] = await Promise.all([
     readFile(dashboardPath, "utf8"),

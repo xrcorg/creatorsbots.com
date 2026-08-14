@@ -385,12 +385,16 @@ button { cursor: pointer; }
 .quickReplyProduct select { min-width: 0; border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; background: white; color: var(--ink); font: inherit; font-size: 11px; }
 .quickReplyProductRow .quickSendContent { min-height: 38px; padding: 9px 18px; border: 1px solid var(--deep-pink); border-radius: 10px; background: var(--deep-pink); color: white; font-size: 10px; font-weight: 850; white-space: nowrap; }
 .quickReplyProductRow .quickSendContent:disabled { cursor: not-allowed; opacity: .42; }
-.paidPhotoUnlockPanel { display: grid; gap: 12px; padding: 14px; border: 1px solid #edcfdd; border-radius: 14px; background: white; }
-.paidPhotoUnlockHeading { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.paidPhotoUnlockPanel { padding: 12px 14px; border: 1px solid #edcfdd; border-radius: 12px; background: white; }
+.paidPhotoUnlockHeading { display: flex; align-items: center; gap: 12px; cursor: pointer; list-style: none; }
+.paidPhotoUnlockHeading::-webkit-details-marker { display: none; }
+.paidPhotoUnlockHeading::after { content: "Show"; margin-left: auto; color: var(--deep-pink); font-size: 10px; font-weight: 850; }
+.paidPhotoUnlockPanel[open] .paidPhotoUnlockHeading::after { content: "Hide"; }
 .paidPhotoUnlockHeading > div { display: grid; gap: 3px; }
 .paidPhotoUnlockHeading strong { color: var(--ink); font-size: 13px; }
 .paidPhotoUnlockHeading small { color: var(--muted); font-size: 10px; line-height: 1.4; }
-.paidPhotoUnlockHeading img { width: 58px; height: 58px; flex: 0 0 58px; border: 1px solid #eadde3; border-radius: 10px; object-fit: cover; }
+.paidPhotoUnlockHeading img { width: 42px; height: 42px; flex: 0 0 42px; border: 1px solid #eadde3; border-radius: 9px; object-fit: cover; }
+.paidPhotoUnlockBody { display: grid; gap: 12px; margin-top: 12px; padding-top: 12px; border-top: 1px solid #f1e0e8; }
 .paidPhotoUnlockFields { display: grid; grid-template-columns: minmax(130px, .65fr) minmax(180px, 1.35fr) minmax(105px, .5fr) minmax(150px, 1fr); gap: 9px; }
 .paidPhotoUnlockFields label { display: grid; gap: 5px; color: var(--muted); font-size: 10px; font-weight: 800; }
 .paidPhotoUnlockFields select, .paidPhotoUnlockFields input { width: 100%; min-width: 0; height: 38px; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; background: white; color: var(--ink); font: inherit; font-size: 11px; }
@@ -580,10 +584,6 @@ button { cursor: pointer; }
 .paidFulfillmentPanel article small { color: var(--muted); font-size: 8px; text-align: right; }
 .paidFulfillmentPanel input, .paidFulfillmentPanel textarea { width: 100%; border: 1px solid var(--line); border-radius: 9px; padding: 9px; background: #fff; color: var(--ink); font-size: 10px; }
 .paidFulfillmentPanel textarea { min-height: 58px; resize: vertical; }
-.fulfillmentActionBar { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
-.fulfillmentActionBar button { min-height: 42px; padding: 9px 10px; font-size: 10px; line-height: 1.25; }
-.fulfillmentActionBar button:disabled { cursor: not-allowed; opacity: .42; }
-.fulfillmentEmpty { margin: 0; border: 1px dashed #ecc7d8; border-radius: 10px; padding: 10px 12px; background: white; color: var(--muted); font-size: 10px; line-height: 1.45; }
 .fulfillmentActions { display: grid; gap: 8px; margin-top: 10px; }
 .fulfillmentActions .filePicker { display: grid; gap: 5px; color: var(--muted); font-size: 9px; }
 .fulfillmentActions input[type="file"] { width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 9px; background: white; font-size: 9px; }
@@ -708,7 +708,6 @@ button { cursor: pointer; }
   .quickReplyProductRow .quickSendContent { width: 100%; }
   .paidPhotoUnlockFields { grid-template-columns: 1fr; }
   .paidPhotoUnlockButton { width: 100%; }
-  .fulfillmentActionBar { grid-template-columns: 1fr; }
   .conversationReplyForm { grid-template-columns: 1fr; }
   .conversationReplyActions { grid-template-columns: 1fr 1fr; grid-template-rows: auto auto; }
   .conversationReplyActions .secondaryAction { grid-column: 1 / -1; }
