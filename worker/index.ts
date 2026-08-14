@@ -6192,12 +6192,16 @@ async function handleAdminTasks(request: Request, env: Env) {
       return json({ error: "A task title, date, and time are required" }, 400);
     }
     const amount = Number(body.amount || 0);
-    await env.DB.prepare(`INSERT INTO daily_tasks
+    const inserted = await env.DB.prepare(`INSERT INTO daily_tasks
       (title, task_type, scheduled_at, fan_name, details, amount_cents)
       VALUES (?, ?, ?, ?, ?, ?)`)
       .bind(title, body.task_type || "other", scheduledAt, body.fan_name?.trim() || "",
         body.details?.trim() || "", Number.isFinite(amount) ? Math.round(amount * 100) : 0).run();
-    return json({ ok: true });
+    const task = await env.DB.prepare(`SELECT id, title, task_type, scheduled_at,
+      fan_name, details, amount_cents, status, created_at, completed_at
+      FROM daily_tasks WHERE id = ?`).bind(inserted.meta.last_row_id).first();
+    if (!task) return json({ error: "The task was saved but could not be reloaded" }, 500);
+    return json({ ok: true, task });
   }
   if (!body.id || !body.action) return json({ error: "A task action is required" }, 400);
   if (body.action === "remove") {

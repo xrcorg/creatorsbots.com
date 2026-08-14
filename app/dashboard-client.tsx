@@ -553,6 +553,7 @@ export default function Home() {
   const [editingTrainingId, setEditingTrainingId] = useState<number | null>(null);
   const [agendaDate, setAgendaDate] = useState(() => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles" }).format(new Date()));
   const [taskForm, setTaskForm] = useState({ title: "", task_type: "video_chat" as DailyTask["task_type"], scheduled_at: "", fan_name: "", details: "", amount: "" });
+  const [taskSaveStatus, setTaskSaveStatus] = useState("");
   const [scriptForm, setScriptForm] = useState({ stage: "warmup" as SextingScript["stage"], title: "", script_text: "", media_label: "" });
   const [productForm, setProductForm] = useState({ content_type: "video" as ContentProduct["content_type"], title: "", price: "", stars_price: "", genre: "", actors: "", trailer_url: "", delivery_url: "" });
   const [productTagDraft, setProductTagDraft] = useState("");
@@ -1926,18 +1927,30 @@ export default function Home() {
 
   async function addDailyTask(event: FormEvent) {
     event.preventDefault();
+    const submittedTask = { ...taskForm };
     try {
       setLiveLoading(true);
+      setLiveError("");
+      setTaskSaveStatus("Saving task...");
       const response = await fetch("/api/admin/tasks", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "create", ...taskForm }),
+        body: JSON.stringify({ action: "create", ...submittedTask }),
       });
-      if (!response.ok) throw new Error("Task could not be added");
+      const data = await readApiJson(response) as { error?: string; task?: DailyTask };
+      if (!response.ok || !data.task) throw new Error(data.error || "Task could not be added");
+      const savedTask = data.task;
+      const savedDate = savedTask.scheduled_at.slice(0, 10);
       setTaskForm({ title: "", task_type: "video_chat", scheduled_at: "", fan_name: "", details: "", amount: "" });
+      setAgendaDate(savedDate);
       await loadLivePending();
-    } catch {
-      setLiveError("The task could not be added. Check the date and time and try again.");
+      setDailyTasks((current) => current.some((task) => task.id === savedTask.id)
+        ? current
+        : [...current, savedTask].sort((left, right) => left.scheduled_at.localeCompare(right.scheduled_at)));
+      setTaskSaveStatus(`Task added for ${new Date(savedTask.scheduled_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}.`);
+    } catch (error) {
+      setTaskSaveStatus("");
+      setLiveError(error instanceof Error ? error.message : "The task could not be added. Check the date and time and try again.");
     } finally {
       setLiveLoading(false);
     }
@@ -2758,6 +2771,7 @@ export default function Home() {
                 </article>
               )) : <p className="queueNote">Nothing scheduled for this day.</p>}
             </div>
+            {taskSaveStatus && <p className="queueNote" role="status">{taskSaveStatus}</p>}
             <form className="taskForm" onSubmit={addDailyTask}>
               <strong>Add a task</strong>
               <label><span>Task</span><input required value={taskForm.title} onChange={(event) => setTaskForm((current) => ({ ...current, title: event.target.value }))} placeholder="Video chat with Alex" /></label>
