@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
-const PORTAL_RELEASE = "2026.08.13.8";
+const PORTAL_RELEASE = "2026.08.14.1";
 
 type Message = {
   id: number;
@@ -318,7 +318,7 @@ type ConversationMessage = {
   voice_duration?: number;
   voice_status?: "creator_review";
   media_id?: number;
-  media_type?: "photo" | "video" | "voice";
+  media_type?: "photo" | "video" | "voice" | "audio" | "document";
   media_mime_type?: string;
   media_duration?: number;
 };
@@ -2612,6 +2612,8 @@ export default function Home() {
                         {message.media_id && message.media_type === "photo" && <a className="inboxMediaLink" href={`/api/admin/conversations/media/${message.media_id}`} rel="noreferrer" target="_blank"><img alt="Photo sent in Telegram" className="inboxMediaPreview" loading="lazy" src={`/api/admin/conversations/media/${message.media_id}`} /></a>}
                         {message.media_id && message.media_type === "video" && <video className="inboxMediaPreview inboxVideoPreview" controls playsInline preload="metadata" src={`/api/admin/conversations/media/${message.media_id}`} />}
                         {message.media_id && message.media_type === "voice" && <audio controls preload="none" src={`/api/admin/conversations/media/${message.media_id}`} />}
+                        {message.media_id && message.media_type === "audio" && <audio controls preload="none" src={`/api/admin/conversations/media/${message.media_id}`} />}
+                        {message.media_id && message.media_type === "document" && <a className="inboxFileLink" href={`/api/admin/conversations/media/${message.media_id}`} rel="noreferrer" target="_blank">Open file sent in Telegram</a>}
                         <p>{message.content}</p>
                         {message.voice_status === "creator_review" && <small className="voiceReviewFlag">Voice memo awaiting your reply</small>}
                         <div className="messageMeta">

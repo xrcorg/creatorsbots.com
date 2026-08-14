@@ -48,7 +48,11 @@ type TelegramMessage = {
   text?: string;
   caption?: string;
   photo?: Array<{ file_id: string }>;
-  video?: { file_id: string };
+  video?: { file_id: string; mime_type?: string; duration?: number };
+  video_note?: { file_id: string; duration?: number };
+  animation?: { file_id: string; mime_type?: string; duration?: number };
+  audio?: { file_id: string; mime_type?: string; duration?: number };
+  document?: { file_id: string; mime_type?: string; file_name?: string };
   voice?: { file_id: string; mime_type?: string; duration?: number; file_size?: number };
   contact?: { phone_number: string; first_name?: string; last_name?: string; user_id?: number };
   successful_payment?: {
@@ -1509,9 +1513,19 @@ async function rememberTelegramInboxMedia(db: D1Database, chatId: string, messag
   const media = photoFileId
     ? { fileId: photoFileId, type: "photo", mimeType: "image/jpeg", duration: 0 }
     : message.video?.file_id
-      ? { fileId: message.video.file_id, type: "video", mimeType: "video/mp4", duration: 0 }
+      ? { fileId: message.video.file_id, type: "video", mimeType: message.video.mime_type || "video/mp4", duration: message.video.duration || 0 }
+      : message.video_note?.file_id
+        ? { fileId: message.video_note.file_id, type: "video", mimeType: "video/mp4", duration: message.video_note.duration || 0 }
+        : message.animation?.file_id
+          ? { fileId: message.animation.file_id, type: "video", mimeType: message.animation.mime_type || "video/mp4", duration: message.animation.duration || 0 }
+          : message.audio?.file_id
+            ? { fileId: message.audio.file_id, type: "audio", mimeType: message.audio.mime_type || "audio/mpeg", duration: message.audio.duration || 0 }
       : message.voice?.file_id
         ? { fileId: message.voice.file_id, type: "voice", mimeType: message.voice.mime_type || "audio/ogg", duration: message.voice.duration || 0 }
+        : message.document?.file_id
+          ? { fileId: message.document.file_id,
+              type: message.document.mime_type?.startsWith("image/") ? "photo" : message.document.mime_type?.startsWith("video/") ? "video" : message.document.mime_type?.startsWith("audio/") ? "audio" : "document",
+              mimeType: message.document.mime_type || "application/octet-stream", duration: 0 }
         : null;
   if (!media) return;
   await db.prepare(`INSERT INTO telegram_inbox_media
@@ -3709,7 +3723,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       return json({ ok: true, rating_completed: true });
     }
   }
-  if (!isCreatorBusinessReply && (message.photo?.length || message.video?.file_id || message.voice?.file_id)) {
+  if (!isCreatorBusinessReply && (message.photo?.length || message.video?.file_id || message.video_note?.file_id || message.animation?.file_id || message.audio?.file_id || message.voice?.file_id || message.document?.file_id)) {
     await rememberTelegramInboxMedia(env.DB, chatId, message);
   }
   if (!message.text && message.photo?.length) {
@@ -3717,6 +3731,15 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   }
   if (!message.text && message.video?.file_id) {
     message.text = message.caption?.trim() || "Video received";
+  }
+  if (!message.text && (message.video_note?.file_id || message.animation?.file_id)) {
+    message.text = message.caption?.trim() || "Video received";
+  }
+  if (!message.text && message.audio?.file_id) {
+    message.text = message.caption?.trim() || "Audio received";
+  }
+  if (!message.text && message.document?.file_id) {
+    message.text = message.caption?.trim() || "File received";
   }
   let voiceNeedsReview = false;
   if (!message.text && message.voice) {
