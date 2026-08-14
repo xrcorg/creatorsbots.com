@@ -293,7 +293,7 @@ button { cursor: pointer; }
 .conversationSearch span { display: block; margin-bottom: 5px; color: var(--muted); font-size: 9px; font-weight: 750; }
 .conversationSearch input { width: 100%; border: 1px solid var(--line); border-radius: 11px; padding: 10px 12px; background: white; color: var(--ink); font-size: 10px; }
 .conversationWorkspace { min-height: 460px; display: grid; grid-template-columns: minmax(250px, .85fr) minmax(0, 1.4fr); overflow: hidden; border: 1px solid #eddde5; border-radius: 15px; background: white; }
-.conversationList { max-height: 620px; overflow: auto; border-right: 1px solid #eddde5; }
+.conversationList { min-height: 0; max-height: none; align-self: stretch; overflow: auto; border-right: 1px solid #eddde5; background: white; }
 .conversationList > button { width: 100%; display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 11px; border: 0; border-bottom: 1px solid #f3e9ee; background: white; color: var(--ink); text-align: left; }
 .conversationList > button.selected { background: #fff0f7; }
 .conversationAvatar { width: 34px; height: 34px; display: grid; place-items: center; overflow: hidden; border-radius: 50%; background: linear-gradient(145deg, #ff76b7, #ce2374); color: white; font-size: 12px; font-weight: 900; }
