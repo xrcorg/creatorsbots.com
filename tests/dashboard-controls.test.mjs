@@ -185,3 +185,17 @@ test("tracks unread fan messages and marks an opened business chat read", async 
   assert.match(dashboard, /messageReadStatus/);
   assert.match(dashboard, /conversation\.unread_count/);
 });
+
+test("opens Inbox conversations at the newest message without trapping manual scrolling", async () => {
+  const [dashboard, styles] = await Promise.all([
+    readFile(dashboardPath, "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(dashboard, /conversationTranscriptRef/);
+  assert.match(dashboard, /keepConversationAtBottomRef/);
+  assert.match(dashboard, /transcript\.scrollTop = transcript\.scrollHeight/);
+  assert.match(dashboard, /distanceFromBottom <= 56/);
+  assert.match(dashboard, /onScroll=\{trackConversationScroll\} ref=\{conversationTranscriptRef\}/);
+  assert.match(styles, /scrollbar-gutter: stable/);
+});

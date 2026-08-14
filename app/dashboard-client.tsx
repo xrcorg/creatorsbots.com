@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
-const PORTAL_RELEASE = "2026.08.13.6";
+const PORTAL_RELEASE = "2026.08.13.7";
 
 type Message = {
   id: number;
@@ -506,6 +506,8 @@ export default function Home() {
   const [newChatterNames, setNewChatterNames] = useState<Record<string, string>>({});
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [conversationMessages, setConversationMessages] = useState<ConversationMessage[]>([]);
+  const conversationTranscriptRef = useRef<HTMLDivElement | null>(null);
+  const keepConversationAtBottomRef = useRef(true);
   const [conversationSearch, setConversationSearch] = useState("");
   const [conversationStatus, setConversationStatus] = useState("");
   const [conversationReply, setConversationReply] = useState("");
@@ -671,6 +673,32 @@ export default function Home() {
       // Keep the Inbox usable if Telegram read synchronization is temporarily unavailable.
     }
   }
+
+  const scrollConversationToBottom = useCallback(() => {
+    window.requestAnimationFrame(() => {
+      const transcript = conversationTranscriptRef.current;
+      if (!transcript) return;
+      transcript.scrollTop = transcript.scrollHeight;
+    });
+  }, []);
+
+  function trackConversationScroll() {
+    const transcript = conversationTranscriptRef.current;
+    if (!transcript) return;
+    const distanceFromBottom = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight;
+    keepConversationAtBottomRef.current = distanceFromBottom <= 56;
+  }
+
+  useEffect(() => {
+    if (!selectedConversationId) return;
+    keepConversationAtBottomRef.current = true;
+    scrollConversationToBottom();
+  }, [selectedConversationId, scrollConversationToBottom]);
+
+  useEffect(() => {
+    if (!selectedConversationId || !keepConversationAtBottomRef.current) return;
+    scrollConversationToBottom();
+  }, [conversationMessages.length, selectedConversationId, scrollConversationToBottom]);
 
   useEffect(() => {
     const initialLoad = window.setTimeout(() => void loadLivePending(), 0);
@@ -949,6 +977,7 @@ export default function Home() {
 
   async function openConversation(chatId: string) {
     try {
+      keepConversationAtBottomRef.current = true;
       setSelectedConversationId(chatId);
       setEditingFanName(false);
       setConversationStatus("Loading conversation...");
@@ -956,6 +985,7 @@ export default function Home() {
       if (!response.ok) throw new Error("Conversation failed to load");
       const data = await readApiJson(response) as { conversation: Pick<LiveConversation, "chat_id" | "telegram_name" | "telegram_display_name" | "telegram_username" | "telegram_phone_number" | "telegram_user_id" | "age_status" | "is_blocked" | "control_mode" | "low_priority" | "next_reply_at" | "cash_spent_cents" | "stars_spent" | "unread_count" | "last_read_message_id" | "inbox_last_read_at">; messages: ConversationMessage[] };
       setConversationMessages(data.messages || []);
+      scrollConversationToBottom();
       if (data.conversation) {
         setFanNameDraft(data.conversation.telegram_name || "");
         setConversations((items) => items.map((item) => item.chat_id === chatId
@@ -2554,7 +2584,7 @@ export default function Home() {
                       <button className={`blockConversation ${selectedConversation.is_blocked ? "unblock" : ""}`} disabled={liveLoading} onClick={() => void setConversationBlocked(selectedConversation.chat_id, !Boolean(selectedConversation.is_blocked))} type="button">{selectedConversation.is_blocked ? "Unblock fan" : "Block fan"}</button>
                     </div>
                   </header>
-                  <div className="conversationTranscript">
+                  <div className="conversationTranscript" onScroll={trackConversationScroll} ref={conversationTranscriptRef}>
                     {conversationMessages.length ? conversationMessages.map((message) => (
                       <article className={message.role} key={message.id}>
                         <div className="conversationMessageHeader">
