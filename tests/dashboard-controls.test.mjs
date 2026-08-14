@@ -146,6 +146,19 @@ test("shows Telegram profile photos with initials as a fallback", async () => {
   assert.match(styles, /object-fit: cover/);
 });
 
+test("keeps the Inbox usable when a server returns a plain text error", async () => {
+  const [dashboard, worker] = await Promise.all([
+    readFile(dashboardPath, "utf8"),
+    readFile(workerPath, "utf8"),
+  ]);
+
+  assert.match(dashboard, /async function readApiJson/);
+  assert.match(dashboard, /The server did not confirm that action\. Check Telegram before trying again\./);
+  assert.match(dashboard, /const data = await readApiJson\(response\) as \{ error\?: string \};/);
+  assert.match(worker, /Admin conversation request failed/);
+  assert.match(worker, /The server could not complete that action\. Check Telegram before trying again\./);
+});
+
 test("tracks unread fan messages and marks an opened business chat read", async () => {
   const [dashboard, worker] = await Promise.all([
     readFile(dashboardPath, "utf8"),

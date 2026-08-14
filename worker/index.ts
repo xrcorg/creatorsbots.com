@@ -6651,7 +6651,12 @@ const worker = {
     }
 
     if (url.pathname.startsWith("/api/admin/conversations")) {
-      return handleAdminConversations(request, env, url);
+      try {
+        return await handleAdminConversations(request, env, url);
+      } catch (error) {
+        console.error("Admin conversation request failed", error);
+        return json({ error: "The server could not complete that action. Check Telegram before trying again." }, 500);
+      }
     }
 
     if (url.pathname === "/api/admin/reply" && request.method === "POST") {

@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
-const PORTAL_RELEASE = "2026.08.13.4";
+const PORTAL_RELEASE = "2026.08.13.5";
 
 type Message = {
   id: number;
@@ -394,6 +394,20 @@ function money(cents: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 }
 
+async function readApiJson(response: Response): Promise<unknown> {
+  const raw = await response.text();
+  if (!raw.trim()) return {};
+  try {
+    return JSON.parse(raw);
+  } catch {
+    const temporaryServerFailure = response.status >= 500 || /bad gateway|internal server error|service unavailable/i.test(raw);
+    if (temporaryServerFailure) {
+      throw new Error("The server did not confirm that action. Check Telegram before trying again.");
+    }
+    throw new Error("The portal received an invalid response. Refresh and try again.");
+  }
+}
+
 function revenueLabel(sourceType: string) {
   return ({
     content: "Content sales",
@@ -585,7 +599,7 @@ export default function Home() {
       setLiveLoading(true);
       const response = await fetch("/api/admin/pending", { cache: "no-store" });
       if (!response.ok) throw new Error("Unable to load the creator inbox");
-      const data = await response.json() as { portal_user: PortalUser; payment_methods: PaymentMethods; platform_overview: PlatformOverview | null; pending: LivePendingReply[]; conversations: LiveConversation[]; new_chatters: NewChatter[]; purchases: LivePurchase[]; purchase_history: LivePurchase[]; bookings: LiveBooking[]; customs: LiveCustom[]; custom_history: LiveCustom[]; video_chats: VideoChatOrder[]; video_chat_history: VideoChatOrder[]; sexting_sessions: LiveSextingSession[]; sexting_history: LiveSextingSession[]; sexting_media: SextingMedia[]; catalog_photo_media: CatalogPhotoMedia[]; sexting_scripts: SextingScript[]; daily_tasks: DailyTask[]; physical_orders: PhysicalOrder[]; physical_order_history: PhysicalOrder[]; rating_orders: RatingOrder[]; rating_order_history: RatingOrder[]; announcements: Announcement[]; social_links: SocialLink[]; training_suggestions: TrainingSuggestion[]; sale_disputes: SaleDispute[]; products: ContentProduct[]; stars: StarsSummary; learned_count: number; earnings: EarningsSummary; settings: CreatorSettings };
+      const data = await readApiJson(response) as { portal_user: PortalUser; payment_methods: PaymentMethods; platform_overview: PlatformOverview | null; pending: LivePendingReply[]; conversations: LiveConversation[]; new_chatters: NewChatter[]; purchases: LivePurchase[]; purchase_history: LivePurchase[]; bookings: LiveBooking[]; customs: LiveCustom[]; custom_history: LiveCustom[]; video_chats: VideoChatOrder[]; video_chat_history: VideoChatOrder[]; sexting_sessions: LiveSextingSession[]; sexting_history: LiveSextingSession[]; sexting_media: SextingMedia[]; catalog_photo_media: CatalogPhotoMedia[]; sexting_scripts: SextingScript[]; daily_tasks: DailyTask[]; physical_orders: PhysicalOrder[]; physical_order_history: PhysicalOrder[]; rating_orders: RatingOrder[]; rating_order_history: RatingOrder[]; announcements: Announcement[]; social_links: SocialLink[]; training_suggestions: TrainingSuggestion[]; sale_disputes: SaleDispute[]; products: ContentProduct[]; stars: StarsSummary; learned_count: number; earnings: EarningsSummary; settings: CreatorSettings };
       setPortalUser(data.portal_user);
       setPaymentMethods(data.payment_methods || { cashapp: "", venmo: "", zelle: "" });
       setPlatformOverview(data.platform_overview);
@@ -642,7 +656,7 @@ export default function Home() {
         body: JSON.stringify({ chat_id: chatId }),
       });
       if (!response.ok) return;
-      const data = await response.json() as {
+      const data = await readApiJson(response) as {
         last_read_message_id?: number; last_read_at?: string | null;
       };
       setConversations((items) => items.map((item) => item.chat_id === chatId
@@ -671,7 +685,7 @@ export default function Home() {
     try {
       const response = await fetch("/api/admin/test-chat", { cache: "no-store" });
       if (!response.ok) throw new Error("Unable to open the test chat");
-      const data = await response.json() as { messages: TestChatMessage[]; feedback: TestChatFeedback[] };
+      const data = await readApiJson(response) as { messages: TestChatMessage[]; feedback: TestChatFeedback[] };
       setTestChatMessages(data.messages || []);
       setTestChatFeedback(data.feedback || []);
     } catch {
@@ -697,7 +711,7 @@ export default function Home() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ message }),
       });
-      const data = await response.json() as { error?: string; messages?: TestChatMessage[]; feedback?: TestChatFeedback[]; outcome?: { creator_reply_needed?: boolean } };
+      const data = await readApiJson(response) as { error?: string; messages?: TestChatMessage[]; feedback?: TestChatFeedback[]; outcome?: { creator_reply_needed?: boolean } };
       if (!response.ok) throw new Error(data.error || "The test message failed");
       setTestChatMessages(data.messages || []);
       setTestChatFeedback(data.feedback || []);
@@ -722,7 +736,7 @@ export default function Home() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ onboarding }),
       });
-      const data = await response.json() as { error?: string; messages?: TestChatMessage[]; feedback?: TestChatFeedback[] };
+      const data = await readApiJson(response) as { error?: string; messages?: TestChatMessage[]; feedback?: TestChatFeedback[] };
       if (!response.ok) throw new Error(data.error || "Reset failed");
       setTestChatMessages(data.messages || []);
       setTestChatFeedback(data.feedback || []);
@@ -762,7 +776,7 @@ export default function Home() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ action, user_message: userMessage, assistant_message: assistantMessage, correction: testChatCorrection }),
       });
-      const data = await response.json() as { error?: string; feedback?: TestChatFeedback[] };
+      const data = await readApiJson(response) as { error?: string; feedback?: TestChatFeedback[] };
       if (!response.ok) throw new Error(data.error || "Review could not be saved");
       setTestChatFeedback(data.feedback || []);
       setTestChatCorrection("");
@@ -782,7 +796,7 @@ export default function Home() {
       try {
         const response = await fetch(`/api/admin/conversations/${encodeURIComponent(selectedConversationId)}`, { cache: "no-store" });
         if (!response.ok) return;
-        const data = await response.json() as { conversation?: LiveConversation; messages: ConversationMessage[] };
+      const data = await readApiJson(response) as { conversation?: LiveConversation; messages: ConversationMessage[] };
         setConversationMessages(data.messages || []);
         if (data.conversation) {
           setConversations((items) => items.map((item) => item.chat_id === selectedConversationId
@@ -940,7 +954,7 @@ export default function Home() {
       setConversationStatus("Loading conversation...");
       const response = await fetch(`/api/admin/conversations/${encodeURIComponent(chatId)}`, { cache: "no-store" });
       if (!response.ok) throw new Error("Conversation failed to load");
-      const data = await response.json() as { conversation: Pick<LiveConversation, "chat_id" | "telegram_name" | "telegram_display_name" | "telegram_username" | "telegram_phone_number" | "telegram_user_id" | "age_status" | "is_blocked" | "control_mode" | "low_priority" | "next_reply_at" | "cash_spent_cents" | "stars_spent" | "unread_count" | "last_read_message_id" | "inbox_last_read_at">; messages: ConversationMessage[] };
+      const data = await readApiJson(response) as { conversation: Pick<LiveConversation, "chat_id" | "telegram_name" | "telegram_display_name" | "telegram_username" | "telegram_phone_number" | "telegram_user_id" | "age_status" | "is_blocked" | "control_mode" | "low_priority" | "next_reply_at" | "cash_spent_cents" | "stars_spent" | "unread_count" | "last_read_message_id" | "inbox_last_read_at">; messages: ConversationMessage[] };
       setConversationMessages(data.messages || []);
       if (data.conversation) {
         setFanNameDraft(data.conversation.telegram_name || "");
@@ -972,7 +986,7 @@ export default function Home() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ chat_id: selectedConversation.chat_id, name }),
       });
-      const data = await response.json() as { error?: string; name?: string };
+      const data = await readApiJson(response) as { error?: string; name?: string };
       if (!response.ok) throw new Error(data.error || "The fan name could not be updated");
       const savedName = data.name || name;
       setConversations((items) => items.map((item) => item.chat_id === selectedConversation.chat_id
@@ -1000,7 +1014,7 @@ export default function Home() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ voice_note_id: message.voice_note_id }),
       });
-      const data = await response.json() as { error?: string; warning?: string; telegram_deleted?: boolean };
+      const data = await readApiJson(response) as { error?: string; warning?: string; telegram_deleted?: boolean };
       if (!response.ok) throw new Error(data.error || "The message could not be deleted");
       setConversationMessages((items) => items.filter((item) => item.id !== message.id));
       setConversationStatus(data.warning || (data.telegram_deleted
@@ -1027,7 +1041,7 @@ export default function Home() {
       const response = await fetch(`/api/admin/conversations/${encodeURIComponent(chatId)}`, {
         method: "DELETE",
       });
-      const data = await response.json() as { error?: string; warning?: string };
+      const data = await readApiJson(response) as { error?: string; warning?: string };
       if (!response.ok) throw new Error(data.error || "The chat could not be deleted");
       setConversations((items) => items.filter((item) => item.chat_id !== chatId));
       setNewChatters((items) => items.filter((item) => item.chat_id !== chatId));
@@ -1059,7 +1073,7 @@ export default function Home() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ chat_id: chatId, name }),
       });
-      const data = await response.json() as { error?: string };
+      const data = await readApiJson(response) as { error?: string };
       if (!response.ok) throw new Error(data.error || "The name could not be confirmed");
       await loadLivePending();
       setSelectedConversationId(chatId);
@@ -1085,7 +1099,7 @@ export default function Home() {
         body: JSON.stringify({ chat_id: selectedConversation.chat_id, text: conversationReply.trim(), action: "send",
           learn: saveForFuture, resume_bot: resumeBotAfterReply, workflow_action: quickReplyWorkflow }),
       });
-      const data = await response.json() as { error?: string };
+      const data = await readApiJson(response) as { error?: string };
       if (!response.ok) throw new Error(data.error || "Reply failed");
       const resolvedChatId = selectedConversation.chat_id;
       const sentReply = conversationReply.trim();
@@ -1130,7 +1144,7 @@ export default function Home() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ chat_id: chatId, action: "dismiss" }),
       });
-      const data = await response.json() as { error?: string };
+      const data = await readApiJson(response) as { error?: string };
       if (!response.ok) throw new Error(data.error || "Request could not be cleared");
       setLivePending((items) => items.filter((item) => item.chat_id !== chatId));
       setConversations((items) => items.map((item) => item.chat_id === chatId
@@ -1222,7 +1236,7 @@ export default function Home() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ chat_id: selectedConversation.chat_id, action, product_id: product.id }),
       });
-      const data = await response.json() as { error?: string; sale_recorded?: boolean };
+      const data = await readApiJson(response) as { error?: string; sale_recorded?: boolean };
       if (!response.ok) throw new Error(data.error || "Content could not be sent");
       setConversationStatus(action === "send_trailer"
         ? "Trailer sent. Bot replies are paused for this chat."
@@ -1267,7 +1281,7 @@ export default function Home() {
         body: JSON.stringify({ chat_id: selectedConversation.chat_id, source_type: paidPhotoSource,
           media_id: selected.id, stars, title }),
       });
-      const data = await response.json() as { error?: string };
+      const data = await readApiJson(response) as { error?: string };
       if (!response.ok) throw new Error(data.error || "The locked photo could not be sent");
       setConversationStatus(`Locked photo sent for ${stars.toLocaleString()} Stars. Earnings update after the fan unlocks it.`);
       setPaidPhotoStars("");
@@ -1309,7 +1323,7 @@ export default function Home() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ chat_id: chatId, enabled }),
       });
-      const data = await response.json() as { error?: string; low_priority?: number; next_reply_at?: string | null };
+      const data = await readApiJson(response) as { error?: string; low_priority?: number; next_reply_at?: string | null };
       if (!response.ok) throw new Error(data.error || "Low Priority could not be changed");
       setConversations((items) => items.map((item) => item.chat_id === chatId
         ? { ...item, low_priority: Number(data.low_priority || 0), next_reply_at: data.next_reply_at || null }
@@ -1365,7 +1379,7 @@ export default function Home() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ chat_id: chatId, blocked }),
       });
-      const data = await response.json() as { error?: string };
+      const data = await readApiJson(response) as { error?: string };
       if (!response.ok) throw new Error(data.error || "Block setting could not be changed");
       setConversations((items) => items.map((item) => item.chat_id === chatId
         ? { ...item, is_blocked: blocked ? 1 : 0, control_mode: "human" }
@@ -1412,7 +1426,7 @@ export default function Home() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ chat_id: chatId, confirmed: true }),
       });
-      const data = await response.json() as { error?: string };
+      const data = await readApiJson(response) as { error?: string };
       if (!response.ok) throw new Error(data.error || "Age confirmation failed");
       setConversations((items) => items.map((item) => item.chat_id === chatId
         ? { ...item, age_status: "verified" }
@@ -1538,7 +1552,7 @@ export default function Home() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ id, action }),
       });
-      const data = await response.json() as { error?: string };
+      const data = await readApiJson(response) as { error?: string };
       if (!response.ok) throw new Error(data.error || "Video chat update failed");
       await loadLivePending();
     } catch (error) {
@@ -1630,7 +1644,7 @@ export default function Home() {
       form.set("id", String(id));
       form.set("file", file);
       const response = await fetch("/api/admin/rating", { method: "POST", body: form });
-      const data = await response.json().catch(() => ({})) as { error?: string };
+      const data = await readApiJson(response).catch(() => ({})) as { error?: string };
       if (!response.ok) throw new Error(data.error || "Rating video could not be sent");
       setRatingResponseFiles((current) => ({ ...current, [id]: null }));
       setConversationStatus("Private rating video sent and the order is complete.");
@@ -1676,7 +1690,7 @@ export default function Home() {
           : baseLabel);
         form.set("file", file);
         const response = await fetch("/api/admin/sexting-media", { method: "POST", body: form });
-        const result = await response.json().catch(() => ({})) as { error?: string };
+        const result = await readApiJson(response).catch(() => ({})) as { error?: string };
         if (!response.ok) throw new Error(`${file.name}: ${result.error || "upload failed"}`);
         setMediaUploadStatus(`Uploaded ${index + 1} of ${mediaFiles.length}`);
       }
@@ -1764,17 +1778,17 @@ export default function Home() {
         body: JSON.stringify({ ...productForm, genre: submittedTags }),
       });
       if (!response.ok) {
-        const data = await response.json() as { error?: string };
+        const data = await readApiJson(response) as { error?: string };
         throw new Error(data.error || "Product could not be added");
       }
-      const saved = await response.json() as { id?: number };
+      const saved = await readApiJson(response) as { id?: number };
       const productId = editingProductId || saved.id;
       if (productFiles.length && productId) {
         const files = new FormData();
         productFiles.forEach((file) => files.append("files", file));
         const upload = await fetch(`/api/admin/products/${productId}/media`, { method: "POST", body: files });
         if (!upload.ok) {
-          const data = await upload.json() as { error?: string };
+          const data = await readApiJson(upload) as { error?: string };
           throw new Error(data.error || "The product was saved, but its files could not be uploaded");
         }
       }
@@ -1866,7 +1880,7 @@ export default function Home() {
         body: JSON.stringify({ settings: Object.fromEntries(entries) }),
       });
       if (!response.ok) throw new Error("Setting update failed");
-      const data = await response.json() as { settings?: CreatorSettings };
+      const data = await readApiJson(response) as { settings?: CreatorSettings };
       if (data.settings) setSettings(data.settings);
       settingsDirtyRef.current = false;
       setSettingsDirty(false);
@@ -1945,7 +1959,7 @@ export default function Home() {
         body: JSON.stringify(announcementForm),
       });
       if (!response.ok) {
-        const data = await response.json() as { error?: string };
+        const data = await readApiJson(response) as { error?: string };
         throw new Error(data.error || "Announcement could not be sent");
       }
       setAnnouncementForm({ kind: "live", platform: "Instagram", message: "", stream_url: "", product_id: 0 });
@@ -1968,7 +1982,7 @@ export default function Home() {
         body: JSON.stringify(socialForm),
       });
       if (!response.ok) {
-        const data = await response.json() as { error?: string };
+        const data = await readApiJson(response) as { error?: string };
         throw new Error(data.error || "Social link could not be added");
       }
       setSocialForm({ platform: "Instagram", label: "", url: "" });
@@ -2015,7 +2029,7 @@ export default function Home() {
         body: JSON.stringify(trainingForm),
       });
       if (!response.ok) {
-        const data = await response.json() as { error?: string };
+        const data = await readApiJson(response) as { error?: string };
         throw new Error(data.error || "Training suggestion could not be added");
       }
       setTrainingForm((current) => ({ ...current, suggestion: "" }));
@@ -2063,7 +2077,7 @@ export default function Home() {
         body: JSON.stringify({ earnings_event_id: disputedSale.id, ...disputeForm }),
       });
       if (!response.ok) {
-        const data = await response.json() as { error?: string };
+        const data = await readApiJson(response) as { error?: string };
         throw new Error(data.error || "Sale report could not be submitted");
       }
       setDisputedSale(null);
@@ -2087,7 +2101,7 @@ export default function Home() {
         body: JSON.stringify({ sexting_session_id: disputedStarsSession.id, ...disputeForm }),
       });
       if (!response.ok) {
-        const data = await response.json() as { error?: string };
+        const data = await readApiJson(response) as { error?: string };
         throw new Error(data.error || "Stars report could not be submitted");
       }
       setDisputedStarsSession(null);
