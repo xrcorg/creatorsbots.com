@@ -129,6 +129,23 @@ test("shows Telegram identity separately from the fan supplied name", async () =
   assert.match(worker, /AS telegram_user_id/);
 });
 
+test("shows Telegram profile photos with initials as a fallback", async () => {
+  const [dashboard, worker, styles] = await Promise.all([
+    readFile(dashboardPath, "utf8"),
+    readFile(workerPath, "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(worker, /profile_photo_file_id TEXT/);
+  assert.match(worker, /getUserProfilePhotos/);
+  assert.match(worker, /getFile\?file_id=/);
+  assert.match(worker, /profile-photo/);
+  assert.match(dashboard, /function TelegramAvatar/);
+  assert.match(dashboard, /onError=\{\(\) => setPhotoUnavailable\(true\)\}/);
+  assert.match(styles, /\.conversationAvatar img/);
+  assert.match(styles, /object-fit: cover/);
+});
+
 test("tracks unread fan messages and marks an opened business chat read", async () => {
   const [dashboard, worker] = await Promise.all([
     readFile(dashboardPath, "utf8"),

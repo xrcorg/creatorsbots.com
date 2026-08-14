@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
-const PORTAL_RELEASE = "2026.08.13.3";
+const PORTAL_RELEASE = "2026.08.13.4";
 
 type Message = {
   id: number;
@@ -324,6 +324,19 @@ type QuickReplyCategory = "general" | "content" | "custom" | "video_chat" | "rat
 function telegramProfileLabel(person: Pick<LiveConversation, "telegram_display_name" | "telegram_username">) {
   const parts = [person.telegram_display_name, person.telegram_username].filter(Boolean);
   return parts.length ? parts.join(" · ") : "Telegram profile name unavailable";
+}
+
+function TelegramAvatar({ chatId, label }: { chatId: string; label: string }) {
+  const [photoUnavailable, setPhotoUnavailable] = useState(false);
+  const initial = label.replace(/^@/, "").slice(0, 1).toUpperCase() || "?";
+  return <span className="conversationAvatar">
+    {!photoUnavailable && <img
+      alt={`${label} Telegram profile`}
+      onError={() => setPhotoUnavailable(true)}
+      src={`/api/admin/conversations/profile-photo/${encodeURIComponent(chatId)}`}
+    />}
+    {photoUnavailable && initial}
+  </span>;
 }
 
 type PlatformOverview = {
@@ -2439,7 +2452,7 @@ export default function Home() {
               <div className="newChatterList">
                 {newChatters.map((chatter) => <article key={chatter.chat_id}>
                   <div className="newChatterIdentity">
-                    <span className="conversationAvatar">{(chatter.telegram_display_name || chatter.telegram_username || chatter.telegram_name).replace(/^@/, "").slice(0, 1).toUpperCase()}</span>
+                    <TelegramAvatar chatId={chatter.chat_id} label={chatter.telegram_display_name || chatter.telegram_username || chatter.telegram_name} />
                     <div>
                       <strong>{telegramProfileLabel(chatter)}</strong>
                       <small>Telegram ID: {chatter.telegram_user_id}</small>
@@ -2469,7 +2482,7 @@ export default function Home() {
               <div className="conversationList">
                 {visibleConversations.length ? visibleConversations.map((conversation) => (
                   <button className={selectedConversationId === conversation.chat_id ? "selected" : ""} key={conversation.chat_id} onClick={() => void openConversation(conversation.chat_id)} type="button">
-                    <span className="conversationAvatar">{conversation.telegram_name.replace(/^@/, "").slice(0, 1).toUpperCase()}</span>
+                    <TelegramAvatar chatId={conversation.chat_id} label={conversation.telegram_name} />
                     <span className="conversationSummary">
                       <strong>{conversation.telegram_name}</strong>
                       <small className="telegramProfileSummary">Telegram: {telegramProfileLabel(conversation)}</small>

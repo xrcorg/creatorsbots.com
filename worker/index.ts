@@ -585,6 +585,8 @@ async function prepareDatabase(env: Env) {
       username TEXT,
       display_name TEXT,
       phone_number TEXT,
+      profile_photo_file_id TEXT,
+      profile_photo_checked_at TEXT,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS pending_replies (
@@ -1082,6 +1084,12 @@ async function prepareDatabase(env: Env) {
   if (!telegramContactColumns.results.some((column) => column.name === "phone_number")) {
     await db.prepare("ALTER TABLE telegram_contacts ADD COLUMN phone_number TEXT").run();
   }
+  if (!telegramContactColumns.results.some((column) => column.name === "profile_photo_file_id")) {
+    await db.prepare("ALTER TABLE telegram_contacts ADD COLUMN profile_photo_file_id TEXT").run();
+  }
+  if (!telegramContactColumns.results.some((column) => column.name === "profile_photo_checked_at")) {
+    await db.prepare("ALTER TABLE telegram_contacts ADD COLUMN profile_photo_checked_at TEXT").run();
+  }
   // A creator may deliver paid content from the Inbox before the browser has
   // refreshed its pending-order list. Older builds treated that as a manual
   // message, leaving the purchase pending even though its exact delivery link
@@ -1389,6 +1397,73 @@ async function markTelegramBusinessMessageRead(env: Env, chatId: string,
   } catch {
     return false;
   }
+}
+
+async function cachedTelegramProfilePhotoFileId(env: Env, chatId: string) {
+  const contact = await env.DB.prepare(`SELECT
+      telegram_contacts.profile_photo_file_id,
+      CASE WHEN telegram_contacts.profile_photo_checked_at >= datetime('now', '-24 hours')
+        THEN 1 ELSE 0 END AS recently_checked,
+      fan_sessions.telegram_user_id
+    FROM fan_sessions
+    LEFT JOIN telegram_contacts ON telegram_contacts.chat_id = fan_sessions.chat_id
+    WHERE fan_sessions.chat_id = ?`).bind(chatId).first<{
+      profile_photo_file_id: string | null;
+      recently_checked: number;
+      telegram_user_id: string | null;
+    }>();
+  if (!contact) return null;
+  if (contact.profile_photo_file_id) return contact.profile_photo_file_id;
+  if (contact.recently_checked || !contact.telegram_user_id || !env.TELEGRAM_BOT_TOKEN) return null;
+
+  let fileId: string | null = null;
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/getUserProfilePhotos`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ user_id: contact.telegram_user_id, offset: 0, limit: 1 }),
+    });
+    const data = await response.json().catch(() => null) as {
+      ok?: boolean;
+      result?: { photos?: Array<Array<{ file_id: string; width?: number; height?: number }>> };
+    } | null;
+    const sizes = data?.ok ? data.result?.photos?.[0] || [] : [];
+    fileId = sizes.reduce<{ file_id: string; width?: number; height?: number } | null>((largest, size) => {
+      if (!largest) return size;
+      return Number(size.width || 0) * Number(size.height || 0) >
+        Number(largest.width || 0) * Number(largest.height || 0) ? size : largest;
+    }, null)?.file_id || null;
+  } catch (error) {
+    console.error("Telegram profile photo lookup failed", error);
+  }
+
+  await env.DB.prepare(`UPDATE telegram_contacts SET profile_photo_file_id = ?,
+    profile_photo_checked_at = CURRENT_TIMESTAMP WHERE chat_id = ?`).bind(fileId, chatId).run();
+  return fileId;
+}
+
+async function telegramProfilePhotoResponse(env: Env, chatId: string) {
+  if (!env.TELEGRAM_BOT_TOKEN) return json({ error: "Telegram is not configured" }, 404);
+  const fileId = await cachedTelegramProfilePhotoFileId(env, chatId);
+  if (!fileId) return json({ error: "Telegram profile photo is unavailable" }, 404);
+
+  const fileResponse = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/getFile?file_id=${encodeURIComponent(fileId)}`);
+  const fileData = await fileResponse.json().catch(() => null) as {
+    ok?: boolean;
+    result?: { file_path?: string };
+  } | null;
+  if (!fileResponse.ok || !fileData?.ok || !fileData.result?.file_path) {
+    await env.DB.prepare(`UPDATE telegram_contacts SET profile_photo_file_id = NULL,
+      profile_photo_checked_at = NULL WHERE chat_id = ?`).bind(chatId).run();
+    return json({ error: "Telegram profile photo could not be located" }, 404);
+  }
+
+  const photoResponse = await fetch(`https://api.telegram.org/file/bot${env.TELEGRAM_BOT_TOKEN}/${fileData.result.file_path}`);
+  if (!photoResponse.ok || !photoResponse.body) return json({ error: "Telegram profile photo could not be downloaded" }, 404);
+  return new Response(photoResponse.body, { headers: {
+    "content-type": photoResponse.headers.get("content-type") || "image/jpeg",
+    "cache-control": "private, max-age=3600",
+  } });
 }
 
 async function processTelegramVoice(env: Env, chatId: string, voice: NonNullable<TelegramMessage["voice"]>) {
@@ -2513,6 +2588,11 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
   const portalUser = await getPortalUser(request, env);
   if (!portalUser) return json({ error: "Sign in required" }, 401);
   await prepareDatabase(env);
+
+  const profilePhotoMatch = url.pathname.match(/^\/api\/admin\/conversations\/profile-photo\/([^/]+)$/);
+  if (request.method === "GET" && profilePhotoMatch) {
+    return telegramProfilePhotoResponse(env, decodeURIComponent(profilePhotoMatch[1]));
+  }
 
   const voiceMatch = url.pathname.match(/^\/api\/admin\/conversations\/voice\/(\d+)$/);
   if (request.method === "GET" && voiceMatch) {
@@ -6645,7 +6725,7 @@ const worker = {
     if (url.pathname === "/api/health") {
       return json({
         ok: true,
-        release: "2026.08.13.3",
+        release: "2026.08.13.4",
         telegram: Boolean(env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_WEBHOOK_SECRET),
         openai: Boolean(env.OPENAI_API_KEY),
         database: Boolean(env.DB),
