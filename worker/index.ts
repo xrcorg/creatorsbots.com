@@ -1605,7 +1605,6 @@ async function sendTelegramPaidProductMedia(env: Env, message: TelegramMessage,
   form.set("star_count", String(product.stars_price));
   const purchaseKey = crypto.randomUUID().replaceAll("-", "");
   form.set("payload", `content:${product.id}:${product.stars_price}:${message.chat.id}:${purchaseKey}`);
-  form.set("caption", `${product.title}\n⭐ ${product.stars_price.toLocaleString()} Stars to unlock`);
   form.set("protect_content", "true");
 
   const paidMedia: Array<{ type: "photo" | "video"; media: string }> = [];
@@ -1647,7 +1646,6 @@ async function sendTelegramPaidPhotoUnlock(env: Env, message: TelegramMessage, m
   if (message.business_connection_id) form.set("business_connection_id", message.business_connection_id);
   form.set("star_count", String(stars));
   form.set("payload", `photo:${purchaseKey}`);
-  form.set("caption", `${title}\n⭐ ${stars.toLocaleString()} Stars to unlock`);
   form.set("protect_content", "true");
   form.set("file0", new File([await object.arrayBuffer()], media.file_name, { type: media.mime_type }));
   form.set("media", JSON.stringify([{ type: "photo", media: "attach://file0" }]));
