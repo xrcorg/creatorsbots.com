@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
-const PORTAL_RELEASE = "2026.08.15.2";
+const PORTAL_RELEASE = "2026.08.15.3";
 
 type Message = {
   id: number;
@@ -2719,7 +2719,21 @@ export default function Home() {
               {announcementForm.kind === "new_content" && <label><span>Catalog item</span><select value={announcementForm.product_id} onChange={(event) => setAnnouncementForm((current) => ({ ...current, product_id: Number(event.target.value) }))}><option value={0}>Choose content</option>{contentProducts.filter((product) => product.active && !["physical_item", "video_rating"].includes(product.content_type)).map((product) => <option key={product.id} value={product.id}>{product.title}{product.stars_price > 0 ? ` · ⭐ ${product.stars_price}` : ""}</option>)}</select></label>}
               {announcementForm.kind === "custom" && <label><span>Optional secure link</span><input type="url" placeholder="https://..." value={announcementForm.stream_url} onChange={(event) => setAnnouncementForm((current) => ({ ...current, stream_url: event.target.value }))} /></label>}
               <label className="announcementMessage"><span>{announcementForm.kind === "custom" ? "Message" : "Optional message"}</span><textarea maxLength={500} placeholder={announcementForm.kind === "live" ? "Come hang out with me live!" : announcementForm.kind === "new_content" ? "I just added something new, babe!" : "Write your announcement"} value={announcementForm.message} onChange={(event) => setAnnouncementForm((current) => ({ ...current, message: event.target.value }))} /></label>
-              {!announcementPreview ? <button className="primaryAction" type="button" disabled={(announcementForm.kind === "live" && !announcementForm.stream_url.trim()) || (announcementForm.kind === "new_content" && !announcementForm.product_id) || (announcementForm.kind === "custom" && !announcementForm.message.trim())} onClick={() => setAnnouncementPreview(true)}>Review announcement</button> : <div className="announcementPreview"><strong>Preview</strong><p>{announcementForm.kind === "live" ? `I'm live on ${announcementForm.platform} right now, babe!` : announcementForm.kind === "new_content" ? (announcementForm.message || "I just added something new, babe!") : announcementForm.message}</p>{announcementForm.kind === "new_content" && <p>{contentProducts.find((product) => product.id === announcementForm.product_id)?.title}</p>}{announcementForm.kind !== "new_content" && announcementForm.stream_url && <a href={announcementForm.stream_url} rel="noreferrer" target="_blank">{announcementForm.stream_url}</a>}<button className="primaryAction" type="button" disabled={liveLoading} onClick={() => void sendAnnouncement()}>Send to all fan chats</button><button className="secondaryAction" type="button" disabled={liveLoading} onClick={() => setAnnouncementPreview(false)}>Edit</button></div>}
+              {!announcementPreview ? <button className="primaryAction" type="button" disabled={(announcementForm.kind === "live" && !announcementForm.stream_url.trim()) || (announcementForm.kind === "new_content" && !announcementForm.product_id) || (announcementForm.kind === "custom" && !announcementForm.message.trim())} onClick={() => setAnnouncementPreview(true)}>Review announcement</button> : <div className="announcementPreview">
+                <strong>Exactly what fans will receive</strong>
+                <p>{announcementForm.kind === "live" ? `I'm live on ${announcementForm.platform} right now, babe!${announcementForm.message.trim() ? `\n\n${announcementForm.message.trim()}` : ""}` : announcementForm.kind === "new_content" ? (announcementForm.message.trim() || "I just added something new, babe!") : announcementForm.message}</p>
+                {announcementForm.kind === "new_content" && (() => {
+                  const product = contentProducts.find((item) => item.id === announcementForm.product_id);
+                  if (!product) return null;
+                  return <>
+                    <p>{product.title} · {money(product.price_cents)}{product.stars_price > 0 ? ` · ⭐ ${product.stars_price.toLocaleString()} Stars to unlock here` : ""}</p>
+                    {product.trailer_url && <><p>Here's the preview:</p><a href={product.trailer_url} rel="noreferrer" target="_blank">{product.trailer_url}</a></>}
+                    {product.stars_price > 0 && <small>Telegram will place the locked media directly below this message.</small>}
+                  </>;
+                })()}
+                {announcementForm.kind !== "new_content" && announcementForm.stream_url && <a href={announcementForm.stream_url} rel="noreferrer" target="_blank">{announcementForm.stream_url}</a>}
+                <button className="primaryAction" type="button" disabled={liveLoading} onClick={() => void sendAnnouncement()}>Send to all fan chats</button><button className="secondaryAction" type="button" disabled={liveLoading} onClick={() => setAnnouncementPreview(false)}>Edit</button>
+              </div>}
             </div>
             <div className="announcementHistory">
               {announcements.slice(0, 8).map((announcement) => <article key={announcement.id}><div><strong>{announcement.platform}</strong>{announcement.stream_url && <a href={announcement.stream_url} rel="noreferrer" target="_blank">Open link</a>}</div><small>{announcement.status === "sending" ? "Sending now" : `${announcement.delivered_count} delivered${announcement.failed_count ? ` · ${announcement.failed_count} failed` : ""}`} · {new Date(`${announcement.created_at}Z`).toLocaleString()}</small></article>)}

@@ -6380,6 +6380,8 @@ async function broadcastAnnouncement(env: Env, announcementId: number, kind: "li
         business_connection_id: recipient.business_connection_id || undefined,
       };
       await sendTelegramMessage(env, telegramMessage, announcementText);
+      // Keep the portal Inbox in sync with messages delivered directly through Telegram.
+      await saveMessage(env.DB, recipient.chat_id, "assistant", announcementText);
       if (product && product.stars_price > 0 && paidMedia.length >= 1 && paidMedia.length <= 10 &&
         !unlockedChats.has(recipient.chat_id)) {
         await sendTelegramPaidProductMedia(env, telegramMessage, product, paidMedia);
