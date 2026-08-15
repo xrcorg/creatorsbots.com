@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
-const PORTAL_RELEASE = "2026.08.14.2";
+const PORTAL_RELEASE = "2026.08.15.1";
 
 type Message = {
   id: number;
@@ -323,7 +323,7 @@ type ConversationMessage = {
   media_duration?: number;
 };
 
-type QuickReplyCategory = "general" | "content" | "custom" | "video_chat" | "ratings" | "payment" | "boundaries";
+type QuickReplyCategory = "general" | "content" | "custom" | "sexting" | "video_chat" | "ratings" | "payment" | "boundaries";
 
 function telegramProfileLabel(person: Pick<LiveConversation, "telegram_display_name" | "telegram_username">) {
   const parts = [person.telegram_display_name, person.telegram_username].filter(Boolean);
@@ -1199,6 +1199,8 @@ export default function Home() {
     const product = products.find((item) => item.id === quickReplyProductId) || products[0];
     const productPrice = product ? money(product.price_cents) : "";
     const ratingPrice = `$${Number(settings.video_rating_rate || 75).toFixed(2)}`;
+    const sextingMinimum = Math.max(1, Number(settings.sexting_min_minutes || 5));
+    const videoChatRate = Number(settings.video_chat_rate || 50).toFixed(2);
     const catalog = products.slice(0, 8).map((item) => `${item.title} · ${money(item.price_cents)}`).join("\n");
     const paymentList = [
       paymentMethods.cashapp && `Cash App: ${paymentMethods.cashapp}`,
@@ -1232,7 +1234,8 @@ export default function Home() {
       custom_more: "Anything else you want me to add?",
       custom_review: "Got it! I'll review everything and let you know what it will cost.",
       custom_quote: "I can't quote you until I know what you want and for how long. Can you send me your idea?",
-      video_chat: `Video chats happen right here on Telegram and are $${settings.video_chat_rate} per minute with a 5 minute minimum. What date and time works for you, and how many minutes do you want?`,
+      sexting_rates: `Sexting is ${settings.sexting_5_stars || "500"} Stars for ${sextingMinimum} minutes or ${settings.sexting_10_stars || "1000"} Stars for 10 minutes, babe. Which one do you want?`,
+      video_chat: `Video chats happen right here on Telegram and are $${videoChatRate} per minute with a 5 minute minimum. What date and time works for you, and how many minutes do you want?`,
       video_chat_now: `I might be able to video chat right now, babe. It's $${settings.video_chat_rate} per minute with a 5 minute minimum, and we'll call right here on Telegram. How many minutes do you want? I'll confirm I'm available before you send payment.`,
       video_chat_not_now: "I can't video chat right this second, babe, but send me a date, time, and how many minutes you want and I'll check my schedule.",
       video_chat_schedule: "Send me your preferred date, time, and how many minutes you want. I'll check my schedule and get back to you.",
@@ -2656,7 +2659,7 @@ export default function Home() {
                   <div className="quickReplies">
                     <div className="quickReplyHeading"><strong>Reply tools</strong><small>Pick an action. You can edit the message before sending.</small></div>
                     <div className="quickReplyCategories">
-                      {(["general", "content", "custom", "video_chat", "ratings", "payment", "boundaries"] as QuickReplyCategory[]).map((category) => <button className={quickReplyCategory === category ? "selected" : ""} key={category} onClick={() => setQuickReplyCategory(category)} type="button">{category === "video_chat" ? "Video chat" : category === "ratings" ? "Dick ratings" : category}</button>)}
+                      {(["general", "content", "custom", "sexting", "video_chat", "ratings", "payment", "boundaries"] as QuickReplyCategory[]).map((category) => <button className={quickReplyCategory === category ? "selected" : ""} key={category} onClick={() => setQuickReplyCategory(category)} type="button">{category === "video_chat" ? "Video chat" : category === "ratings" ? "Dick ratings" : category}</button>)}
                     </div>
                     {quickReplyCategory === "content" && <div className="quickReplyProductRow">
                       <label className="quickReplyProduct"><span>Selected content</span><select value={quickReplyProductId || quickReplyProducts[0]?.id || 0} onChange={(event) => setQuickReplyProductId(Number(event.target.value))}>{quickReplyProducts.length ? quickReplyProducts.map((product) => <option key={product.id} value={product.id}>{product.title}</option>) : <option value={0}>No active content</option>}</select></label>
@@ -2684,7 +2687,8 @@ export default function Home() {
                       {quickReplyCategory === "general" && <><button onClick={() => fillQuickReply("saw_message")} type="button">Saw your message</button><button onClick={() => fillQuickReply("busy")} type="button">Busy right now</button><button onClick={() => fillQuickReply("anything_else")} type="button">Anything else</button></>}
                       {quickReplyCategory === "content" && <><button onClick={() => fillQuickReply("catalog")} type="button">Show catalog</button><button onClick={() => fillQuickReply("trailer")} type="button">Preview trailer reply</button><button onClick={() => fillQuickReply("product_details")} type="button">Send details</button><button onClick={() => fillQuickReply("product_payment")} type="button">Payment instructions</button><button onClick={() => fillQuickReply("product_delivery")} type="button">Preview delivery reply</button></>}
                       {quickReplyCategory === "custom" && <><button onClick={() => fillQuickReply("custom_start")} type="button">Ask for idea</button><button onClick={() => fillQuickReply("custom_more")} type="button">Anything else</button><button onClick={() => fillQuickReply("custom_review")} type="button">Review request</button><button onClick={() => fillQuickReply("custom_quote")} type="button">Need details first</button><button className="quickSendContent" disabled={!selectedCustom} onClick={() => document.querySelector<HTMLInputElement>(`.paidFulfillmentPanel input[type="url"]`)?.focus()} title={selectedCustom ? "Add the delivery link above" : "Available after a custom payment is confirmed"} type="button">Send finished custom</button></>}
-                      {quickReplyCategory === "video_chat" && <><button onClick={() => fillQuickReply("video_chat_now")} type="button">Available right now</button><button onClick={() => fillQuickReply("video_chat_not_now")} type="button">Not available now</button><button onClick={() => fillQuickReply("video_chat")} type="button">Rate and minimum</button><button onClick={() => fillQuickReply("video_chat_schedule")} type="button">Ask for schedule</button><button onClick={() => fillQuickReply("video_chat_payment")} type="button">Payment methods</button><button onClick={() => fillQuickReply("video_chat_confirm")} type="button">Confirm Telegram call</button></>}
+                      {quickReplyCategory === "sexting" && <button onClick={() => fillQuickReply("sexting_rates")} type="button">Send sexting rates</button>}
+                      {quickReplyCategory === "video_chat" && <><button onClick={() => fillQuickReply("video_chat")} type="button">Send video chat rates</button><button onClick={() => fillQuickReply("video_chat_now")} type="button">Available right now</button><button onClick={() => fillQuickReply("video_chat_not_now")} type="button">Not available now</button><button onClick={() => fillQuickReply("video_chat_schedule")} type="button">Ask for schedule</button><button onClick={() => fillQuickReply("video_chat_payment")} type="button">Payment methods</button><button onClick={() => fillQuickReply("video_chat_confirm")} type="button">Confirm Telegram call</button></>}
                       {quickReplyCategory === "ratings" && <><button onClick={() => fillQuickReply("rating_offer")} type="button">Offer video rating</button><button onClick={() => fillQuickReply("rating_photo")} type="button">Request photo</button><button onClick={() => fillQuickReply("rating_payment")} type="button">Rating payment</button><button className="quickSendContent" disabled={!selectedRating} onClick={() => document.querySelector<HTMLInputElement>(`.paidFulfillmentPanel input[type="file"]`)?.click()} title={selectedRating ? "Choose the response video above" : "Available after payment and the rating photo are confirmed"} type="button">Upload and send rating video</button></>}
                       {quickReplyCategory === "payment" && <><button onClick={() => fillQuickReply("payment_options")} type="button">Payment options</button><button onClick={() => fillQuickReply("payment_screenshot")} type="button">Request screenshot</button><button onClick={() => fillQuickReply("payment_received")} type="button">Payment received</button><button className="quickSendContent" disabled={!selectedPurchase} onClick={() => selectedPurchase && void resolvePurchaseById(selectedPurchase.id, "approve")} title={selectedPurchase ? "Confirm and fulfill this paid order" : "Available when this chat has a payment awaiting confirmation"} type="button">Confirm payment and send content</button></>}
                       {quickReplyCategory === "boundaries" && <><button onClick={() => fillQuickReply("telegram_tos")} type="button">Paid sex boundary</button><button onClick={() => fillQuickReply("unavailable")} type="button">Cannot help</button></>}
