@@ -2467,6 +2467,25 @@ async function sendQueuedReply(env: Env, chatId: string, businessConnectionId: s
   }
 }
 
+const WAKE_REPLY_PREFIXES = [
+  "Good morning! Sorry I was sleeping. ",
+  "Good morning, babe! I just woke up and saw your messages. ",
+  "Morning babe! Sorry I missed you while I was asleep. ",
+  "Hey babe, good morning! I was sleeping, but I'm up now. ",
+  "Good morning! I just woke up and I'm catching up on my messages. ",
+  "Morning! Sorry for the late reply, babe. I was asleep. ",
+  "Hey babe! I'm awake now and just saw what you sent me. ",
+  "Good morning, cutie! Sorry I was sleeping when you messaged me. ",
+  "Morning babe! I was asleep, but I'm here now. ",
+  "Hey you! Good morning. I just woke up and saw your messages. ",
+  "Good morning, babe! Sorry I kept you waiting while I was sleeping. ",
+  "Morning cutie! I'm up now and catching up with you. ",
+] as const;
+
+function wakeReplyPrefix() {
+  return WAKE_REPLY_PREFIXES[Math.floor(Math.random() * WAKE_REPLY_PREFIXES.length)];
+}
+
 async function processWakeReplies(env: Env) {
   await prepareDatabase(env);
   const settings = await getSettings(env.DB);
@@ -2486,7 +2505,7 @@ async function processWakeReplies(env: Env) {
       ORDER BY id ASC LIMIT 100`).bind(chat.chat_id).all<{ id: number; question: string }>();
     if (!pending.results.length) continue;
     await sendQueuedReply(env, chat.chat_id, chat.business_connection_id,
-      pending.results, "Good morning! Sorry I was sleeping. ");
+      pending.results, wakeReplyPrefix());
     // If this fan is also in Low priority mode, the morning catch-up counts as
     // their reply. Start a fresh 6-to-8-hour window instead of immediately
     // replaying an older Low priority message as a second response.

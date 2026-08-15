@@ -106,7 +106,9 @@ test("queues every sleeping chat for a combined morning catch-up", async () => {
   const worker = await readFile(workerPath, "utf8");
 
   assert.match(worker, /source = 'sleep'/);
-  assert.match(worker, /Good morning! Sorry I was sleeping\./);
+  assert.match(worker, /WAKE_REPLY_PREFIXES/);
+  assert.match(worker, /wakeReplyPrefix\(\)/);
+  assert.match(worker, /Math\.random\(\) \* WAKE_REPLY_PREFIXES\.length/);
   assert.match(worker, /GROUP BY chat_id ORDER BY MIN\(id\) ASC LIMIT 50/);
   assert.match(worker, /source !== "sleep" && source !== "low_priority"/);
 });

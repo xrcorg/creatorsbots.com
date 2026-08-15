@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
-const PORTAL_RELEASE = "2026.08.15.1";
+const PORTAL_RELEASE = "2026.08.15.2";
 
 type Message = {
   id: number;
