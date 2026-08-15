@@ -3044,12 +3044,13 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
   }
 
   if (request.method === "POST" && url.pathname === "/api/admin/conversations/confirm-name") {
-    const body = await request.json<{ chat_id?: string; name?: string }>();
+    const body = await request.json<{ chat_id?: string; name?: string; continue_without_name?: boolean }>();
     const chatId = String(body.chat_id || "").trim();
     const submittedName = String(body.name || "").trim();
     const parsed = parseNameIntroduction(submittedName);
+    const continueWithoutName = body.continue_without_name === true;
     if (!chatId) return json({ error: "A new chatter is required" }, 400);
-    if (!parsed.name || parsed.remainder) {
+    if (!continueWithoutName && (!parsed.name || parsed.remainder)) {
       return json({ error: "Enter only the fan's name, without a message or greeting" }, 400);
     }
     const conversation = await env.DB.prepare(`SELECT fan_sessions.chat_id,
@@ -3063,11 +3064,13 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
     if (conversation.name_status !== "pending_name_approval") {
       return json({ error: "This name has already been reviewed" }, 409);
     }
-    const greeting = `Nice to meet you, ${parsed.name}. What are you up to?`;
+    const greeting = continueWithoutName
+      ? "Hey babe, what are you up to?"
+      : `Nice to meet you, ${parsed.name}. What are you up to?`;
     await env.DB.batch([
       env.DB.prepare(`UPDATE fan_profiles SET name = ?, proposed_name = NULL,
         name_status = 'complete', updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?`)
-        .bind(parsed.name, chatId),
+        .bind(continueWithoutName ? null : parsed.name, chatId),
       env.DB.prepare(`INSERT INTO conversation_controls (chat_id, control_mode, taken_over_by, updated_at)
         VALUES (?, 'bot', NULL, CURRENT_TIMESTAMP)
         ON CONFLICT(chat_id) DO UPDATE SET control_mode = 'bot', taken_over_by = NULL,
@@ -3082,7 +3085,7 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
     };
     await saveMessage(env.DB, chatId, "assistant", greeting);
     await sendTelegramMessage(env, telegramMessage, greeting);
-    return json({ ok: true, name: parsed.name, control_mode: "bot" });
+    return json({ ok: true, name: continueWithoutName ? null : parsed.name, control_mode: "bot" });
   }
 
   if (request.method === "POST" && url.pathname === "/api/admin/conversations/update-name") {

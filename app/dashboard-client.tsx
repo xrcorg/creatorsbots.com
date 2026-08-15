@@ -1094,9 +1094,9 @@ export default function Home() {
     }
   }
 
-  async function confirmNewChatterName(chatId: string) {
+  async function confirmNewChatterName(chatId: string, continueWithoutName = false) {
     const name = (newChatterNames[chatId] || "").trim();
-    if (!name) {
+    if (!name && !continueWithoutName) {
       setConversationStatus("Enter the fan's name before confirming it.");
       return;
     }
@@ -1106,14 +1106,16 @@ export default function Home() {
       const response = await fetch("/api/admin/conversations/confirm-name", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ chat_id: chatId, name }),
+        body: JSON.stringify({ chat_id: chatId, name, continue_without_name: continueWithoutName }),
       });
       const data = await readApiJson(response) as { error?: string };
       if (!response.ok) throw new Error(data.error || "The name could not be confirmed");
       await loadLivePending();
       setSelectedConversationId(chatId);
       await openConversation(chatId);
-      setConversationStatus(`Name confirmed as ${name}. The bot is active for this chat.`);
+      setConversationStatus(continueWithoutName
+        ? "Chat started without a fan name. You can add their name later."
+        : `Name confirmed as ${name}. The bot is active for this chat.`);
     } catch (error) {
       setConversationStatus(error instanceof Error ? error.message : "The name could not be confirmed.");
     } finally {
@@ -2510,7 +2512,7 @@ export default function Home() {
           <section className="conversationInbox dashboardSection dashboardInbox">
             {newChatters.length > 0 && <section className="newChattersQueue">
               <div className="newChattersHeading">
-                <div><strong>New chatters</strong><small>Confirm or correct each name before the bot continues.</small></div>
+                <div><strong>New chatters</strong><small>Confirm a name when they share one, or continue without it.</small></div>
                 <span>{newChatters.length} waiting</span>
               </div>
               <div className="newChatterList">
@@ -2526,6 +2528,7 @@ export default function Home() {
                   </div>
                   <label><span>Name they gave us</span><input aria-label={`Name for ${chatter.telegram_name}`} maxLength={60} onChange={(event) => setNewChatterNames((current) => ({ ...current, [chatter.chat_id]: event.target.value }))} value={newChatterNames[chatter.chat_id] ?? chatter.proposed_name} /></label>
                   <button className="primaryAction" disabled={liveLoading || !(newChatterNames[chatter.chat_id] ?? chatter.proposed_name).trim()} onClick={() => void confirmNewChatterName(chatter.chat_id)} type="button">Confirm name and start bot</button>
+                  <button className="secondaryAction" disabled={liveLoading} onClick={() => void confirmNewChatterName(chatter.chat_id, true)} type="button">Continue without a name</button>
                 </article>)}
               </div>
             </section>}
