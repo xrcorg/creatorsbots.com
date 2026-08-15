@@ -2656,8 +2656,8 @@ export default function Home() {
                       <button className="primaryAction" disabled={liveLoading || !ratingResponseFiles[selectedRating.id]} onClick={() => void completeRatingOrder(selectedRating.id)} type="button">Send rating video and complete order</button>
                     </article>}
                   </div>}
-                  <div className="quickReplies">
-                    <div className="quickReplyHeading"><strong>Reply tools</strong><small>Pick an action. You can edit the message before sending.</small></div>
+                  <details className="quickReplies">
+                    <summary className="quickReplyHeading"><strong>Reply tools</strong><small>Quick replies, content, payments, and sales tools</small></summary>
                     <div className="quickReplyCategories">
                       {(["general", "content", "custom", "sexting", "video_chat", "ratings", "payment", "boundaries"] as QuickReplyCategory[]).map((category) => <button className={quickReplyCategory === category ? "selected" : ""} key={category} onClick={() => setQuickReplyCategory(category)} type="button">{category === "video_chat" ? "Video chat" : category === "ratings" ? "Dick ratings" : category}</button>)}
                     </div>
@@ -2694,7 +2694,7 @@ export default function Home() {
                       {quickReplyCategory === "boundaries" && <><button onClick={() => fillQuickReply("telegram_tos")} type="button">Paid sex boundary</button><button onClick={() => fillQuickReply("unavailable")} type="button">Cannot help</button></>}
                     </div>
                     {quickReplyWorkflow && <p className="workflowNotice">Sending this keeps Bot replies on and starts the {quickReplyWorkflow === "start_custom" ? "custom detail" : "video chat scheduling"} flow.</p>}
-                  </div>
+                  </details>
                   <form className="conversationReplyForm" onSubmit={sendConversationReply}>
                     <textarea maxLength={4000} value={conversationReply} onChange={(event) => setConversationReply(event.target.value)} placeholder={`Reply to ${selectedConversation.telegram_name}`} />
                     <div className="conversationReplyActions">

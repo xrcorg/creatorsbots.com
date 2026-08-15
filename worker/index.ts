@@ -1871,6 +1871,11 @@ function isPaymentSent(text: string) {
   return /\b(payment sent|payment screenshot|receipt|paid|i paid|i sent it|just sent it|(?:ok|okay|alright)[,! ]+(?:i )?sent(?: it)?|sent it via|sent (the )?(money|payment)|cashapp sent|venmo sent|zelle sent)\b/i.test(text);
 }
 
+function hasPaymentScreenshot(message: TelegramMessage) {
+  return Boolean(message.photo?.length ||
+    (message.document?.file_id && /^image\//i.test(message.document.mime_type || "")));
+}
+
 function isBuyConfirmation(text: string) {
   return /\b(yes i want it|i want it|i want to buy it|buy it|i'll buy it|ill buy it|how do i pay|payment options|send payment info)\b/i.test(text);
 }
@@ -2282,45 +2287,63 @@ async function submitProductPaymentReview(env: Env, message: TelegramMessage, ch
 }
 
 async function handlePaymentSent(env: Env, message: TelegramMessage, chatId: string) {
-  if (!isPaymentSent(message.text)) return false;
+  const paymentClaimed = isPaymentSent(message.text || "");
+  const hasScreenshot = hasPaymentScreenshot(message);
+  if (!paymentClaimed && !hasScreenshot) return false;
 
-  const videoChat = await env.DB.prepare(`SELECT id FROM video_chat_orders
-    WHERE chat_id = ? AND status = 'awaiting_payment' ORDER BY id DESC LIMIT 1`)
-    .bind(chatId).first<{ id: number }>();
+  const videoChat = await env.DB.prepare(`SELECT id, status FROM video_chat_orders
+    WHERE chat_id = ? AND status IN ('awaiting_payment', 'payment_review') ORDER BY id DESC LIMIT 1`)
+    .bind(chatId).first<{ id: number; status: string }>();
   if (videoChat) {
-    const hasScreenshot = Boolean(message.photo?.length);
     if (hasScreenshot) {
+      await saveMessage(env.DB, chatId, "user", message.text || "Payment screenshot sent");
+      if (videoChat.status === "payment_review") return true;
       await env.DB.prepare(`UPDATE video_chat_orders SET status = 'payment_review' WHERE id = ?`)
         .bind(videoChat.id).run();
+      const confirmation = "Ok, thanks babe. I got your screenshot! Let me check it and I'll confirm our video chat.";
+      await saveMessage(env.DB, chatId, "assistant", confirmation);
+      await waitForPaymentConfirmation(message);
+      await sendTelegramMessage(env, message, confirmation);
+      return true;
     }
-    const confirmation = hasScreenshot
-      ? "Ok, thanks babe. Let me check it and I'll confirm our video chat!"
+    const confirmation = videoChat.status === "payment_review"
+      ? "I got your screenshot, babe. I'm checking it now and I'll confirm the video chat soon."
       : "Can you send me a screenshot of the payment?";
-    await saveMessage(env.DB, chatId, "user", message.text);
+    await saveMessage(env.DB, chatId, "user", message.text || "Payment sent");
     await saveMessage(env.DB, chatId, "assistant", confirmation);
     await waitForPaymentConfirmation(message);
     await sendTelegramMessage(env, message, confirmation);
     return true;
   }
 
-  const quotedCustom = await env.DB.prepare(`SELECT id FROM custom_fulfillments
-    WHERE chat_id = ? AND status = 'awaiting_payment' ORDER BY id DESC LIMIT 1`)
-    .bind(chatId).first<{ id: number }>();
+  const quotedCustom = await env.DB.prepare(`SELECT id, status FROM custom_fulfillments
+    WHERE chat_id = ? AND status IN ('awaiting_payment', 'payment_review') ORDER BY id DESC LIMIT 1`)
+    .bind(chatId).first<{ id: number; status: string }>();
   if (quotedCustom) {
-    const hasScreenshot = Boolean(message.photo?.length);
     if (hasScreenshot) {
+      await saveMessage(env.DB, chatId, "user", message.text || "Payment screenshot sent");
+      if (quotedCustom.status === "payment_review") return true;
       await env.DB.prepare(`UPDATE custom_fulfillments SET status = 'payment_review' WHERE id = ?`)
         .bind(quotedCustom.id).run();
+      const confirmation = "Ok, thanks babe. I got your screenshot! Let me check it and I'll let you know when I can start it.";
+      await saveMessage(env.DB, chatId, "assistant", confirmation);
+      await waitForPaymentConfirmation(message);
+      await sendTelegramMessage(env, message, confirmation);
+      return true;
     }
-    const confirmation = hasScreenshot
-      ? "Ok, thanks babe. Let me check when I get the chance and I'll let you know when I can start it!"
+    const confirmation = quotedCustom.status === "payment_review"
+      ? "I got your screenshot, babe. I'm checking it now and I'll get back to you soon."
       : "Can you send me a screenshot of the payment?";
-    await saveMessage(env.DB, chatId, "user", message.text);
+    await saveMessage(env.DB, chatId, "user", message.text || "Payment sent");
     await saveMessage(env.DB, chatId, "assistant", confirmation);
     await waitForPaymentConfirmation(message);
     await sendTelegramMessage(env, message, confirmation);
     return true;
   }
+
+  // A normal photo or image document is not automatically proof of payment. Only
+  // treat it as proof when an active video chat or custom is awaiting payment.
+  if (!paymentClaimed) return false;
 
   const product = await getInterestedProduct(env.DB, chatId) || await getRecentProductContext(env.DB, chatId);
   if (!product) {
