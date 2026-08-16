@@ -20,6 +20,7 @@ import {
   isConversationQuestion,
   isCustomDecline,
   isCustomDetailsFinished,
+  isDeferredPaymentMessage,
   isGenericCancelReply,
   isFlexibleBookingAvailability,
   isLikelyBookingDetailReply,
@@ -30,6 +31,7 @@ import {
   isManualSalesHandoffRequest,
   isMessageBurst,
   isPaidInPersonSexSolicitation,
+  isPaymentSent,
   isPersonalFactTrainingSuggestion,
   isPhysicalOrderDecline,
   isPresenceCheck,
@@ -44,6 +46,27 @@ import {
   parseNameIntroduction,
   productTitleMatchesMessage,
 } from "../worker/conversation-rules.ts";
+
+test("future payment language never claims that payment was sent", () => {
+  for (const message of [
+    "yeah absolutely. when I get paid again I would love to",
+    "once I get paid I'll buy it",
+    "I get paid Friday",
+    "I can't pay right now",
+    "I don't have the money yet",
+    "when I have the funds",
+  ]) {
+    assert.equal(isDeferredPaymentMessage(message), true, message);
+    assert.equal(isPaymentSent(message), false, message);
+  }
+});
+
+test("clear completed-payment messages still request payment review", () => {
+  for (const message of ["I paid", "payment sent", "just sent it", "paid for it", "Venmo sent", "here is the receipt"]) {
+    assert.equal(isDeferredPaymentMessage(message), false, message);
+    assert.equal(isPaymentSent(message), true, message);
+  }
+});
 import {
   isEnglishLanguage,
   parseDetectedLanguage,

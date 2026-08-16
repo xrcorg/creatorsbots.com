@@ -1,7 +1,7 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { bookingDetailsMissing, casualMessageIntent, customDetailsMissing, customPhotoCount, customPhotoDetailsMissing, customRequestType, isAffirmativeReply, isAmbiguousSexMessage, isBookingDecline, isBotQuestion, isCancelReply, isCatalogBrowseRequest, isCatalogContentRequest, isCatalogFollowUpQuestion, isConversationQuestion, isConversationReset, isCustomDecline, isCustomDetailsFinished, isGenericCancelReply, isLikelyBookingDetailReply, isLikelyShippingAddress, isLikelyShippingName, isManualSalesHandoffRequest, isMessageBurst, isPaidInPersonSexSolicitation, isPersonalFactTrainingSuggestion, isPhysicalOrderDecline, isPresenceCheck, isRatingDecline, isSextingDecline, isSextingPackageFollowUp, isSoftSalesDeclineReply, isTrailerOfferAwaitingConfirmation, normalizeCasualText, parseDeclaredAge, parseNameChangeRequest, parseNameIntroduction, productTitleMatchesMessage } from "./conversation-rules";
+import { bookingDetailsMissing, casualMessageIntent, customDetailsMissing, customPhotoCount, customPhotoDetailsMissing, customRequestType, isAffirmativeReply, isAmbiguousSexMessage, isBookingDecline, isBotQuestion, isCancelReply, isCatalogBrowseRequest, isCatalogContentRequest, isCatalogFollowUpQuestion, isConversationQuestion, isConversationReset, isCustomDecline, isCustomDetailsFinished, isDeferredPaymentMessage, isGenericCancelReply, isLikelyBookingDetailReply, isLikelyShippingAddress, isLikelyShippingName, isManualSalesHandoffRequest, isMessageBurst, isPaidInPersonSexSolicitation, isPaymentSent, isPersonalFactTrainingSuggestion, isPhysicalOrderDecline, isPresenceCheck, isRatingDecline, isSextingDecline, isSextingPackageFollowUp, isSoftSalesDeclineReply, isTrailerOfferAwaitingConfirmation, normalizeCasualText, parseDeclaredAge, parseNameChangeRequest, parseNameIntroduction, productTitleMatchesMessage } from "./conversation-rules";
 import { isEnglishLanguage, parseDetectedLanguage, shouldDetectLanguage } from "./language-rules";
 
 interface Env {
@@ -1682,7 +1682,7 @@ async function sendTelegramPaidPhotoUnlock(env: Env, message: TelegramMessage, m
 async function maybeSendSextingMedia(env: Env, message: TelegramMessage, session: {
   id: number; duration_minutes: number; started_at: string;
 }) {
-  const maximumMedia = session.duration_minutes >= 10 ? 4 : 2;
+  const maximumMedia = session.duration_minutes >= 10 ? 6 : 4;
   const sent = await env.DB.prepare(`SELECT COUNT(*) AS count FROM sexting_media_sends
     WHERE session_id = ?`).bind(session.id).first<{ count: number }>();
   if (Number(sent?.count || 0) >= maximumMedia) return false;
@@ -1884,10 +1884,6 @@ function isDirectTrailerRequest(text: string) {
 
 function askedToBuyProduct(text: string) {
   return /\b(?:do you|did you|would you)\s+(?:want|wanna|like)\s+to\s+buy\b|\bwant\s+the\s+full\s+(?:video|content)\b/i.test(text);
-}
-
-function isPaymentSent(text: string) {
-  return /\b(payment sent|payment screenshot|receipt|paid|i paid|i sent it|just sent it|(?:ok|okay|alright)[,! ]+(?:i )?sent(?: it)?|sent it via|sent (the )?(money|payment)|cashapp sent|venmo sent|zelle sent)\b/i.test(text);
 }
 
 function hasPaymentScreenshot(message: TelegramMessage) {
@@ -3761,14 +3757,22 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       LEFT JOIN telegram_contacts ON telegram_contacts.chat_id = fan_sessions.chat_id
       LEFT JOIN fan_profiles ON fan_profiles.chat_id = fan_sessions.chat_id
       WHERE fan_sessions.chat_id = ?`).bind(String(message.chat.id)).first<{ telegram_name: string }>();
-    await env.DB.prepare(`INSERT OR IGNORE INTO sexting_sessions
+    const sessionInsert = await env.DB.prepare(`INSERT OR IGNORE INTO sexting_sessions
       (chat_id, business_connection_id, telegram_name, package_key, package_title,
-      duration_minutes, stars, telegram_charge_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+      duration_minutes, stars, telegram_charge_id, status, started_at, ends_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', CURRENT_TIMESTAMP,
+      datetime('now', '+' || ? || ' minutes'))`)
       .bind(String(message.chat.id), message.business_connection_id || null,
         contact?.telegram_name || "Telegram fan", key, title || "Sexting session", minutes,
-        message.successful_payment.total_amount, message.successful_payment.telegram_payment_charge_id)
+        message.successful_payment.total_amount, message.successful_payment.telegram_payment_charge_id, minutes)
       .run();
-    await sendTelegramMessage(env, message, "I got your Stars payment, babe. I'll let you know when I'm ready to start our session.");
+    await env.DB.prepare(`UPDATE sexting_drafts SET status = 'completed', updated_at = CURRENT_TIMESTAMP
+      WHERE chat_id = ? AND status IN ('awaiting_package', 'invoice_sent')`)
+      .bind(String(message.chat.id)).run();
+    if (sessionInsert.meta.changes) {
+      await sendTelegramMessage(env, message,
+        "I got your Stars payment, babe. Our session starts now. Tell me what you're in the mood for.");
+    }
     return json({ ok: true });
   }
   const chatId = String(message.chat.id);
@@ -3897,6 +3901,14 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   if (session?.age_status === "blocked") return json({ ok: true });
 
   const settings = await getSettings(env.DB);
+  if (isDeferredPaymentMessage(message.text || "")) {
+    const reply = "Okay babe, let me know when you're ready.";
+    await exitConversationFlow(env.DB, chatId);
+    await saveMessage(env.DB, chatId, "user", message.text);
+    await saveMessage(env.DB, chatId, "assistant", reply);
+    await sendTelegramMessage(env, message, reply);
+    return json({ ok: true, payment_deferred: true });
+  }
   // Payment confirmations are transactional. Handle them before sleep hours or
   // manual takeover while preserving the short, natural confirmation delay.
   if (await handlePaymentSent(env, message, chatId)) {

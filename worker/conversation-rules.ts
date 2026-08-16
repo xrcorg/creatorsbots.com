@@ -213,6 +213,22 @@ export function isSoftSalesDeclineReply(text: string) {
     /^(?:no gracias|quizas luego|tal vez luego|ahora no|no me interesa|non merci|peut etre plus tard|pas maintenant)[.! ]*$/i.test(value);
 }
 
+export function isDeferredPaymentMessage(text: string) {
+  const value = normalizeCasualText(text);
+  return /\b(?:when|once|after)\s+i\s+get\s+paid\b/i.test(value) ||
+    /\bi\s+get\s+paid\s+(?:again|tomorrow|friday|next\s+week|next\s+month|on\s+payday)\b/i.test(value) ||
+    /\b(?:when|once|after)\s+(?:my\s+)?payday\b/i.test(value) ||
+    /\b(?:can't|cannot|cant|can not|won't|will not)\s+pay\s+(?:yet|right now|today)\b/i.test(value) ||
+    /\b(?:don't|do not|dont)\s+have\s+(?:the\s+)?(?:money|cash|funds)\s+(?:yet|right now)\b/i.test(value) ||
+    /\b(?:when|once)\s+i\s+have\s+(?:the\s+)?(?:money|cash|funds)\b/i.test(value);
+}
+
+export function isPaymentSent(text: string) {
+  if (isDeferredPaymentMessage(text)) return false;
+  const value = normalizeCasualText(text);
+  return /\b(?:payment sent|payment screenshot|receipt|i paid|i've paid|ive paid|already paid|paid it|paid for it|i sent it|just sent it|(?:ok|okay|alright)[,! ]+(?:i )?sent(?: it)?|sent it via|sent (?:the )?(?:money|payment)|cashapp sent|venmo sent|zelle sent)\b/i.test(value);
+}
+
 export function isCancelReply(text: string) {
   return isGenericCancelReply(text) || isBookingDecline(text) || isCustomDecline(text) ||
     isPhysicalOrderDecline(text) || isRatingDecline(text) || isSextingDecline(text);
