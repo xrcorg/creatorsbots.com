@@ -2631,6 +2631,7 @@ export default function Home() {
                       </article>
                     )) : <p className="conversationPlaceholder">{conversationStatus || "No saved messages in this conversation."}</p>}
                   </div>
+                  <div className="conversationBottomDock">
                   {conversationStatus && conversationMessages.length > 0 && <p className="conversationNotice">{conversationStatus}</p>}
                   {selectedConversation.is_blocked ? <div className="blockedFanNotice"><strong>This fan is blocked</strong><p>The bot and Inbox cannot send messages or content to this fan. Their conversation, orders, and earnings history remain saved.</p></div> : null}
                   {(selectedPurchase || selectedCustom || selectedRating || selectedVideoChat) && <div className="paidFulfillmentPanel">
@@ -2708,6 +2709,7 @@ export default function Home() {
                     </div>
                     <small>{quickReplyWorkflow ? "This workflow reply keeps the bot active so it can collect the remaining order details." : "Send once pauses auto chat. Use Reply and turn on auto chat when you want the bot to continue after your message."}</small>
                   </form>
+                  </div>
                 </> : <div className="conversationPlaceholder">{conversationStatus || "Choose a chat to view its recent messages and controls."}</div>}
               </div>
             </div>

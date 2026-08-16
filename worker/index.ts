@@ -1174,6 +1174,22 @@ async function prepareDatabase(env: Env) {
       'Video chat with ' || telegram_name, amount_cents, created_at
     FROM video_chat_orders
     WHERE status IN ('scheduled', 'completed') AND amount_cents > 0`).run();
+  // Manually scheduled paid video chats live in the daily task list rather
+  // than video_chat_orders. Treat a completed task as the source of truth for
+  // that revenue, while excluding tasks already backed by a normal order.
+  await db.prepare(`INSERT OR IGNORE INTO earnings_events
+    (source_type, source_id, description, amount_cents, occurred_at)
+    SELECT 'manual_video_chat', CAST(daily_tasks.id AS TEXT), daily_tasks.title,
+      daily_tasks.amount_cents, COALESCE(daily_tasks.completed_at, daily_tasks.created_at)
+    FROM daily_tasks
+    WHERE daily_tasks.task_type = 'video_chat'
+      AND daily_tasks.status = 'completed'
+      AND daily_tasks.amount_cents > 0
+      AND NOT EXISTS (
+        SELECT 1 FROM video_chat_orders
+        WHERE video_chat_orders.telegram_name = daily_tasks.fan_name
+          AND video_chat_orders.scheduled_at = daily_tasks.scheduled_at
+      )`).run();
   // Older paid merchandise and rating orders were recorded as generic content.
   // Reclassify them so the dashboard can itemize every revenue stream without
   // changing the amount or creating a second earnings entry.
@@ -6364,12 +6380,43 @@ async function handleAdminTasks(request: Request, env: Env) {
   }
   if (!body.id || !body.action) return json({ error: "A task action is required" }, 400);
   if (body.action === "remove") {
-    await env.DB.prepare("DELETE FROM daily_tasks WHERE id = ?").bind(body.id).run();
+    await env.DB.batch([
+      env.DB.prepare(`DELETE FROM earnings_events
+        WHERE source_type = 'manual_video_chat' AND source_id = ?`).bind(String(body.id)),
+      env.DB.prepare("DELETE FROM daily_tasks WHERE id = ?").bind(body.id),
+    ]);
     return json({ ok: true });
   }
-  const status = body.action === "complete" ? "completed" : "open";
-  await env.DB.prepare(`UPDATE daily_tasks SET status = ?, completed_at = ? WHERE id = ?`)
-    .bind(status, body.action === "complete" ? new Date().toISOString() : null, body.id).run();
+  const task = await env.DB.prepare(`SELECT id, title, task_type, scheduled_at,
+    fan_name, amount_cents FROM daily_tasks WHERE id = ?`).bind(body.id)
+    .first<{ id: number; title: string; task_type: string; scheduled_at: string;
+      fan_name: string; amount_cents: number }>();
+  if (!task) return json({ error: "Task not found" }, 404);
+  if (body.action === "complete") {
+    const completedAt = new Date().toISOString();
+    const matchingOrder = task.task_type === "video_chat"
+      ? await env.DB.prepare(`SELECT id FROM video_chat_orders
+          WHERE telegram_name = ? AND scheduled_at = ? LIMIT 1`)
+        .bind(task.fan_name, task.scheduled_at).first<{ id: number }>()
+      : null;
+    const statements = [
+      env.DB.prepare(`UPDATE daily_tasks SET status = 'completed', completed_at = ? WHERE id = ?`)
+        .bind(completedAt, task.id),
+    ];
+    if (task.task_type === "video_chat" && task.amount_cents > 0 && !matchingOrder) {
+      statements.push(env.DB.prepare(`INSERT OR IGNORE INTO earnings_events
+        (source_type, source_id, description, amount_cents, occurred_at)
+        VALUES ('manual_video_chat', ?, ?, ?, ?)`)
+        .bind(String(task.id), task.title, task.amount_cents, completedAt));
+    }
+    await env.DB.batch(statements);
+  } else {
+    await env.DB.batch([
+      env.DB.prepare(`UPDATE daily_tasks SET status = 'open', completed_at = NULL WHERE id = ?`).bind(task.id),
+      env.DB.prepare(`DELETE FROM earnings_events
+        WHERE source_type = 'manual_video_chat' AND source_id = ?`).bind(String(task.id)),
+    ]);
+  }
   return json({ ok: true });
 }
 

@@ -310,8 +310,8 @@ button { cursor: pointer; }
 .workflowBadge.low-priority { background: #fff4ce; color: #76550a; }
 .workflowBadge.blocked { background: #fff0f0; color: #a12732; }
 .unreadBadge { grid-column: 3; justify-self: end; min-width: 18px; height: 18px; display: grid; place-items: center; border-radius: 999px; background: var(--pink); color: white; font-size: 8px; }
-.conversationDetail { min-width: 0; min-height: 0; height: 100%; display: flex; flex-direction: column; overflow-y: auto; scrollbar-gutter: stable; }
-.conversationDetail > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border-bottom: 1px solid #eddde5; }
+.conversationDetail { min-width: 0; min-height: 0; height: 100%; display: flex; flex-direction: column; overflow: hidden; }
+.conversationDetail > header { position: relative; z-index: 2; flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border-bottom: 1px solid #eddde5; background: white; }
 .conversationDetail > header div { display: grid; gap: 3px; }
 .conversationDetail > header strong { font-size: 11px; }
 .conversationDetail > header small { color: var(--muted); font-size: 8px; }
@@ -346,7 +346,12 @@ button { cursor: pointer; }
 .lowPrioritySwitch input:checked + i { background: #c68a1b; }
 .botReplySwitch input:checked + i::after { transform: translateX(12px); }
 .botReplySwitch input:disabled + i { opacity: .55; }
-.conversationTranscript { flex: 0 0 clamp(300px, 43vh, 470px); min-height: 0; overflow: auto; overflow-anchor: auto; scrollbar-gutter: stable; display: flex; flex-direction: column; gap: 9px; padding: 14px; background: #fcfafb; }
+.conversationTranscript { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; overflow-anchor: auto; scrollbar-gutter: stable; display: flex; flex-direction: column; gap: 9px; padding: 14px; background: #fcfafb; }
+.conversationBottomDock { position: relative; z-index: 2; flex: 0 0 auto; max-height: 48%; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; border-top: 1px solid #eddde5; background: white; box-shadow: 0 -8px 20px rgba(70, 32, 50, .04); }
+.conversationBottomDock > .conversationNotice:first-child,
+.conversationBottomDock > .blockedFanNotice:first-child,
+.conversationBottomDock > .paidFulfillmentPanel:first-child,
+.conversationBottomDock > .quickReplies:first-child { border-top: 0; }
 .conversationTranscript article { max-width: 82%; padding: 9px 11px; border-radius: 12px; }
 .conversationTranscript article.user { align-self: flex-start; background: white; border: 1px solid #eadfe4; }
 .conversationTranscript article.assistant { align-self: flex-end; background: #ffe8f3; }
@@ -712,8 +717,9 @@ button { cursor: pointer; }
   .newChatterList article { grid-template-columns: 1fr; align-items: stretch; }
   .newChatterList .primaryAction { width: 100%; }
   .conversationList { max-height: 320px; border-right: 0; border-bottom: 1px solid #eddde5; }
-  .conversationDetail { min-height: 380px; height: auto; overflow: visible; }
-  .conversationTranscript { flex-basis: auto; min-height: 380px; max-height: 540px; }
+  .conversationDetail { min-height: 620px; height: min(78vh, 760px); overflow: hidden; }
+  .conversationTranscript { flex: 1 1 auto; min-height: 240px; max-height: none; }
+  .conversationBottomDock { max-height: 52%; }
   .quickReplyHeading { display: grid; gap: 4px; }
   .quickReplyHeading small { max-width: none; text-align: left; }
   .quickReplyProductRow { grid-template-columns: 1fr; align-items: stretch; }
