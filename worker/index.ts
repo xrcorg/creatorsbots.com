@@ -2952,25 +2952,25 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
       WHERE fan_sessions.chat_id = ?`).bind(chatId).first();
     if (!conversation) return json({ error: "Conversation not found" }, 404);
     const messages = await env.DB.prepare(`SELECT id, role, content, telegram_message_id, created_at
-      FROM chat_messages WHERE chat_id = ? ORDER BY id DESC LIMIT 100`).bind(chatId).all<{
+      FROM chat_messages WHERE chat_id = ? ORDER BY id ASC`).bind(chatId).all<{
         id: number; role: string; content: string; telegram_message_id: number | null; created_at: string;
       }>();
     const mediaItems = await env.DB.prepare(`SELECT id, telegram_message_id, media_type, mime_type,
       duration_seconds, created_at FROM telegram_inbox_media WHERE chat_id = ?
-      ORDER BY id DESC LIMIT 100`).bind(chatId).all<{
+      ORDER BY id ASC`).bind(chatId).all<{
         id: number; telegram_message_id: number; media_type: string; mime_type: string;
         duration_seconds: number; created_at: string;
       }>();
     const voiceNotes = await env.DB.prepare(`SELECT id, transcript, duration_seconds, status, created_at
-      FROM voice_notes WHERE chat_id = ? ORDER BY id DESC LIMIT 100`).bind(chatId).all<{
+      FROM voice_notes WHERE chat_id = ? ORDER BY id ASC`).bind(chatId).all<{
         id: number; transcript: string; duration_seconds: number; status: string; created_at: string;
       }>();
-    const orderedMessages = messages.results.reverse().map((item) => ({ ...item })) as Array<{
+    const orderedMessages = messages.results.map((item) => ({ ...item })) as Array<{
       id: number; role: string; content: string; telegram_message_id: number | null; created_at: string;
       voice_note_id?: number; voice_duration?: number; voice_status?: string;
       media_id?: number; media_type?: string; media_mime_type?: string; media_duration?: number;
     }>;
-    for (const media of mediaItems.results.reverse()) {
+    for (const media of mediaItems.results) {
       const match = orderedMessages.find((item) => item.telegram_message_id === media.telegram_message_id);
       if (match) {
         match.media_id = media.id;
@@ -2992,7 +2992,7 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
       }
     }
     const claimedMessages = new Set<number>();
-    for (const voice of voiceNotes.results.reverse()) {
+    for (const voice of voiceNotes.results) {
       const matchIndex = orderedMessages.findIndex((item, index) => !claimedMessages.has(index) &&
         item.role === "user" && item.content === (voice.transcript || "Voice memo received"));
       if (matchIndex >= 0) {
