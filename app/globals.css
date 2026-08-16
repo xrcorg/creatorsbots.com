@@ -328,6 +328,13 @@ button { cursor: pointer; }
 .fanNameEditor button[type="submit"] { border-color: var(--pink); background: var(--pink); color: white; }
 .fanNameEditor button:disabled, .fanNameDisplay button:disabled { cursor: wait; opacity: .5; }
 .conversationHeaderActions { display: flex !important; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 7px; }
+.conversationActionsMenu { position: relative; }
+.conversationActionsMenu > summary { list-style: none; cursor: pointer; border: 1px solid #d184a0; border-radius: 9px; padding: 7px 10px; background: #fff; color: #862746; font-size: 8px; font-weight: 850; white-space: nowrap; }
+.conversationActionsMenu > summary::-webkit-details-marker { display: none; }
+.conversationActionsMenu > summary::after { content: " ▾"; }
+.conversationActionsMenu[open] > summary { background: #fff2f6; }
+.conversationActionsMenu > div { position: absolute; z-index: 20; top: calc(100% + 5px); right: 0; display: grid; width: 164px; gap: 5px; padding: 7px; border: 1px solid #efc5d2; border-radius: 11px; background: #fff; box-shadow: 0 9px 24px rgba(92, 32, 53, .14); }
+.conversationActionsMenu > div button { width: 100%; text-align: left; }
 .confirmAgeOverride { border: 1px solid #d184a0; border-radius: 9px; padding: 7px 9px; background: #fff; color: #862746; font-size: 8px; font-weight: 850; }
 .ageStatusBadge { border-radius: 999px; padding: 6px 9px; font-size: 8px; font-weight: 850; white-space: nowrap; }
 .ageStatusBadge.verified { background: #effbf4; color: #26744a; }

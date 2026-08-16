@@ -2607,10 +2607,15 @@ export default function Home() {
                         <input aria-label="Low Priority" checked={Boolean(selectedConversation.low_priority)} disabled={liveLoading || Boolean(selectedConversation.is_blocked)} onChange={(event) => void setConversationLowPriority(selectedConversation.chat_id, event.target.checked)} type="checkbox" />
                         <i aria-hidden="true" />
                       </label>
-                      <button className="exitConversationFlow" disabled={liveLoading} onClick={() => void exitLiveConversationFlow(selectedConversation.chat_id)} type="button">Exit flow + resume bot</button>
-                      <button className="resetConversation" disabled={liveLoading} onClick={() => void resetLiveConversation(selectedConversation.chat_id)} type="button">Reset chat</button>
-                      <button className="deleteConversation" disabled={liveLoading} onClick={() => void deleteLiveConversation(selectedConversation.chat_id)} type="button">Delete chat</button>
-                      <button className={`blockConversation ${selectedConversation.is_blocked ? "unblock" : ""}`} disabled={liveLoading} onClick={() => void setConversationBlocked(selectedConversation.chat_id, !Boolean(selectedConversation.is_blocked))} type="button">{selectedConversation.is_blocked ? "Unblock fan" : "Block fan"}</button>
+                      <details className="conversationActionsMenu">
+                        <summary>Chat actions</summary>
+                        <div>
+                          <button className="exitConversationFlow" disabled={liveLoading} onClick={() => void exitLiveConversationFlow(selectedConversation.chat_id)} type="button">Exit flow + resume bot</button>
+                          <button className="resetConversation" disabled={liveLoading} onClick={() => void resetLiveConversation(selectedConversation.chat_id)} type="button">Reset chat</button>
+                          <button className={`blockConversation ${selectedConversation.is_blocked ? "unblock" : ""}`} disabled={liveLoading} onClick={() => void setConversationBlocked(selectedConversation.chat_id, !Boolean(selectedConversation.is_blocked))} type="button">{selectedConversation.is_blocked ? "Unblock fan" : "Block fan"}</button>
+                          <button className="deleteConversation" disabled={liveLoading} onClick={() => void deleteLiveConversation(selectedConversation.chat_id)} type="button">Delete chat</button>
+                        </div>
+                      </details>
                     </div>
                   </header>
                   <div className="conversationTranscript" onScroll={trackConversationScroll} ref={conversationTranscriptRef}>
