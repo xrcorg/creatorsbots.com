@@ -2183,7 +2183,11 @@ export default function Home() {
     }
   }
 
-  const selectedAgendaTasks = dailyTasks.filter((task) => task.scheduled_at.slice(0, 10) === agendaDate);
+  const selectedAgendaTasks = dailyTasks.filter((task) =>
+    task.scheduled_at.slice(0, 10) === agendaDate && task.status === "open");
+  const completedAgendaTasks = dailyTasks
+    .filter((task) => task.status === "completed")
+    .sort((a, b) => (b.completed_at || b.scheduled_at).localeCompare(a.completed_at || a.scheduled_at));
   const visibleConversations = conversations.filter((conversation) => {
     const search = conversationSearch.trim().toLowerCase();
     return !search || conversation.telegram_name.toLowerCase().includes(search) ||
@@ -2215,7 +2219,7 @@ export default function Home() {
       ? `/api/admin/sexting-media/${selectedPaidPhoto.id}/file`
       : `/api/admin/products/${(selectedPaidPhoto as CatalogPhotoMedia).product_id}/media/${selectedPaidPhoto.id}/file`
     : "";
-  const openAgendaCount = selectedAgendaTasks.filter((task) => task.status === "open").length + physicalOrders.length + ratingOrders.length;
+  const openAgendaCount = selectedAgendaTasks.length + physicalOrders.length + ratingOrders.length;
   const unscheduledCount = liveBookings.length + liveCustoms.length + videoChats.filter((order) => order.status !== "scheduled").length + livePurchases.length + sextingSessions.length + physicalOrders.length + ratingOrders.length;
   const pendingSaleDisputes = saleDisputes.filter((dispute) => dispute.status === "pending");
   const reviewedSaleDisputes = saleDisputes.filter((dispute) => dispute.status !== "pending").slice(0, 20);
@@ -2789,7 +2793,7 @@ export default function Home() {
             </div>}
             <div className="agendaList">
               {selectedAgendaTasks.length ? selectedAgendaTasks.map((task) => (
-                <article className={task.status === "completed" ? "completed" : ""} key={task.id}>
+                <article key={task.id}>
                   <time>{new Date(task.scheduled_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</time>
                   <div>
                     <span>{task.task_type.replaceAll("_", " ")}</span>
@@ -2798,7 +2802,7 @@ export default function Home() {
                     {task.details && <p>{task.details}</p>}
                   </div>
                   {task.amount_cents > 0 && <b>{money(task.amount_cents)}</b>}
-                  <button type="button" onClick={() => void updateDailyTask(task.id, task.status === "open" ? "complete" : "reopen")}>{task.status === "open" ? "Complete" : "Reopen"}</button>
+                  <button type="button" onClick={() => void updateDailyTask(task.id, "complete")}>Complete</button>
                   <button className="removeTask" type="button" onClick={() => void updateDailyTask(task.id, "remove")}>Remove</button>
                 </article>
               )) : <p className="queueNote">Nothing scheduled for this day.</p>}
@@ -3171,6 +3175,19 @@ export default function Home() {
               <strong>Fixed safety boundaries</strong>
               <p>Politics and political topics, religion, race and racism, racial slurs, war, riots, stealing, scams and scammers, threats, underage people, minors, kids, children, rape and nonconsensual activity, scat, pee, poop, urine, watersports, and bathroom play. These cannot be edited or deleted.</p>
             </div>
+          </section>
+
+          <section className="customHistory dashboardSection dashboardHistory">
+            <strong>Completed tasks</strong>
+            {completedAgendaTasks.length ? completedAgendaTasks.map((task) => (
+              <div key={task.id}>
+                <span>
+                  <b>{task.title}</b>
+                  <small>{new Date(task.scheduled_at).toLocaleString()} · {task.task_type.replaceAll("_", " ")}{task.fan_name ? ` · ${task.fan_name}` : ""}</small>
+                </span>
+                <time>{task.amount_cents > 0 ? money(task.amount_cents) : "Completed"}</time>
+              </div>
+            )) : <p>No completed tasks yet.</p>}
           </section>
 
           <section className="customHistory dashboardSection dashboardHistory">

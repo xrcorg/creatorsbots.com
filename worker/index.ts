@@ -1187,6 +1187,9 @@ async function prepareDatabase(env: Env) {
       AND daily_tasks.amount_cents > 0
       AND NOT EXISTS (
         SELECT 1 FROM video_chat_orders
+        JOIN earnings_events existing_earnings
+          ON existing_earnings.source_type = 'video_chat'
+          AND existing_earnings.source_id = CAST(video_chat_orders.id AS TEXT)
         WHERE video_chat_orders.telegram_name = daily_tasks.fan_name
           AND video_chat_orders.scheduled_at = daily_tasks.scheduled_at
       )`).run();
@@ -6394,16 +6397,20 @@ async function handleAdminTasks(request: Request, env: Env) {
   if (!task) return json({ error: "Task not found" }, 404);
   if (body.action === "complete") {
     const completedAt = new Date().toISOString();
-    const matchingOrder = task.task_type === "video_chat"
-      ? await env.DB.prepare(`SELECT id FROM video_chat_orders
-          WHERE telegram_name = ? AND scheduled_at = ? LIMIT 1`)
+    const matchingPaidOrder = task.task_type === "video_chat"
+      ? await env.DB.prepare(`SELECT video_chat_orders.id FROM video_chat_orders
+          JOIN earnings_events
+            ON earnings_events.source_type = 'video_chat'
+            AND earnings_events.source_id = CAST(video_chat_orders.id AS TEXT)
+          WHERE video_chat_orders.telegram_name = ?
+            AND video_chat_orders.scheduled_at = ? LIMIT 1`)
         .bind(task.fan_name, task.scheduled_at).first<{ id: number }>()
       : null;
     const statements = [
       env.DB.prepare(`UPDATE daily_tasks SET status = 'completed', completed_at = ? WHERE id = ?`)
         .bind(completedAt, task.id),
     ];
-    if (task.task_type === "video_chat" && task.amount_cents > 0 && !matchingOrder) {
+    if (task.task_type === "video_chat" && task.amount_cents > 0 && !matchingPaidOrder) {
       statements.push(env.DB.prepare(`INSERT OR IGNORE INTO earnings_events
         (source_type, source_id, description, amount_cents, occurred_at)
         VALUES ('manual_video_chat', ?, ?, ?, ?)`)
