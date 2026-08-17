@@ -606,6 +606,16 @@ async function prepareDatabase(env: Env) {
       profile_photo_checked_at TEXT,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS telegram_blacklist (
+      telegram_user_id TEXT PRIMARY KEY,
+      chat_id TEXT NOT NULL DEFAULT '',
+      telegram_username TEXT NOT NULL DEFAULT '',
+      telegram_display_name TEXT NOT NULL DEFAULT '',
+      fan_name TEXT NOT NULL DEFAULT '',
+      phone_number TEXT NOT NULL DEFAULT '',
+      blocked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS pending_replies (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       chat_id TEXT NOT NULL,
@@ -1083,6 +1093,16 @@ async function prepareDatabase(env: Env) {
   if (!fanSessionColumns.results.some((column) => column.name === "language_name")) {
     await db.prepare("ALTER TABLE fan_sessions ADD COLUMN language_name TEXT NOT NULL DEFAULT ''").run();
   }
+  await db.prepare(`INSERT OR IGNORE INTO telegram_blacklist
+    (telegram_user_id, chat_id, telegram_username, telegram_display_name, fan_name, phone_number, blocked_at, updated_at)
+    SELECT COALESCE(fan_sessions.telegram_user_id, fan_sessions.chat_id), fan_sessions.chat_id,
+      COALESCE(telegram_contacts.username, ''), COALESCE(telegram_contacts.display_name, ''),
+      COALESCE(fan_profiles.name, ''), COALESCE(telegram_contacts.phone_number, ''),
+      COALESCE(fan_sessions.updated_at, CURRENT_TIMESTAMP), CURRENT_TIMESTAMP
+    FROM fan_sessions
+    LEFT JOIN telegram_contacts ON telegram_contacts.chat_id = fan_sessions.chat_id
+    LEFT JOIN fan_profiles ON fan_profiles.chat_id = fan_sessions.chat_id
+    WHERE fan_sessions.is_blocked = 1`).run();
   const fanProfileColumns = await db.prepare("PRAGMA table_info(fan_profiles)").all<{ name: string }>();
   if (!fanProfileColumns.results.some((column) => column.name === "proposed_name")) {
     await db.prepare("ALTER TABLE fan_profiles ADD COLUMN proposed_name TEXT").run();
@@ -2772,44 +2792,47 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
   }
 
   if (request.method === "GET" && url.pathname === "/api/admin/conversations/low-priority-export") {
-    const entries = await env.DB.prepare(`SELECT
-      COALESCE(fan_profiles.name, '') AS fan_name,
-      COALESCE(telegram_contacts.display_name, '') AS telegram_display_name,
-      COALESCE(telegram_contacts.username, '') AS telegram_username,
-      COALESCE(fan_sessions.telegram_user_id, fan_sessions.chat_id) AS telegram_user_id,
-      COALESCE(telegram_contacts.phone_number, '') AS phone_number,
-      COALESCE(conversation_reply_preferences.low_priority_since,
-        conversation_reply_preferences.updated_at) AS low_priority_since
+    const entries = await env.DB.prepare(`SELECT fan_name, telegram_display_name, telegram_username,
+      telegram_user_id, phone_number, 'Blocked' AS list_status, blocked_at AS listed_since
+      FROM telegram_blacklist
+      UNION ALL
+      SELECT COALESCE(fan_profiles.name, ''), COALESCE(telegram_contacts.display_name, ''),
+        COALESCE(telegram_contacts.username, ''), COALESCE(fan_sessions.telegram_user_id, fan_sessions.chat_id),
+        COALESCE(telegram_contacts.phone_number, ''), 'Low Priority',
+        COALESCE(conversation_reply_preferences.low_priority_since, conversation_reply_preferences.updated_at)
       FROM conversation_reply_preferences
       JOIN fan_sessions ON fan_sessions.chat_id = conversation_reply_preferences.chat_id
       LEFT JOIN fan_profiles ON fan_profiles.chat_id = fan_sessions.chat_id
       LEFT JOIN telegram_contacts ON telegram_contacts.chat_id = fan_sessions.chat_id
-      WHERE conversation_reply_preferences.low_priority = 1
-        AND fan_sessions.chat_id <> ?
-      ORDER BY datetime(low_priority_since) DESC`)
+      WHERE conversation_reply_preferences.low_priority = 1 AND fan_sessions.chat_id <> ?
+        AND NOT EXISTS (SELECT 1 FROM telegram_blacklist
+          WHERE telegram_blacklist.telegram_user_id = COALESCE(fan_sessions.telegram_user_id, fan_sessions.chat_id))
+      ORDER BY listed_since DESC`)
       .bind(DASHBOARD_TEST_CHAT_ID).all<{
         fan_name: string;
         telegram_display_name: string;
         telegram_username: string;
         telegram_user_id: string;
         phone_number: string;
-        low_priority_since: string;
+        list_status: string;
+        listed_since: string;
       }>();
     const headers = ["Fan name", "Telegram display name", "Telegram username", "Telegram user ID",
-      "Phone number", "Low Priority since"];
+      "Phone number", "Status", "Listed since"];
     const rows = entries.results.map((entry) => [
       entry.fan_name || "Not provided",
       entry.telegram_display_name || "Not provided",
       entry.telegram_username || "Not provided",
       entry.telegram_user_id,
       entry.phone_number || "Not provided",
-      entry.low_priority_since,
+      entry.list_status,
+      entry.listed_since,
     ]);
     const csv = `\uFEFF${[headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n")}`;
     const date = new Date().toISOString().slice(0, 10);
     return new Response(csv, { headers: {
       "content-type": "text/csv; charset=utf-8",
-      "content-disposition": `attachment; filename="telegram-low-priority-list-${date}.csv"`,
+      "content-disposition": `attachment; filename="telegram-blacklist-${date}.csv"`,
       "cache-control": "no-store",
     } });
   }
@@ -3144,18 +3167,43 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
     const body = await request.json<{ chat_id?: string; blocked?: boolean }>();
     const chatId = String(body.chat_id || "").trim();
     if (!chatId) return json({ error: "A conversation is required" }, 400);
-    const exists = await env.DB.prepare("SELECT chat_id FROM fan_sessions WHERE chat_id = ?")
-      .bind(chatId).first();
+    const exists = await env.DB.prepare(`SELECT fan_sessions.chat_id,
+      COALESCE(fan_sessions.telegram_user_id, fan_sessions.chat_id) AS telegram_user_id,
+      COALESCE(telegram_contacts.username, '') AS telegram_username,
+      COALESCE(telegram_contacts.display_name, '') AS telegram_display_name,
+      COALESCE(telegram_contacts.phone_number, '') AS phone_number,
+      COALESCE(fan_profiles.name, '') AS fan_name
+      FROM fan_sessions
+      LEFT JOIN telegram_contacts ON telegram_contacts.chat_id = fan_sessions.chat_id
+      LEFT JOIN fan_profiles ON fan_profiles.chat_id = fan_sessions.chat_id
+      WHERE fan_sessions.chat_id = ?`).bind(chatId).first<{
+        chat_id: string; telegram_user_id: string; telegram_username: string;
+        telegram_display_name: string; phone_number: string; fan_name: string;
+      }>();
     if (!exists) return json({ error: "Conversation not found" }, 404);
     const blocked = body.blocked === true;
     await env.DB.prepare(`UPDATE fan_sessions SET is_blocked = ?, updated_at = CURRENT_TIMESTAMP
       WHERE chat_id = ?`).bind(blocked ? 1 : 0, chatId).run();
     if (blocked) {
+      await env.DB.prepare(`INSERT INTO telegram_blacklist
+        (telegram_user_id, chat_id, telegram_username, telegram_display_name, fan_name, phone_number,
+          blocked_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ON CONFLICT(telegram_user_id) DO UPDATE SET chat_id = excluded.chat_id,
+          telegram_username = excluded.telegram_username,
+          telegram_display_name = excluded.telegram_display_name, fan_name = excluded.fan_name,
+          phone_number = excluded.phone_number, blocked_at = CURRENT_TIMESTAMP,
+          updated_at = CURRENT_TIMESTAMP`)
+        .bind(exists.telegram_user_id, chatId, exists.telegram_username, exists.telegram_display_name,
+          exists.fan_name, exists.phone_number).run();
       await exitConversationFlow(env.DB, chatId);
       await env.DB.prepare(`INSERT INTO conversation_controls (chat_id, control_mode, taken_over_by, updated_at)
         VALUES (?, 'human', 'blocked', CURRENT_TIMESTAMP)
         ON CONFLICT(chat_id) DO UPDATE SET control_mode = 'human', taken_over_by = 'blocked',
         updated_at = CURRENT_TIMESTAMP`).bind(chatId).run();
+    } else {
+      await env.DB.prepare("DELETE FROM telegram_blacklist WHERE telegram_user_id = ?")
+        .bind(exists.telegram_user_id).run();
     }
     return json({ ok: true, is_blocked: blocked ? 1 : 0, control_mode: blocked ? "human" : undefined });
   }

@@ -1433,10 +1433,10 @@ export default function Home() {
         cache: "no-store",
         headers: { accept: "text/csv" },
       });
-      if (!response.ok) throw new Error("The Low Priority list could not be exported");
+      if (!response.ok) throw new Error("The blacklist could not be exported");
       const blob = await response.blob();
       const disposition = response.headers.get("content-disposition") || "";
-      const filename = disposition.match(/filename="([^"]+)"/)?.[1] || "telegram-low-priority-list.csv";
+      const filename = disposition.match(/filename="([^"]+)"/)?.[1] || "telegram-blacklist.csv";
       const downloadUrl = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = downloadUrl;
@@ -2606,7 +2606,7 @@ export default function Home() {
               <div className="conversationInboxActions">
                 <span>{conversations.reduce((total, conversation) => total + Number(conversation.unread_count || 0), 0)} unread</span>
                 <span>{conversations.reduce((total, conversation) => total + Number(conversation.pending_count || 0), 0)} need attention</span>
-                <button className="exportLowPriorityList" disabled={liveLoading || !conversations.some((conversation) => Boolean(conversation.low_priority))} onClick={() => void exportLowPriorityList()} title="Downloads Telegram details for fans currently marked Low Priority. Phone numbers appear only when the fan explicitly shared one with Telegram." type="button">Export Low Priority list ({conversations.filter((conversation) => Boolean(conversation.low_priority)).length})</button>
+                <button className="exportLowPriorityList" disabled={liveLoading} onClick={() => void exportLowPriorityList()} title="Downloads Telegram details for blocked and Low Priority fans. Phone numbers appear only when the fan explicitly shared one with Telegram." type="button">Export blacklist</button>
                 {portalUser?.role === "owner" && <button className="clearAllConversations" disabled={liveLoading || (conversations.length === 0 && newChatters.length === 0)} onClick={() => void clearAllTestChats()} type="button">Clear all test chats</button>}
               </div>
             </div>
