@@ -2021,6 +2021,12 @@ function isSextingTimeQuestion(text: string) {
   return /\b(how much|what|any)\s+time\s+(?:do\s+i\s+have\s+)?left\b|\bhow\s+long\s+(?:do\s+i\s+have|is\s+left|left)\b|\btime\s+remaining\b/i.test(text);
 }
 
+function isReadyToStartSexting(text: string) {
+  const value = normalizeCasualText(text).trim();
+  return /^(?:yes|yeah|yep|yup|sure|ok|okay|ready|im ready|i am ready|ready now|lets start|start now|we can start|lets go|go ahead)(?:\s+(?:babe|baby|now|please))?[.!?]*$/i.test(value) ||
+    /\b(?:im ready|i am ready|ready to start|lets start|let us start|start (?:it )?now|we can start|lets go)\b/i.test(value);
+}
+
 function sextingMenu(settings: Record<string, string>) {
   const minimumMinutes = Math.max(1, Math.min(9, Number(settings.sexting_min_minutes || 5)));
   return `Sexting is ${settings.sexting_5_stars || "500"} Stars for ${minimumMinutes} minutes or ${settings.sexting_10_stars || "1000"} Stars for 10 minutes, babe. Which one do you want?`;
@@ -3242,6 +3248,137 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
     return json({ ok: true });
   }
 
+  if (request.method === "POST" && url.pathname === "/api/admin/conversations/send-sexting-invoice") {
+    const body = await request.json<{ chat_id?: string; package_key?: "minimum" | "ten" }>();
+    const chatId = String(body.chat_id || "").trim();
+    const packageKey = body.package_key === "ten" ? "ten" : "minimum";
+    if (!chatId) return json({ error: "Choose a conversation first" }, 400);
+
+    const conversation = await env.DB.prepare(`SELECT chat_id, business_connection_id, is_blocked
+      FROM fan_sessions WHERE chat_id = ?`).bind(chatId).first<{
+        chat_id: string; business_connection_id: string | null; is_blocked: number;
+      }>();
+    if (!conversation) return json({ error: "Conversation not found" }, 404);
+    if (conversation.is_blocked) return json({ error: "Unblock this fan before sending a Stars request" }, 409);
+
+    const settings = await getSettings(env.DB);
+    const minimumMinutes = Math.max(1, Math.min(9, Number(settings.sexting_min_minutes || 5)));
+    const selected = sextingPackage(packageKey === "ten" ? "10 minutes" : `${minimumMinutes} minutes`, settings);
+    if (!selected) return json({ error: "That sexting package is not configured" }, 400);
+
+    await createSextingCheckout(env, {
+      message_id: 0,
+      chat: { id: Number(chatId) },
+      business_connection_id: conversation.business_connection_id || undefined,
+    }, selected);
+    const savedReply = `Sent a ⭐ ${selected.stars.toLocaleString()} Stars request for a ${selected.minutes} minute sexting session.`;
+    await saveMessage(env.DB, chatId, "assistant", savedReply);
+    return json({ ok: true, stars: selected.stars, minutes: selected.minutes });
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/admin/conversations/reply-media") {
+    const body = await request.formData();
+    const chatId = String(body.get("chat_id") || "").trim();
+    const caption = String(body.get("text") || "").trim();
+    const learn = String(body.get("learn") || "") === "true";
+    const resumeBot = String(body.get("resume_bot") || "") === "true";
+    const workflowAction = String(body.get("workflow_action") || "") as
+      "start_custom" | "start_video_chat" | "start_booking" | "";
+    const upload = body.get("file");
+    if (!chatId) return json({ error: "A conversation is required" }, 400);
+    if (!(upload instanceof File) || !upload.size) return json({ error: "Choose a photo or video first" }, 400);
+    if (!upload.type.startsWith("image/") && !upload.type.startsWith("video/")) {
+      return json({ error: "Only photos and videos can be sent" }, 400);
+    }
+    if (upload.size > 50 * 1024 * 1024) return json({ error: "Attachments must be 50 MB or smaller" }, 400);
+    if (caption.length > 1024) return json({ error: "Attachment captions must be 1,024 characters or fewer" }, 400);
+    const conversation = await env.DB.prepare(`SELECT fan_sessions.chat_id,
+      fan_sessions.business_connection_id, fan_sessions.is_blocked
+      FROM fan_sessions WHERE fan_sessions.chat_id = ?`)
+      .bind(chatId).first<{ chat_id: string; business_connection_id: string | null; is_blocked: number }>();
+    if (!conversation) return json({ error: "Conversation not found" }, 404);
+    if (conversation.is_blocked) {
+      return json({ error: "Unblock this fan before sending messages or enabling bot replies" }, 409);
+    }
+    if (!env.TELEGRAM_BOT_TOKEN) return json({ error: "Telegram is not configured" }, 503);
+
+    const mediaKind = upload.type.startsWith("video/") ? "video" : "photo";
+    const telegramBody = new FormData();
+    telegramBody.set("chat_id", chatId);
+    if (conversation.business_connection_id) {
+      telegramBody.set("business_connection_id", conversation.business_connection_id);
+    }
+    if (caption) telegramBody.set("caption", caption);
+    telegramBody.set(mediaKind, upload, upload.name || mediaKind);
+    const telegramResponse = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/${mediaKind === "video" ? "sendVideo" : "sendPhoto"}`, {
+      method: "POST",
+      body: telegramBody,
+    });
+    const telegramResult = await telegramResponse.json<{ ok?: boolean; description?: string }>();
+    if (!telegramResponse.ok || !telegramResult.ok) {
+      return json({ error: telegramResult.description || "Telegram could not send the attachment" }, 502);
+    }
+
+    const savedReply = caption
+      ? `[${mediaKind === "video" ? "Video" : "Photo"}] ${caption}`
+      : `[${mediaKind === "video" ? "Video" : "Photo"} sent]`;
+    await saveMessage(env.DB, chatId, "assistant", savedReply);
+    const latestFanMessage = learn
+      ? await env.DB.prepare(`SELECT content FROM chat_messages
+          WHERE chat_id = ? AND role = 'user' ORDER BY id DESC LIMIT 1`)
+        .bind(chatId).first<{ content: string }>()
+      : null;
+    const continuingWithBot = resumeBot || workflowAction === "start_custom" ||
+      workflowAction === "start_video_chat" || workflowAction === "start_booking";
+    const updates = [
+      env.DB.prepare(`INSERT INTO conversation_controls (chat_id, control_mode, taken_over_by, updated_at)
+        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(chat_id) DO UPDATE SET control_mode = excluded.control_mode, taken_over_by = excluded.taken_over_by,
+        updated_at = CURRENT_TIMESTAMP`).bind(chatId, continuingWithBot ? "bot" : "human", continuingWithBot ? null : portalUser.email),
+      env.DB.prepare(`UPDATE sexting_sessions SET control_mode = ?,
+        taken_over_at = CASE WHEN ? = 'human' THEN CURRENT_TIMESTAMP ELSE NULL END
+        WHERE chat_id = ? AND status = 'active' AND ends_at IS NOT NULL
+        AND ends_at > CURRENT_TIMESTAMP`).bind(continuingWithBot ? "bot" : "human",
+          continuingWithBot ? "bot" : "human", chatId),
+      env.DB.prepare(`UPDATE pending_replies SET status = 'answered', answer = ?, answered_at = CURRENT_TIMESTAMP
+        WHERE chat_id = ? AND status = 'pending'`).bind(savedReply, chatId),
+    ];
+    if (learn && caption && latestFanMessage?.content.trim()) {
+      updates.push(env.DB.prepare("INSERT INTO learned_answers (question, answer) VALUES (?, ?)")
+        .bind(latestFanMessage.content.trim(), caption));
+    }
+    if (workflowAction === "start_custom") {
+      updates.push(
+        env.DB.prepare(`INSERT INTO custom_drafts (chat_id, business_connection_id, status, details, completion_mode)
+          VALUES (?, ?, 'awaiting_details', '', 'yes_done') ON CONFLICT(chat_id) DO UPDATE SET
+          business_connection_id = excluded.business_connection_id, status = 'awaiting_details',
+          details = CASE WHEN custom_drafts.status = 'awaiting_details' THEN custom_drafts.details ELSE '' END,
+          completion_mode = CASE WHEN custom_drafts.status = 'awaiting_details'
+            THEN custom_drafts.completion_mode ELSE 'yes_done' END,
+          updated_at = CURRENT_TIMESTAMP`)
+          .bind(chatId, conversation.business_connection_id),
+        env.DB.prepare(`UPDATE booking_drafts SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+          WHERE chat_id = ? AND status = 'awaiting_details'`).bind(chatId),
+      );
+    }
+    if (workflowAction === "start_video_chat" || workflowAction === "start_booking") {
+      updates.push(
+        env.DB.prepare(`INSERT INTO booking_drafts (chat_id, business_connection_id, service_type, status)
+          VALUES (?, ?, ?, 'awaiting_details') ON CONFLICT(chat_id) DO UPDATE SET
+          business_connection_id = excluded.business_connection_id, status = 'awaiting_details',
+          service_type = CASE WHEN excluded.service_type = '' AND booking_drafts.status = 'awaiting_details'
+            THEN booking_drafts.service_type ELSE excluded.service_type END,
+          updated_at = CURRENT_TIMESTAMP`).bind(chatId, conversation.business_connection_id,
+            workflowAction === "start_video_chat" ? "video_chat" : ""),
+        env.DB.prepare(`UPDATE custom_drafts SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+          WHERE chat_id = ? AND status = 'awaiting_details'`).bind(chatId),
+      );
+    }
+    await env.DB.batch(updates);
+    return json({ ok: true, control_mode: continuingWithBot ? "bot" : "human",
+      workflow: workflowAction || null, learned: Boolean(learn && caption && latestFanMessage?.content.trim()) });
+  }
+
   if (request.method === "POST" && url.pathname === "/api/admin/conversations/reply") {
     const body = await request.json<{ chat_id?: string; text?: string;
       action?: "send" | "pause" | "resume" | "dismiss" | "send_trailer" | "send_product";
@@ -3759,19 +3896,18 @@ async function handleTelegramWebhook(request: Request, env: Env) {
       WHERE fan_sessions.chat_id = ?`).bind(String(message.chat.id)).first<{ telegram_name: string }>();
     const sessionInsert = await env.DB.prepare(`INSERT OR IGNORE INTO sexting_sessions
       (chat_id, business_connection_id, telegram_name, package_key, package_title,
-      duration_minutes, stars, telegram_charge_id, status, started_at, ends_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', CURRENT_TIMESTAMP,
-      datetime('now', '+' || ? || ' minutes'))`)
+      duration_minutes, stars, telegram_charge_id, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'paid')`)
       .bind(String(message.chat.id), message.business_connection_id || null,
         contact?.telegram_name || "Telegram fan", key, title || "Sexting session", minutes,
-        message.successful_payment.total_amount, message.successful_payment.telegram_payment_charge_id, minutes)
+        message.successful_payment.total_amount, message.successful_payment.telegram_payment_charge_id)
       .run();
     await env.DB.prepare(`UPDATE sexting_drafts SET status = 'completed', updated_at = CURRENT_TIMESTAMP
       WHERE chat_id = ? AND status IN ('awaiting_package', 'invoice_sent')`)
       .bind(String(message.chat.id)).run();
     if (sessionInsert.meta.changes) {
       await sendTelegramMessage(env, message,
-        "I got your Stars payment, babe. Our session starts now. Tell me what you're in the mood for.");
+        "Thanks for the payment, babe. Lmk when you're ready to start.");
     }
     return json({ ok: true });
   }
@@ -4173,9 +4309,22 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     return json({ ok: true, rating_photo_received: true });
   }
 
-  const latestSextingSession = await env.DB.prepare(`SELECT id, status, ends_at, control_mode FROM sexting_sessions
+  const latestSextingSession = await env.DB.prepare(`SELECT id, status, ends_at, control_mode, duration_minutes FROM sexting_sessions
     WHERE chat_id = ? ORDER BY id DESC LIMIT 1`).bind(chatId)
-    .first<{ id: number; status: string; ends_at: string | null; control_mode: string }>();
+    .first<{ id: number; status: string; ends_at: string | null; control_mode: string; duration_minutes: number }>();
+  if (latestSextingSession?.status === "paid" && isReadyToStartSexting(message.text)) {
+    const started = await env.DB.prepare(`UPDATE sexting_sessions SET status = 'active', control_mode = 'bot',
+      taken_over_at = NULL, started_at = CURRENT_TIMESTAMP,
+      ends_at = datetime('now', '+' || duration_minutes || ' minutes')
+      WHERE id = ? AND status = 'paid'`).bind(latestSextingSession.id).run();
+    if (started.meta.changes) {
+      const reply = "Perfect babe, we're starting now. Tell me what you're in the mood for.";
+      await saveMessage(env.DB, chatId, "user", message.text);
+      await saveMessage(env.DB, chatId, "assistant", reply);
+      await sendTelegramMessage(env, message, reply);
+    }
+    return json({ ok: true, sexting_started: Boolean(started.meta.changes) });
+  }
   const activeHumanTakeover = latestSextingSession?.status === "active" &&
     latestSextingSession.control_mode === "human" && Boolean(latestSextingSession.ends_at) &&
       Date.parse(`${latestSextingSession.ends_at!.replace(" ", "T")}Z`) > Date.now();

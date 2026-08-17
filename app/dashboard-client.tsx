@@ -96,6 +96,7 @@ type VideoChatOrder = {
 
 type LiveSextingSession = {
   id: number;
+  chat_id: number;
   telegram_name: string;
   package_title: string;
   duration_minutes: number;
@@ -495,6 +496,7 @@ function nextReply(input: string) {
 }
 
 export default function Home() {
+  const [darkMode, setDarkMode] = useState(false);
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [input, setInput] = useState("");
   const [verified, setVerified] = useState(false);
@@ -515,6 +517,7 @@ export default function Home() {
   const [conversationSearch, setConversationSearch] = useState("");
   const [conversationStatus, setConversationStatus] = useState("");
   const [conversationReply, setConversationReply] = useState("");
+  const [conversationAttachment, setConversationAttachment] = useState<File | null>(null);
   const [editingFanName, setEditingFanName] = useState(false);
   const [fanNameDraft, setFanNameDraft] = useState("");
   const [quickReplyWorkflow, setQuickReplyWorkflow] = useState<"start_custom" | "start_video_chat" | null>(null);
@@ -693,6 +696,14 @@ export default function Home() {
     const distanceFromBottom = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight;
     keepConversationAtBottomRef.current = distanceFromBottom <= 56;
   }
+
+  useEffect(() => {
+    const savedMode = window.localStorage.getItem("creatorsbots-color-mode");
+    const prefersDark = window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
+    const useDarkMode = savedMode ? savedMode === "dark" : prefersDark;
+    setDarkMode(useDarkMode);
+    document.documentElement.dataset.theme = useDarkMode ? "dark" : "light";
+  }, []);
 
   useEffect(() => {
     if (!selectedConversationId) return;
@@ -1124,23 +1135,36 @@ export default function Home() {
   }
 
   async function submitConversationReply(saveForFuture: boolean, resumeBotAfterReply = false) {
-    if (!selectedConversation || !conversationReply.trim()) return;
+    if (!selectedConversation || (!conversationReply.trim() && !conversationAttachment)) return;
     try {
       setLiveLoading(true);
       setConversationStatus(resumeBotAfterReply
         ? "Sending reply and turning auto chat on..."
         : saveForFuture ? "Sending and saving reply..." : "Sending reply...");
-      const response = await fetch("/api/admin/conversations/reply", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ chat_id: selectedConversation.chat_id, text: conversationReply.trim(), action: "send",
-          learn: saveForFuture, resume_bot: resumeBotAfterReply, workflow_action: quickReplyWorkflow }),
-      });
+      let response: Response;
+      if (conversationAttachment) {
+        const body = new FormData();
+        body.set("chat_id", selectedConversation.chat_id);
+        body.set("text", conversationReply.trim());
+        body.set("learn", String(saveForFuture));
+        body.set("resume_bot", String(resumeBotAfterReply));
+        if (quickReplyWorkflow) body.set("workflow_action", quickReplyWorkflow);
+        body.set("file", conversationAttachment);
+        response = await fetch("/api/admin/conversations/reply-media", { method: "POST", body });
+      } else {
+        response = await fetch("/api/admin/conversations/reply", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ chat_id: selectedConversation.chat_id, text: conversationReply.trim(), action: "send",
+            learn: saveForFuture, resume_bot: resumeBotAfterReply, workflow_action: quickReplyWorkflow }),
+        });
+      }
       const data = await readApiJson(response) as { error?: string };
       if (!response.ok) throw new Error(data.error || "Reply failed");
       const resolvedChatId = selectedConversation.chat_id;
-      const sentReply = conversationReply.trim();
+      const sentReply = conversationReply.trim() || (conversationAttachment?.type.startsWith("video/") ? "Sent a video" : "Sent a photo");
       setConversationReply("");
+      setConversationAttachment(null);
       const startedWorkflow = quickReplyWorkflow;
       const botRemainsActive = resumeBotAfterReply || Boolean(startedWorkflow);
       setQuickReplyWorkflow(null);
@@ -1168,6 +1192,27 @@ export default function Home() {
   function sendConversationReply(event: FormEvent) {
     event.preventDefault();
     void submitConversationReply(false);
+  }
+
+  async function sendSextingStarsRequest(packageKey: "minimum" | "ten") {
+    if (!selectedConversation) return;
+    try {
+      setLiveLoading(true);
+      setConversationStatus("Sending Telegram Stars request...");
+      const response = await fetch("/api/admin/conversations/send-sexting-invoice", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ chat_id: selectedConversation.chat_id, package_key: packageKey }),
+      });
+      const data = await readApiJson(response) as { error?: string; stars?: number; minutes?: number };
+      if (!response.ok) throw new Error(data.error || "The Stars request could not be sent");
+      await openConversation(selectedConversation.chat_id);
+      setConversationStatus(`Sent a ${data.stars?.toLocaleString()} Stars request for ${data.minutes} minutes. The session starts only after Telegram confirms payment.`);
+    } catch (error) {
+      setConversationStatus(error instanceof Error ? error.message : "The Stars request could not be sent.");
+    } finally {
+      setLiveLoading(false);
+    }
   }
 
   async function dismissConversationRequest() {
@@ -2211,6 +2256,9 @@ export default function Home() {
   const selectedVideoChat = selectedConversation
     ? videoChats.find((order) => order.chat_id === selectedConversation.chat_id)
     : undefined;
+  const selectedSextingSession = selectedConversation
+    ? sextingSessions.find((session) => session.chat_id === selectedConversation.chat_id)
+    : undefined;
   const quickReplyProducts = contentProducts.filter((product) => product.active && !["physical_item", "video_rating"].includes(product.content_type));
   const paidPhotoOptions = paidPhotoSource === "sexting"
     ? sextingMedia.filter((media) => media.active && media.media_type === "image")
@@ -2250,6 +2298,21 @@ export default function Home() {
           <span className="releaseBadge">Version {PORTAL_RELEASE}</span>
           {portalUser && <span className="accountBadge">{portalUser.role === "owner" ? "Owner" : "Creator"} · {portalUser.email}</span>}
           <a className="ghostButton intakeLink" href="/onboarding">Creator intake</a>
+          <button
+            aria-pressed={darkMode}
+            className="ghostButton themeToggle"
+            onClick={() => {
+              setDarkMode((currentMode) => {
+                const nextMode = !currentMode;
+                document.documentElement.dataset.theme = nextMode ? "dark" : "light";
+                window.localStorage.setItem("creatorsbots-color-mode", nextMode ? "dark" : "light");
+                return nextMode;
+              });
+            }}
+            type="button"
+          >
+            {darkMode ? "Light mode" : "Dark mode"}
+          </button>
           {portalUser?.role === "owner" && (
             <button
               className="adminInboxButton"
@@ -2645,8 +2708,17 @@ export default function Home() {
                   <div className="conversationBottomDock">
                   {conversationStatus && conversationMessages.length > 0 && <p className="conversationNotice">{conversationStatus}</p>}
                   {selectedConversation.is_blocked ? <div className="blockedFanNotice"><strong>This fan is blocked</strong><p>The bot and Inbox cannot send messages or content to this fan. Their conversation, orders, and earnings history remain saved.</p></div> : null}
-                  {(selectedPurchase || selectedCustom || selectedRating || selectedVideoChat) && <div className="paidFulfillmentPanel">
+                  {(selectedPurchase || selectedCustom || selectedRating || selectedVideoChat || selectedSextingSession) && <div className="paidFulfillmentPanel">
                     <div className="quickReplyHeading"><strong>Active order</strong><small>Complete the next step for this chat.</small></div>
+                    {selectedSextingSession && <article className="videoChatCompletionCard">
+                      <div><strong>{selectedSextingSession.status === "paid" ? "Paid sexting session" : "Sexting session in progress"}</strong><small>{selectedSextingSession.duration_minutes} minutes · ⭐ {selectedSextingSession.stars.toLocaleString()}</small></div>
+                      {selectedSextingSession.status === "paid" ? <>
+                        <p>Payment is confirmed. Start the session when the fan says they are ready. The timer begins only when you press this button.</p>
+                        <button className="primaryAction" disabled={liveLoading} onClick={() => {
+                          if (window.confirm("Start this sexting session now? The timer begins immediately.")) void updateSextingSession(selectedSextingSession.id, "start");
+                        }} type="button">Start sexting</button>
+                      </> : <p>The session is active and the timer is running.</p>}
+                    </article>}
                     {selectedPurchase && <article>
                       <div><strong>{selectedPurchase.product_title}</strong><small>{selectedPurchase.price} · {selectedPurchase.payment_proof_received_at ? "payment screenshot received" : "payment claimed"}</small></div>
                       <button className="primaryAction" disabled={liveLoading} onClick={() => void resolvePurchaseById(selectedPurchase.id, "approve")} type="button">
@@ -2702,7 +2774,7 @@ export default function Home() {
                       {quickReplyCategory === "general" && <><button onClick={() => fillQuickReply("saw_message")} type="button">Saw your message</button><button onClick={() => fillQuickReply("busy")} type="button">Busy right now</button><button onClick={() => fillQuickReply("anything_else")} type="button">Anything else</button></>}
                       {quickReplyCategory === "content" && <><button onClick={() => fillQuickReply("catalog")} type="button">Show catalog</button><button onClick={() => fillQuickReply("trailer")} type="button">Preview trailer reply</button><button onClick={() => fillQuickReply("product_details")} type="button">Send details</button><button onClick={() => fillQuickReply("product_payment")} type="button">Payment instructions</button><button onClick={() => fillQuickReply("product_delivery")} type="button">Preview delivery reply</button></>}
                       {quickReplyCategory === "custom" && <><button onClick={() => fillQuickReply("custom_start")} type="button">Ask for idea</button><button onClick={() => fillQuickReply("custom_more")} type="button">Anything else</button><button onClick={() => fillQuickReply("custom_review")} type="button">Review request</button><button onClick={() => fillQuickReply("custom_quote")} type="button">Need details first</button><button className="quickSendContent" disabled={!selectedCustom} onClick={() => document.querySelector<HTMLInputElement>(`.paidFulfillmentPanel input[type="url"]`)?.focus()} title={selectedCustom ? "Add the delivery link above" : "Available after a custom payment is confirmed"} type="button">Send finished custom</button></>}
-                      {quickReplyCategory === "sexting" && <><button onClick={() => fillQuickReply("sexting_rates")} type="button">Show both packages</button><button onClick={() => fillQuickReply("sexting_5_minutes")} type="button">5 minutes · {settings.sexting_5_stars || "500"} Stars</button><button onClick={() => fillQuickReply("sexting_10_minutes")} type="button">10 minutes · {settings.sexting_10_stars || "1000"} Stars</button></>}
+                      {quickReplyCategory === "sexting" && <><button onClick={() => fillQuickReply("sexting_rates")} type="button">Show both packages</button><button disabled={liveLoading || !selectedConversation} onClick={() => void sendSextingStarsRequest("minimum")} type="button">Send {settings.sexting_min_minutes || "5"} min Stars request · ⭐ {settings.sexting_5_stars || "500"}</button><button disabled={liveLoading || !selectedConversation} onClick={() => void sendSextingStarsRequest("ten")} type="button">Send 10 min Stars request · ⭐ {settings.sexting_10_stars || "1000"}</button></>}
                       {quickReplyCategory === "video_chat" && <><button onClick={() => fillQuickReply("video_chat")} type="button">Send video chat rates</button><button onClick={() => fillQuickReply("video_chat_now")} type="button">Available right now</button><button onClick={() => fillQuickReply("video_chat_not_now")} type="button">Not available now</button><button onClick={() => fillQuickReply("video_chat_schedule")} type="button">Ask for schedule</button><button onClick={() => fillQuickReply("video_chat_payment")} type="button">Payment methods</button><button onClick={() => fillQuickReply("video_chat_confirm")} type="button">Confirm Telegram call</button></>}
                       {quickReplyCategory === "ratings" && <><button onClick={() => fillQuickReply("rating_offer")} type="button">Offer video rating</button><button onClick={() => fillQuickReply("rating_photo")} type="button">Request photo</button><button onClick={() => fillQuickReply("rating_payment")} type="button">Rating payment</button><button className="quickSendContent" disabled={!selectedRating} onClick={() => document.querySelector<HTMLInputElement>(`.paidFulfillmentPanel input[type="file"]`)?.click()} title={selectedRating ? "Choose the response video above" : "Available after payment and the rating photo are confirmed"} type="button">Upload and send rating video</button></>}
                       {quickReplyCategory === "payment" && <><button onClick={() => fillQuickReply("payment_options")} type="button">Payment options</button><button onClick={() => fillQuickReply("payment_screenshot")} type="button">Request screenshot</button><button onClick={() => fillQuickReply("payment_received")} type="button">Payment received</button><button className="quickSendContent" disabled={!selectedPurchase} onClick={() => selectedPurchase && void resolvePurchaseById(selectedPurchase.id, "approve")} title={selectedPurchase ? "Confirm and fulfill this paid order" : "Available when this chat has a payment awaiting confirmation"} type="button">Confirm payment and send content</button></>}
@@ -2711,11 +2783,17 @@ export default function Home() {
                     {quickReplyWorkflow && <p className="workflowNotice">Sending this keeps Bot replies on and starts the {quickReplyWorkflow === "start_custom" ? "custom detail" : "video chat scheduling"} flow.</p>}
                   </details>
                   <form className="conversationReplyForm" onSubmit={sendConversationReply}>
-                    <textarea maxLength={4000} value={conversationReply} onChange={(event) => setConversationReply(event.target.value)} placeholder={`Reply to ${selectedConversation.telegram_name}`} />
+                    <div className="conversationReplyComposer">
+                      <textarea maxLength={4000} value={conversationReply} onChange={(event) => setConversationReply(event.target.value)} placeholder={`Reply to ${selectedConversation.telegram_name}`} />
+                      <div className="conversationAttachmentPicker">
+                        <label className="conversationAttachmentButton">Attach photo or video<input accept="image/*,video/*" hidden onChange={(event) => setConversationAttachment(event.target.files?.[0] || null)} type="file" /></label>
+                        {conversationAttachment && <span className="conversationAttachmentSummary"><span>{conversationAttachment.name}</span><button onClick={() => setConversationAttachment(null)} type="button">Remove</button></span>}
+                      </div>
+                    </div>
                     <div className="conversationReplyActions">
-                      <button className="primaryAction" disabled={liveLoading || !conversationReply.trim()}>Send once</button>
-                      <button className="resumeBotAction" disabled={liveLoading || !conversationReply.trim()} onClick={() => void submitConversationReply(false, true)} type="button">Reply and turn on auto chat</button>
-                      <button className="secondaryAction" disabled={liveLoading || !conversationReply.trim()} onClick={() => void submitConversationReply(true)} type="button">Send and save for future</button>
+                      <button className="primaryAction" disabled={liveLoading || (!conversationReply.trim() && !conversationAttachment)}>Send once</button>
+                      <button className="resumeBotAction" disabled={liveLoading || (!conversationReply.trim() && !conversationAttachment)} onClick={() => void submitConversationReply(false, true)} type="button">Reply and turn on auto chat</button>
+                      <button className="secondaryAction" disabled={liveLoading || (!conversationReply.trim() && !conversationAttachment)} onClick={() => void submitConversationReply(true)} type="button">Send and save for future</button>
                       {Number(selectedConversation.pending_count) > 0 && <button className="ignoreAction clearRequestAction" disabled={liveLoading} onClick={() => void dismissConversationRequest()} type="button">Clear request without replying</button>}
                     </div>
                     <small>{quickReplyWorkflow ? "This workflow reply keeps the bot active so it can collect the remaining order details." : "Send once pauses auto chat. Use Reply and turn on auto chat when you want the bot to continue after your message."}</small>

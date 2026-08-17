@@ -425,6 +425,13 @@ button { cursor: pointer; }
 .paidPhotoUnlockButton { justify-self: start; min-height: 38px; border: 1px solid var(--deep-pink); border-radius: 10px; padding: 9px 18px; background: var(--deep-pink); color: white; font-size: 11px; font-weight: 850; }
 .paidPhotoUnlockButton:disabled { cursor: not-allowed; opacity: .42; }
 .conversationReplyForm { display: grid; grid-template-columns: minmax(0, 1fr) minmax(190px, 220px); gap: 10px; padding: 12px 18px; border-top: 1px solid #eddde5; background: white; }
+.conversationReplyComposer { display: grid; gap: 8px; min-width: 0; }
+.conversationAttachmentPicker { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.conversationAttachmentButton { display: inline-flex; align-items: center; justify-content: center; min-height: 36px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 12px; background: white; color: #6f4055; font-size: 12px; font-weight: 800; cursor: pointer; }
+.conversationAttachmentButton:hover { border-color: var(--pink); background: #fff5f9; }
+.conversationAttachmentSummary { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; padding: 7px 10px; border-radius: 12px; background: #fff2f7; color: #6f4055; font-size: 12px; }
+.conversationAttachmentSummary span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conversationAttachmentSummary button { flex: 0 0 auto; border: 0; padding: 2px 4px; background: transparent; color: var(--deep-pink); font: inherit; font-weight: 850; cursor: pointer; }
 .conversationReplyForm textarea { min-height: 76px; resize: vertical; border: 1px solid var(--line); border-radius: 12px; padding: 12px 13px; color: var(--ink); font: inherit; font-size: 13px; line-height: 1.5; }
 .conversationReplyForm textarea:focus { border-color: var(--pink); outline: none; box-shadow: 0 0 0 3px rgba(237,79,154,.1); }
 .conversationReplyActions { display: grid; grid-template-rows: 38px 38px 38px auto; gap: 6px; align-self: start; }
@@ -690,6 +697,118 @@ button { cursor: pointer; }
 .customHistory > div > button { border: 1px solid #f0a9cc; border-radius: 8px; padding: 5px 8px; background: white; color: var(--deep-pink); font-size: 8px; }
 .customHistory p { margin: 0; color: var(--muted); font-size: 10px; }
 .footerNote { max-width: 1440px; margin: 10px auto 0; color: #91818a; font-size: 10px; text-align: center; }
+.themeToggle { min-width: 84px; }
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ink: #fff4f8;
+  --muted: #cbb6c1;
+  --pink: #f15aa3;
+  --deep-pink: #ff79b9;
+  --soft-pink: #402333;
+  --cream: #191217;
+  --line: #543747;
+}
+
+:root[data-theme="dark"] body {
+  background:
+    radial-gradient(circle at top left, rgba(237, 79, 154, .16), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(100, 48, 80, .22), transparent 38%),
+    #120d11;
+}
+
+:root[data-theme="dark"] .topbar {
+  background: rgba(25, 18, 23, .94);
+  border-color: var(--line);
+}
+
+:root[data-theme="dark"] :is(.ghostButton, .adminInboxButton, .releaseBadge, .accountBadge, .statusPill) {
+  background: #2a1d25;
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+:root[data-theme="dark"] :is(
+  .ownerOverview,
+  .disputeQueue,
+  .creatorReport,
+  .profileCard,
+  .creatorPanel,
+  .controlRoomNav,
+  .testChatConversation,
+  .testChatReview,
+  .conversationInbox,
+  .conversationWorkspace,
+  .conversationList,
+  .conversationDetail > header,
+  .conversationBottomDock,
+  .quickReplies,
+  .quickReplyProductRow,
+  .paidPhotoUnlockPanel,
+  .conversationReplyForm,
+  .revenueBreakdown,
+  .earningsHistory,
+  .starsOverview,
+  .announcementPreview,
+  .dailyAgenda,
+  .fulfillmentTasks,
+  .sextingQueue,
+  .sessionCard,
+  .productCard,
+  .lockedCard,
+  .checkoutNote,
+  .recentSales,
+  .fixedBoundaries
+) {
+  background: #1e161b;
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+:root[data-theme="dark"] :is(
+  .conversationList > button,
+  .dailyItems > div,
+  .dailyReport > div,
+  .revenueBreakdownGrid article,
+  .announcementHistory article,
+  .agendaList article,
+  .fulfillmentTasks article,
+  .trainingSuggestionList article,
+  .testFeedbackHistory article
+) {
+  background: #241a20;
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+:root[data-theme="dark"] .conversationList > button:hover,
+:root[data-theme="dark"] .conversationList > button.active {
+  background: #402333;
+}
+
+:root[data-theme="dark"] :is(input, select, textarea) {
+  background: #251a21;
+  border-color: #674456;
+  color: var(--ink);
+}
+
+:root[data-theme="dark"] :is(input, textarea)::placeholder { color: #a98f9c; }
+
+:root[data-theme="dark"] :is(
+  .quickReplies button,
+  .quickReplyProductRow button,
+  .conversationAttachmentButton,
+  .trainingSuggestionList button,
+  .customHistory > div > button
+) {
+  background: #2b1d25;
+  border-color: #70485c;
+  color: #ffd6e9;
+}
+
+:root[data-theme="dark"] .fixedBoundaries strong { color: #ffd477; }
+:root[data-theme="dark"] .fixedBoundaries p { color: #d5c49a; }
+:root[data-theme="dark"] :is(.recentSales > div, .customHistory > div) { border-color: var(--line); }
 
 @media (max-width: 1050px) {
   .workspace { grid-template-columns: 240px minmax(0, 1fr); }
