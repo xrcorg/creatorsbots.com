@@ -975,7 +975,8 @@ async function prepareDatabase(env: Env) {
     db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sleep_end', '08:00')"),
     db.prepare("UPDATE app_settings SET value = 'off', updated_at = CURRENT_TIMESTAMP WHERE key = 'sexting_test_mode'"),
     db.prepare("UPDATE app_settings SET value = 'on', updated_at = CURRENT_TIMESTAMP WHERE key = 'human_takeover'"),
-    db.prepare("UPDATE app_settings SET value = '500', updated_at = CURRENT_TIMESTAMP WHERE key = 'sexting_5_stars' AND value = '3850'"),
+    db.prepare("UPDATE app_settings SET value = '500', updated_at = CURRENT_TIMESTAMP WHERE key = 'sexting_5_stars' AND value IN ('750', '3850')"),
+    db.prepare("UPDATE app_settings SET value = '1000', updated_at = CURRENT_TIMESTAMP WHERE key = 'sexting_10_stars' AND value IN ('1500', '7700')"),
     db.prepare("DELETE FROM app_settings WHERE key = 'video_rating_stars'"),
     ...(seedTiffani ? [
       db.prepare(`INSERT OR IGNORE INTO creator_social_links (platform, label, url)
