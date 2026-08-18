@@ -1907,9 +1907,28 @@ function askedToBuyProduct(text: string) {
   return /\b(?:do you|did you|would you)\s+(?:want|wanna|like)\s+to\s+buy\b|\bwant\s+the\s+full\s+(?:video|content)\b/i.test(text);
 }
 
-function hasPaymentScreenshot(message: TelegramMessage) {
+function hasImageAttachment(message: TelegramMessage) {
   return Boolean(message.photo?.length ||
     (message.document?.file_id && /^image\//i.test(message.document.mime_type || "")));
+}
+
+async function hasPaymentScreenshot(db: D1Database, chatId: string, message: TelegramMessage) {
+  if (!hasImageAttachment(message)) return false;
+
+  const caption = message.caption?.trim() || "";
+  if (caption && (isPaymentSent(caption) || /\b(?:payment|receipt|proof|cash\s*app|venmo|zelle)\b/i.test(caption))) {
+    return true;
+  }
+
+  // Telegram does not identify the contents of an image. Accept an uncaptioned
+  // image as payment proof only when the fan explicitly said they paid just
+  // before sending it. This prevents ordinary selfies from being mislabeled.
+  const recentClaim = await db.prepare(`SELECT content FROM chat_messages
+    WHERE chat_id = ? AND role = 'user'
+      AND created_at >= datetime('now', '-15 minutes')
+    ORDER BY id DESC LIMIT 1`)
+    .bind(chatId).first<{ content: string }>();
+  return Boolean(recentClaim?.content && isPaymentSent(recentClaim.content));
 }
 
 function isBuyConfirmation(text: string) {
@@ -2330,7 +2349,7 @@ async function submitProductPaymentReview(env: Env, message: TelegramMessage, ch
 
 async function handlePaymentSent(env: Env, message: TelegramMessage, chatId: string) {
   const paymentClaimed = isPaymentSent(message.text || "");
-  const hasScreenshot = hasPaymentScreenshot(message);
+  const hasScreenshot = await hasPaymentScreenshot(env.DB, chatId, message);
   if (!paymentClaimed && !hasScreenshot) return false;
 
   const videoChat = await env.DB.prepare(`SELECT id, status FROM video_chat_orders
@@ -2383,9 +2402,7 @@ async function handlePaymentSent(env: Env, message: TelegramMessage, chatId: str
     return true;
   }
 
-  // A normal photo or image document is not automatically proof of payment. Only
-  // treat it as proof when an active video chat or custom is awaiting payment.
-  if (!paymentClaimed) return false;
+  if (!paymentClaimed && !hasScreenshot) return false;
 
   const product = await getInterestedProduct(env.DB, chatId) || await getRecentProductContext(env.DB, chatId);
   if (!product) {
@@ -3978,7 +3995,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
     await rememberTelegramInboxMedia(env.DB, chatId, message);
   }
   if (!message.text && message.photo?.length) {
-    message.text = message.caption?.trim() || "Payment screenshot sent";
+    message.text = message.caption?.trim() || "Photo received";
   }
   if (!message.text && message.video?.file_id) {
     message.text = message.caption?.trim() || "Video received";
