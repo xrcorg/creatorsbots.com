@@ -3074,6 +3074,17 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
     return json({ ok: true });
   }
 
+  if (request.method === "POST" && url.pathname === "/api/admin/conversations/reset-reply-timer") {
+    const body = await request.json<{ chat_id?: string }>();
+    const chatId = String(body.chat_id || "").trim();
+    if (!chatId) return json({ error: "A conversation is required" }, 400);
+    const exists = await env.DB.prepare("SELECT chat_id FROM fan_sessions WHERE chat_id = ?")
+      .bind(chatId).first();
+    if (!exists) return json({ error: "Conversation not found" }, 404);
+    await env.DB.prepare("DELETE FROM inbound_message_buffer WHERE chat_id = ?").bind(chatId).run();
+    return json({ ok: true });
+  }
+
   if (request.method === "POST" && url.pathname === "/api/admin/conversations/confirm-age") {
     const body = await request.json<{ chat_id?: string; confirmed?: boolean }>();
     const chatId = String(body.chat_id || "").trim();

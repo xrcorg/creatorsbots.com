@@ -1503,6 +1503,26 @@ export default function Home() {
     }
   }
 
+  async function resetReplyTimer(chatId: string) {
+    if (!window.confirm("Reset this chat's reply timer? Any reply currently waiting to send will be cancelled. The next fan message will start a fresh normal delay.")) return;
+    try {
+      setLiveLoading(true);
+      setConversationStatus("Resetting reply timer...");
+      const response = await fetch("/api/admin/conversations/reset-reply-timer", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId }),
+      });
+      const data = await readApiJson(response) as { error?: string };
+      if (!response.ok) throw new Error(data.error || "Reply timer reset failed");
+      setConversationStatus("Reply timer reset. The next fan message will start a fresh normal delay.");
+    } catch (error) {
+      setConversationStatus(error instanceof Error ? error.message : "The reply timer could not be reset.");
+    } finally {
+      setLiveLoading(false);
+    }
+  }
+
   async function confirmConversationAge(chatId: string) {
     if (!window.confirm("Confirm that this fan has stated they are 18 or older? This applies only to this fan and is recorded.")) return;
     try {
@@ -2674,6 +2694,7 @@ export default function Home() {
                         <summary>Chat actions</summary>
                         <div>
                           <button className="exitConversationFlow" disabled={liveLoading} onClick={() => void exitLiveConversationFlow(selectedConversation.chat_id)} type="button">Exit flow + resume bot</button>
+                          <button className="resetReplyTimer" disabled={liveLoading} onClick={() => void resetReplyTimer(selectedConversation.chat_id)} type="button">Reset reply timer</button>
                           <button className="resetConversation" disabled={liveLoading} onClick={() => void resetLiveConversation(selectedConversation.chat_id)} type="button">Reset chat</button>
                           <button className={`blockConversation ${selectedConversation.is_blocked ? "unblock" : ""}`} disabled={liveLoading} onClick={() => void setConversationBlocked(selectedConversation.chat_id, !Boolean(selectedConversation.is_blocked))} type="button">{selectedConversation.is_blocked ? "Unblock fan" : "Block fan"}</button>
                           <button className="deleteConversation" disabled={liveLoading} onClick={() => void deleteLiveConversation(selectedConversation.chat_id)} type="button">Delete chat</button>
