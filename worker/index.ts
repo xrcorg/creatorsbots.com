@@ -3626,7 +3626,7 @@ async function handleAdminConversations(request: Request, env: Env, url: URL) {
 function randomResponseDelayMs(activeSexting: boolean, fastTesting = false) {
   if (fastTesting) return 3000;
   const minimumSeconds = activeSexting ? 20 : 30;
-  const maximumSeconds = activeSexting ? 25 : 180;
+  const maximumSeconds = activeSexting ? 25 : 300;
   return Math.floor((minimumSeconds + Math.random() * (maximumSeconds - minimumSeconds)) * 1000);
 }
 
@@ -4420,7 +4420,7 @@ async function handleTelegramWebhook(request: Request, env: Env) {
   const collected = await collectQuickMessages(env.DB, chatId, message,
     Boolean(activeSextingSession || pendingSextingDraft?.status === "awaiting_package" ||
       (pendingSextingDraft && isSextingPaymentQuestion(message.text))),
-    settings.response_test_mode === "on");
+    false);
   if (!collected) return json({ ok: true, combined_with_newer_message: true });
   message.text = collected.text;
 
