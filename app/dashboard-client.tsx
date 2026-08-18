@@ -2685,7 +2685,7 @@ export default function Home() {
                         <input aria-label="Bot replies" checked={!selectedConversation.is_blocked && selectedConversation.control_mode === "bot"} disabled={liveLoading || Boolean(selectedConversation.is_blocked)} onChange={(event) => void setConversationBotMode(selectedConversation.chat_id, event.target.checked)} type="checkbox" />
                         <i aria-hidden="true" />
                       </label>
-                      <label className="botReplySwitch lowPrioritySwitch" title="Combine this fan's messages and reply only once every 6 to 8 hours">
+                      <label aria-label="Low Priority replies once every 6 to 8 hours" className="botReplySwitch lowPrioritySwitch">
                         <span>Low Priority</span>
                         <input aria-label="Low Priority" checked={Boolean(selectedConversation.low_priority)} disabled={liveLoading || Boolean(selectedConversation.is_blocked)} onChange={(event) => void setConversationLowPriority(selectedConversation.chat_id, event.target.checked)} type="checkbox" />
                         <i aria-hidden="true" />
